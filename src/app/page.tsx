@@ -1,9 +1,9 @@
-import Hero from "@/components/Hero";
+import HeroSlideshow from "@/components/HeroSlideshow";
 
 export default function Home() {
   return (
     <div>
-      <Hero />
+      <HeroSlideshow />
       <div className="container mx-auto px-4 py-16">
         <h1 className="text-4xl font-bold text-center mb-8">
           Welcome to Divya High School BCM
