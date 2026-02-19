@@ -1,9 +1,18 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
+import { useState } from "react";
 
 export default function Navbar() {
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  const handleDropdownToggle = (menu: string) => {
+    setOpenDropdown(openDropdown === menu ? null : menu);
+  };
+
   return (
-    <nav className="relative bg-[#0d1b2a] shadow-[0_4px_14px_0_rgba(0,0,0,0.15)]">
+    <nav className="relative bg-[#0d1b2a] shadow-[0_4px_14px_0_rgba(0,0,0,0.15)] sticky top-0 z-50">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center py-4">
           <Link href="/" className="flex items-center gap-3 text-2xl font-bold text-white transition-colors duration-300 hover:text-[#d4af37]">
@@ -24,120 +33,161 @@ export default function Navbar() {
               >
                 Home
               </Link>
-              <div className="relative group">
+              
+              {/* About Dropdown */}
+              <div className="relative">
                 <button
                   type="button"
+                  onClick={() => handleDropdownToggle("about")}
                   className="text-white hover:text-[#d4af37] transition-colors duration-300 flex items-center gap-1"
-                  aria-expanded="false"
+                  aria-expanded={openDropdown === "about"}
                   aria-haspopup="true"
                   aria-label="About menu"
                 >
                   About
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <svg 
+                    className={`w-4 h-4 transition-transform ${openDropdown === "about" ? "rotate-180" : ""}`}
+                    fill="currentColor" 
+                    viewBox="0 0 20 20" 
+                    aria-hidden="true"
+                  >
                     <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                   </svg>
                 </button>
-                <div className="absolute left-0 top-full pt-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none group-hover:pointer-events-auto transition-all duration-300 z-50">
-                  <div className="bg-[#0d1b2a] border border-white/10 rounded-md shadow-lg py-1 min-w-[200px]">
-                    <Link
-                      href="/about/principals-note"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Principal&apos;s Note
-                    </Link>
-                    <Link
-                      href="/about/mission-vision"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Mission & Vision
-                    </Link>
+                {openDropdown === "about" && (
+                  <div className="absolute left-0 top-full pt-1 z-50">
+                    <div className="bg-[#0d1b2a] border border-white/10 rounded-md shadow-lg py-1 min-w-[200px]">
+                      <Link
+                        href="/about/principals-note"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Principal&apos;s Note
+                      </Link>
+                      <Link
+                        href="/about/mission-vision"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Mission & Vision
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-              <div className="relative group">
+
+              {/* Admissions Dropdown */}
+              <div className="relative">
                 <button
                   type="button"
+                  onClick={() => handleDropdownToggle("admissions")}
                   className="text-white hover:text-[#d4af37] transition-colors duration-300 flex items-center gap-1"
-                  aria-expanded="false"
+                  aria-expanded={openDropdown === "admissions"}
                   aria-haspopup="true"
                   aria-label="Admissions menu"
                 >
                   Admissions
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <svg 
+                    className={`w-4 h-4 transition-transform ${openDropdown === "admissions" ? "rotate-180" : ""}`}
+                    fill="currentColor" 
+                    viewBox="0 0 20 20" 
+                    aria-hidden="true"
+                  >
                     <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                   </svg>
                 </button>
-                <div className="absolute left-0 top-full pt-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none group-hover:pointer-events-auto transition-all duration-300 z-50">
-                  <div className="bg-[#0d1b2a] border border-white/10 rounded-md shadow-lg py-1 min-w-[200px]">
-                    <Link
-                      href="/admissions"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Overview
-                    </Link>
-                    <Link
-                      href="/admissions/admission-process"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Admission Process
-                    </Link>
-                    <Link
-                      href="/admissions/fee-structure"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Fee Structure
-                    </Link>
+                {openDropdown === "admissions" && (
+                  <div className="absolute left-0 top-full pt-1 z-50">
+                    <div className="bg-[#0d1b2a] border border-white/10 rounded-md shadow-lg py-1 min-w-[200px]">
+                      <Link
+                        href="/admissions"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Overview
+                      </Link>
+                      <Link
+                        href="/admissions/admission-process"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Admission Process
+                      </Link>
+                      <Link
+                        href="/admissions/fee-structure"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Fee Structure
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-              <div className="relative group">
+
+              {/* Academics Dropdown */}
+              <div className="relative">
                 <button
                   type="button"
+                  onClick={() => handleDropdownToggle("academics")}
                   className="text-white hover:text-[#d4af37] transition-colors duration-300 flex items-center gap-1"
-                  aria-expanded="false"
+                  aria-expanded={openDropdown === "academics"}
                   aria-haspopup="true"
                   aria-label="Academics menu"
                 >
                   Academics
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <svg 
+                    className={`w-4 h-4 transition-transform ${openDropdown === "academics" ? "rotate-180" : ""}`}
+                    fill="currentColor" 
+                    viewBox="0 0 20 20" 
+                    aria-hidden="true"
+                  >
                     <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                   </svg>
                 </button>
-                <div className="absolute left-0 top-full pt-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none group-hover:pointer-events-auto transition-all duration-300 z-50">
-                  <div className="bg-[#0d1b2a] border border-white/10 rounded-md shadow-lg py-1 min-w-[200px]">
-                    <Link
-                      href="/academics"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Overview
-                    </Link>
-                    <Link
-                      href="/academics/curriculum"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Curriculum
-                    </Link>
-                    <Link
-                      href="/academics/faculty"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Faculty
-                    </Link>
-                    <Link
-                      href="/academics/question-papers"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Question Papers
-                    </Link>
-                    <Link
-                      href="/academics/results"
-                      className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
-                    >
-                      Results
-                    </Link>
+                {openDropdown === "academics" && (
+                  <div className="absolute left-0 top-full pt-1 z-50">
+                    <div className="bg-[#0d1b2a] border border-white/10 rounded-md shadow-lg py-1 min-w-[200px]">
+                      <Link
+                        href="/academics"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Overview
+                      </Link>
+                      <Link
+                        href="/academics/curriculum"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Curriculum
+                      </Link>
+                      <Link
+                        href="/academics/faculty"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Faculty
+                      </Link>
+                      <Link
+                        href="/academics/question-papers"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Question Papers
+                      </Link>
+                      <Link
+                        href="/academics/results"
+                        className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Results
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
+
               <Link
                 href="/sports"
                 className="text-white hover:text-[#d4af37] transition-colors duration-300"
@@ -215,7 +265,13 @@ export default function Navbar() {
           </div>
         </div>
       </div>
+      {/* Close dropdown when clicking outside */}
+      {openDropdown && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setOpenDropdown(null)}
+        />
+      )}
     </nav>
   );
 }
-
