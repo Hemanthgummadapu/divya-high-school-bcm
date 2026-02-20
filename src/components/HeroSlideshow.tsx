@@ -5,7 +5,18 @@ import Link from "next/link";
 import Image from "next/image";
 
 const SLIDE_DURATION = 5000;
-const TOTAL_SLIDES = 5;
+
+const HERO_SLIDES = [
+  { src: "/slideshow-school.png", alt: "Divya High School - Campus", overlay: "Campus & Student Life", href: undefined },
+  { src: "/slideshow-assembly.png", alt: "Divya High School - Assembly and events", overlay: "Events & Assembly", href: undefined },
+  { src: "/slideshow-sports.png", alt: "Divya High School - Sports and achievements", overlay: "View Results & Achievements →", href: "/academics/results" },
+  { src: "/slideshow1.png", alt: "Divya High School", overlay: "Divya High School", href: undefined },
+  { src: "/slideshow2.png", alt: "Divya High School", overlay: "Divya High School", href: undefined },
+  { src: "/slideshow3.png", alt: "Divya High School", overlay: "Divya High School", href: undefined },
+  { src: "/slideshow4.png", alt: "Divya High School", overlay: "Divya High School", href: undefined },
+];
+
+const TOTAL_SLIDES = HERO_SLIDES.length;
 
 export default function HeroSlideshow() {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -24,10 +35,15 @@ export default function HeroSlideshow() {
   const goNext = () => setCurrentSlide((prev) => (prev + 1) % TOTAL_SLIDES);
 
   const arrowClass =
-    "absolute top-1/2 -translate-y-1/2 z-20 w-12 h-12 flex items-center justify-center rounded-full bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:text-[#d4af37] transition-colors duration-300";
+    "absolute top-1/2 -translate-y-1/2 z-20 w-12 h-12 flex items-center justify-center rounded-full bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:text-accent-gold transition-colors duration-300";
+
+  const darkOverlayStyle = {
+    background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.35) 50%, rgba(0,0,0,0.5) 100%)",
+  };
+  const bottomGradientStyle = { background: "linear-gradient(to bottom, transparent, rgba(15,23,42,0.4))" };
 
   return (
-    <section className="relative min-h-screen bg-gradient-to-br from-[#0d1b2a] via-[#1a365d] to-[#1e4976] text-white flex items-center overflow-hidden">
+    <section className="relative min-h-screen bg-primary-blue text-white flex items-center overflow-hidden">
       {/* Left arrow */}
       <button
         type="button"
@@ -52,122 +68,63 @@ export default function HeroSlideshow() {
         </svg>
       </button>
 
-      {/* Slide 1: Logo */}
-      <div
-        className={`absolute inset-0 flex items-center justify-center transition-opacity duration-700 ease-in-out ${
-          currentSlide === 0 ? "opacity-100 z-10" : "opacity-0 z-0"
-        }`}
-      >
-        <div className="container mx-auto px-4 text-center">
-          <div className="flex justify-center mb-6">
+      {/* Slides with smooth fade */}
+      {HERO_SLIDES.map((slide, index) => {
+        const isActive = currentSlide === index;
+        const content = (
+          <div className="relative w-full h-full min-h-full">
             <Image
-              src="/logo.png"
-              alt="Divya High School - Work is Worship"
-              width={220}
-              height={220}
-              className="rounded-full object-contain drop-shadow-lg"
+              src={slide.src}
+              alt={slide.alt}
+              fill
+              className="object-cover"
+              sizes="100vw"
             />
-          </div>
-          <p className="text-2xl font-semibold text-white/95 tracking-wide">
-            Work is Worship
-          </p>
-        </div>
-      </div>
-
-      {/* Slide 2: School name + CTA */}
-      <div
-        className={`absolute inset-0 flex items-center justify-center transition-opacity duration-700 ease-in-out ${
-          currentSlide === 1 ? "opacity-100 z-10" : "opacity-0 z-0"
-        }`}
-      >
-        <div className="container mx-auto px-4 text-center">
-          <h1 className="text-5xl font-bold mb-4 text-white drop-shadow-sm">
-            Divya High School BCM
-          </h1>
-          <p className="text-xl mb-8 text-white/95">Work is Worship</p>
-          <div className="flex justify-center space-x-4">
-            <Link
-              href="/admissions"
-              className="bg-white text-[#0d1b2a] px-6 py-3 rounded-lg font-semibold hover:bg-white/90 transition-colors duration-300"
+            {/* Dark gradient overlay over image */}
+            <div className="absolute inset-0" style={darkOverlayStyle} aria-hidden="true" />
+            {/* Centered hero text - stacked and centered on all screens, extra emphasis on mobile */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 sm:px-6 z-10">
+              <h1 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-bold font-heading text-white drop-shadow-lg mb-2 sm:mb-3 md:mb-4 w-full">
+                Welcome to Divya High School
+              </h1>
+              <p className="text-base sm:text-lg md:text-xl lg:text-2xl text-white/95 font-medium drop-shadow-md max-w-2xl w-full">
+                Excellence in Education & Character Building
+              </p>
+            </div>
+            {/* Bottom caption strip */}
+            <div
+              className="absolute inset-x-0 bottom-0 flex items-end justify-center pb-10 md:pb-12 pt-24"
+              style={bottomGradientStyle}
             >
-              Apply Now
-            </Link>
+              <span className="text-white text-lg md:text-xl font-bold font-heading drop-shadow-lg text-center px-4">
+                {slide.overlay}
+              </span>
+            </div>
+          </div>
+        );
+
+        const slideClass = `absolute inset-0 opacity-0 z-0 transition-opacity duration-700 ease-in-out ${
+          isActive ? "!opacity-100 z-10" : ""
+        }`;
+
+        if (slide.href) {
+          return (
             <Link
-              href="/about"
-              className="bg-transparent border-2 border-white text-white px-6 py-3 rounded-lg font-semibold hover:bg-white hover:text-[#0d1b2a] transition-colors duration-300"
+              key={index}
+              href={slide.href}
+              className={`${slideClass} block ${!isActive ? "pointer-events-none" : ""}`}
             >
-              Learn More
+              {content}
             </Link>
-          </div>
-        </div>
-      </div>
+          );
+        }
 
-      {/* Slide 3: Sports / group photo - link to Results */}
-      <Link
-        href="/academics/results"
-        className={`absolute inset-0 block transition-opacity duration-700 ease-in-out ${
-          currentSlide === 2 ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"
-        }`}
-      >
-        <div className="relative w-full h-full min-h-full">
-          <Image
-            src="/slideshow-sports.png"
-            alt="Divya High School - Sports and achievements"
-            fill
-            className="object-cover"
-            sizes="100vw"
-          />
-          <div className="absolute inset-0 bg-[#0d1b2a]/40 flex items-end justify-center pb-8">
-            <span className="text-white text-lg font-semibold drop-shadow-md">
-              View Results & Achievements →
-            </span>
+        return (
+          <div key={index} className={slideClass}>
+            {content}
           </div>
-        </div>
-      </Link>
-
-      {/* Slide 4: School life / courtyard */}
-      <div
-        className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
-          currentSlide === 3 ? "opacity-100 z-10" : "opacity-0 z-0"
-        }`}
-      >
-        <div className="relative w-full h-full min-h-full">
-          <Image
-            src="/slideshow-school.png"
-            alt="Divya High School - Campus and student life"
-            fill
-            className="object-cover"
-            sizes="100vw"
-          />
-          <div className="absolute inset-0 bg-[#0d1b2a]/30 flex items-end justify-center pb-8">
-            <span className="text-white text-lg font-semibold drop-shadow-md">
-              Campus & Student Life
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Slide 5: Assembly / school event */}
-      <div
-        className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
-          currentSlide === 4 ? "opacity-100 z-10" : "opacity-0 z-0"
-        }`}
-      >
-        <div className="relative w-full h-full min-h-full">
-          <Image
-            src="/slideshow-assembly.png"
-            alt="Divya High School - Assembly and school events"
-            fill
-            className="object-cover"
-            sizes="100vw"
-          />
-          <div className="absolute inset-0 bg-[#0d1b2a]/30 flex items-end justify-center pb-8">
-            <span className="text-white text-lg font-semibold drop-shadow-md">
-              Events & Assembly
-            </span>
-          </div>
-        </div>
-      </div>
+        );
+      })}
 
       {/* Dots */}
       <div className="absolute bottom-6 left-0 right-0 z-20 flex justify-center gap-2">
@@ -178,7 +135,7 @@ export default function HeroSlideshow() {
             onClick={() => setCurrentSlide(i)}
             className={`h-2 rounded-full transition-all duration-300 ${
               currentSlide === i
-                ? "w-8 bg-[#d4af37]"
+                ? "w-8 bg-accent-gold"
                 : "w-2 bg-white/50 hover:bg-white/70"
             }`}
             aria-label={`Go to slide ${i + 1}`}

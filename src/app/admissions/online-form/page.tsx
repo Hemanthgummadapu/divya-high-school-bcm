@@ -16,9 +16,9 @@ const CLASSES = ["LKG", "UKG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"
 const GENDERS = ["Male", "Female", "Other"];
 
 const inputBase =
-  "w-full px-4 py-3 rounded-lg border border-gray-200 bg-white text-[#0d1b2a] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#b8a068]/40 focus:border-[#b8a068] transition-all duration-200";
+  "w-full px-4 py-3 rounded-lg border border-gray-200 bg-white text-school-navy placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-school-gold/40 focus:border-school-gold transition-all duration-200";
 const inputError = "border-red-500 focus:ring-red-500/30 focus:border-red-500";
-const labelClass = "block text-sm font-medium text-[#0d1b2a] mb-2";
+const labelClass = "block text-sm font-medium text-school-navy mb-2";
 
 export default function OnlineAdmissionForm() {
   const [submitted, setSubmitted] = useState(false);
@@ -61,13 +61,13 @@ export default function OnlineAdmissionForm() {
       <div className="min-h-screen bg-[#f0f4f8] py-20 md:py-28 flex items-center">
         <div className="container mx-auto px-4">
           <div className="max-w-xl mx-auto">
-            <div className="bg-white rounded-2xl shadow-[0_4px_28px_rgba(13,27,42,0.06)] p-8 md:p-12 text-center">
-              <div className="w-16 h-16 rounded-full bg-[#b8a068]/20 flex items-center justify-center mx-auto mb-6">
-                <svg className="w-8 h-8 text-[#b8a068]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="bg-white rounded-2xl shadow-[0_4px_28px_rgba(11,46,89,0.06)] p-8 md:p-12 text-center">
+              <div className="w-16 h-16 rounded-full bg-[#F4B400]/20 flex items-center justify-center mx-auto mb-6">
+                <svg className="w-8 h-8 text-[#F4B400]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-[#0d1b2a] mb-4">
+              <h2 className="text-2xl font-bold text-school-navy mb-4">
                 Application Submitted Successfully
               </h2>
               <p className="text-gray-600">
@@ -84,16 +84,16 @@ export default function OnlineAdmissionForm() {
     <div className="min-h-screen bg-[#f0f4f8] py-12 md:py-20">
       <div className="container mx-auto px-4">
         <div className="max-w-2xl mx-auto">
-          <h1 className="text-4xl font-bold text-center text-[#0d1b2a] mb-4">
+          <h1 className="text-4xl font-bold text-center text-school-navy mb-4">
             Online Admission Form
           </h1>
-          <div className="w-24 h-px bg-[#d4af37] mx-auto mb-10" aria-hidden="true" />
+          <div className="w-24 h-px bg-school-gold mx-auto mb-10" aria-hidden="true" />
 
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-[0_4px_28px_rgba(13,27,42,0.06)] p-6 md:p-10">
+          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-[0_4px_28px_rgba(11,46,89,0.06)] p-6 md:p-10">
             {/* Student Details */}
-            <h2 className="text-xl font-semibold text-[#0d1b2a] mb-6 pb-2 border-b border-gray-100">
-              Student Details
-            </h2>
+            <div className="form-section-header">
+              <h2>Student Details</h2>
+            </div>
             <div className="space-y-6 mb-10">
               <div>
                 <label htmlFor="fullName" className={labelClass}>
@@ -158,9 +158,9 @@ export default function OnlineAdmissionForm() {
             </div>
 
             {/* Parent Details */}
-            <h2 className="text-xl font-semibold text-[#0d1b2a] mb-6 pb-2 border-b border-gray-100">
-              Parent Details
-            </h2>
+            <div className="form-section-header">
+              <h2>Parent Details</h2>
+            </div>
             <div className="space-y-6 mb-10">
               <div>
                 <label htmlFor="fathersName" className={labelClass}>
@@ -220,9 +220,9 @@ export default function OnlineAdmissionForm() {
             </div>
 
             {/* Address Details */}
-            <h2 className="text-xl font-semibold text-[#0d1b2a] mb-6 pb-2 border-b border-gray-100">
-              Address Details
-            </h2>
+            <div className="form-section-header">
+              <h2>Address Details</h2>
+            </div>
             <div className="space-y-6 mb-10">
               <div>
                 <label htmlFor="address" className={labelClass}>
@@ -280,8 +280,7 @@ export default function OnlineAdmissionForm() {
 
             <button
               type="submit"
-              className="w-full py-3.5 px-6 rounded-lg text-[#0d1b2a] font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#b8a068]/40 focus:ring-offset-2"
-              style={{ backgroundColor: "#b8a068" }}
+              className="w-full py-3.5 px-6 rounded-lg bg-school-gold text-school-navy font-semibold transition-all duration-300 hover:bg-school-gold-dark hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-school-gold/40 focus:ring-offset-2"
             >
               Submit Application
             </button>
