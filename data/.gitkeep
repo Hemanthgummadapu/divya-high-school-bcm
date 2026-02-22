@@ -1,0 +1,3 @@
+# This directory stores the question-papers.json database
+# The actual JSON file is gitignored to avoid committing large data files
+

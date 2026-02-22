@@ -27,12 +27,12 @@ export default function Navbar() {
           </Link>
           <div className="flex items-center gap-4 md:gap-8 flex-wrap justify-end">
             <div className="flex flex-wrap items-center gap-4 md:gap-6">
-              <Link
-                href="/"
+            <Link
+              href="/"
                 className="text-white hover:text-[#d4af37] transition-colors duration-300"
-              >
-                Home
-              </Link>
+            >
+              Home
+            </Link>
               
               {/* About Dropdown */}
               <div className="relative">
@@ -43,8 +43,8 @@ export default function Navbar() {
                   aria-expanded={openDropdown === "about"}
                   aria-haspopup="true"
                   aria-label="About menu"
-                >
-                  About
+            >
+              About
                   <svg 
                     className={`w-4 h-4 transition-transform ${openDropdown === "about" ? "rotate-180" : ""}`}
                     fill="currentColor" 
@@ -63,8 +63,8 @@ export default function Navbar() {
                         onClick={() => setOpenDropdown(null)}
                       >
                         Principal&apos;s Note
-                      </Link>
-                      <Link
+            </Link>
+            <Link
                         href="/about/mission-vision"
                         className="block px-4 py-2.5 text-white hover:text-[#d4af37] hover:bg-white/5 transition-colors duration-300 text-sm"
                         onClick={() => setOpenDropdown(null)}
@@ -85,8 +85,8 @@ export default function Navbar() {
                   aria-expanded={openDropdown === "admissions"}
                   aria-haspopup="true"
                   aria-label="Admissions menu"
-                >
-                  Admissions
+            >
+              Admissions
                   <svg 
                     className={`w-4 h-4 transition-transform ${openDropdown === "admissions" ? "rotate-180" : ""}`}
                     fill="currentColor" 
@@ -193,19 +193,19 @@ export default function Navbar() {
                 className="text-white hover:text-[#d4af37] transition-colors duration-300"
               >
                 Sports
-              </Link>
-              <Link
-                href="/gallery"
+            </Link>
+            <Link
+              href="/gallery"
                 className="text-white hover:text-[#d4af37] transition-colors duration-300"
-              >
-                Gallery
-              </Link>
-              <Link
-                href="/contact"
+            >
+              Gallery
+            </Link>
+            <Link
+              href="/contact"
                 className="text-white hover:text-[#d4af37] transition-colors duration-300"
-              >
-                Contact
-              </Link>
+            >
+              Contact
+            </Link>
             </div>
             <div className="flex items-center gap-2 border-l border-white/20 pl-4 md:pl-6">
               <Link
