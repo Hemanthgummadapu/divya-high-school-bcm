@@ -76,9 +76,9 @@ export default function Contact() {
                   <p className="text-[#374151] text-[15px] leading-[1.7] group-hover:text-school-gold transition-colors duration-300 whitespace-pre-line">
                     Divya High School
                     {"\n"}
-                    MWC3+24V, Bhadrachalam, Bhagavandas Colony,
+                    Bhagavandas Colony,
                     {"\n"}
-                    Purushottapatnam, Andhra Pradesh 507111
+                    Bhadrachalam, Telangana 507111
                   </p>
                 </div>
               </a>

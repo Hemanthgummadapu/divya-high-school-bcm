@@ -41,7 +41,7 @@ export default function Footer() {
                 <h3 className="footer-heading mb-0">Divya High School</h3>
               </div>
               <p className="footer-desc max-w-sm mx-auto md:mx-0">
-                Excellence in Education — Nurturing young minds for a brighter future.
+                Excellence in Education Nurturing young minds for a brighter future.
               </p>
               <div className="flex items-center justify-center md:justify-start gap-2 mt-5">
                 {FOOTER_SOCIAL_LINKS.map(({ href, label, Icon }) => (
@@ -129,9 +129,9 @@ export default function Footer() {
                     <span className="whitespace-pre-line text-left">
                       Divya High School
                       {"\n"}
-                      MWC3+24V, Bhadrachalam, Bhagavandas Colony,
+                      Bhagavandas Colony,
                       {"\n"}
-                      Purushottapatnam, Andhra Pradesh 507111
+                      Bhadrachalam, Telangana 507111
                     </span>
                   </a>
                 </li>

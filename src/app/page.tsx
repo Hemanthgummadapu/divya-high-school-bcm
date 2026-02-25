@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import HeroSlideshow from "@/components/HeroSlideshow";
 import AdmissionBanner from "@/components/AdmissionBanner";
+import AcademicResourcesSection from "@/components/AcademicResourcesSection";
 
 const HIGHLIGHTS = [
   {
@@ -91,9 +92,9 @@ const GALLERY_IMAGES = [
 ];
 
 const TESTIMONIALS = [
-  { name: "Parent of Class X Student", review: "Divya High School has provided an excellent balance of academics and values. My child has grown in confidence and character.", stars: 5 },
-  { name: "Parent of Class V Student", review: "The teachers are dedicated and the campus is safe. We are happy with the holistic approach to education.", stars: 5 },
-  { name: "Parent of Class VIII Student", review: "Quality education with a focus on discipline and future readiness. Proud to be part of this school family.", stars: 5 },
+  { name: "Parent of Class X Student", review: "Divya High School has given our child a strong foundation in both academics and values. We are grateful for the guidance provided by Kishore Sir (Class X), who has been instrumental in preparing our child for the board exams and beyond.", stars: 5 },
+  { name: "Parent of Class VIII Student", review: "We have seen real growth in our child since joining. The support from Ramana Sir (Class VIII) and the school’s focus on discipline and learning have made a positive difference. Proud to be part of this school family.", stars: 5 },
+  { name: "Parent of Class V Student", review: "A safe, caring environment where our child enjoys learning. Mentored by Rehaman Sir (Class V), our child has become more confident and curious. We appreciate the school’s holistic approach to education.", stars: 5 },
 ];
 
 export default function Home() {
@@ -101,6 +102,7 @@ export default function Home() {
     <div>
       <AdmissionBanner />
       <HeroSlideshow />
+      <AcademicResourcesSection />
 
       {/* Welcome to Divya High School */}
       <section className="py-16 md:py-24 bg-bg-page">
@@ -119,10 +121,27 @@ export default function Home() {
               <h2 className="font-heading text-3xl md:text-4xl font-semibold text-heading mb-6">
                 Welcome to Divya High School
               </h2>
-              <p className="text-body text-lg leading-relaxed mb-8">
-                Divya High School is committed to excellence in education and character building. We provide a nurturing environment where students develop academically, physically, and morally. Our experienced faculty and modern facilities support every child in achieving their potential and becoming responsible citizens of tomorrow.
+              <p className="text-body text-lg leading-relaxed mb-6">
+                Established in 2004, Divya High School has been dedicated to providing quality education and nurturing young minds with strong academic foundations and cultural values. We promote holistic development through academics, sports, cultural activities, and character building, preparing students to become confident and responsible citizens.
               </p>
-              <Link href="/about" className="btn-primary">
+              <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-8 text-body text-sm md:text-base">
+                <span className="flex items-center gap-2">
+                  <span className="text-lg" aria-hidden="true">📅</span>
+                  <span><strong className="text-heading">Established:</strong> 2004</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-lg" aria-hidden="true">🎓</span>
+                  <span><strong className="text-heading">Classes:</strong> LKG to 10th</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-lg" aria-hidden="true">🏆</span>
+                  <span><strong className="text-heading">Focus:</strong> Academics, Sports & Cultural Excellence</span>
+                </span>
+              </div>
+              <Link
+                href="/about"
+                className="inline-block px-6 py-3 rounded-lg bg-[#1e3a8a] text-white font-medium transition-colors duration-200 hover:bg-[#1e40af]"
+              >
                 Read More
               </Link>
             </div>
@@ -231,22 +250,35 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section className="py-20 md:py-24 bg-card">
+      {/* What Parents Say */}
+      <section className="py-20 bg-gray-50">
         <div className="container mx-auto px-4">
-          <h2 className="font-heading text-3xl md:text-4xl font-semibold text-heading text-center mb-12">What Parents Say</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-10">
+          <div className="text-center mb-12">
+            <h2 className="font-heading text-3xl md:text-4xl font-bold text-heading">
+              What Parents Say
+            </h2>
+            <div className="mx-auto mt-3 w-16 h-0.5 rounded-full bg-gray-300" aria-hidden />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {TESTIMONIALS.map((t, i) => (
-              <div key={i} className="bg-card rounded-2xl p-8 shadow-md border border-gray-100">
-                <div className="flex gap-1 mb-4">
+              <div
+                key={i}
+                className="bg-white rounded-xl p-8 shadow-md border border-gray-100 transition-all duration-300 hover:scale-105 hover:shadow-xl"
+              >
+                <div className="flex gap-1 mb-4" aria-hidden="true">
                   {Array.from({ length: t.stars }).map((_, j) => (
-                    <svg key={j} className="w-5 h-5 text-accent-gold" fill="currentColor" viewBox="0 0 20 20">
+                    <svg key={j} className="w-5 h-5 text-amber-700" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                     </svg>
                   ))}
                 </div>
-                <p className="text-body leading-relaxed mb-6">&ldquo;{t.review}&rdquo;</p>
-                <p className="text-sm font-medium text-heading">{t.name}</p>
+                <span className="text-4xl text-gray-300 font-serif leading-none select-none" aria-hidden="true">&ldquo;</span>
+                <p className="text-gray-700 leading-relaxed text-body mt-1 mb-6">
+                  {t.review}
+                </p>
+                <p className="text-sm font-bold text-heading uppercase tracking-wide mt-4">
+                  {t.name}
+                </p>
               </div>
             ))}
           </div>
