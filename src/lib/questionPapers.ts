@@ -8,7 +8,7 @@ export interface Question {
   text: string;
   options: string[];
   section: string;
-  type: "MCQ" | "Short" | "Long";
+  type: "MCQ" | "Short" | "Medium" | "Long";
   marks: number;
 }
 
@@ -31,7 +31,7 @@ export interface FilterOptions {
   subject?: string;
   grade?: string;
   year?: string;
-  type?: "MCQ" | "Short" | "Long";
+  type?: "MCQ" | "Short" | "Medium" | "Long";
   section?: string;
 }
 
@@ -145,4 +145,5 @@ export function getStatistics(papers: QuestionPaper[]) {
     byType,
   };
 }
+
 

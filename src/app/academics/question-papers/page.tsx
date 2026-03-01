@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { QuestionPaper, Question } from "@/lib/questionPapers";
 import jsPDF from "jspdf";
+import MathKeyboard from "@/components/MathKeyboard";
 
 interface Statistics {
   totalPapers: number;
@@ -53,6 +54,16 @@ export default function QuestionPapers() {
     year: "",
   });
   
+  // Math symbol keyboard (Edit & Preview modal)
+  const [mathKeyboardVisible, setMathKeyboardVisible] = useState(false);
+  const [mathActiveField, setMathActiveField] = useState<{
+    questionIndex: number;
+    field: "text" | "option";
+    optionIndex?: number;
+  } | null>(null);
+  const [mathSelection, setMathSelection] = useState({ start: 0, end: 0 });
+  const mathActiveInputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  
   // Get unique values for filters
   const subjects = Array.from(new Set(papers.map((p) => p.subject))).sort();
   const grades = Array.from(new Set(papers.map((p) => p.grade))).sort();
@@ -98,6 +109,10 @@ export default function QuestionPapers() {
   useEffect(() => {
     fetchPapers();
   }, [fetchPapers]);
+  
+  useEffect(() => {
+    if (!editPreviewMode) setMathKeyboardVisible(false);
+  }, [editPreviewMode]);
   
   // Handle file upload
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,6 +164,9 @@ export default function QuestionPapers() {
       
       if (data.success) {
         alert(`Successfully uploaded! Extracted ${data.paper.questions.length} questions.`);
+        if (data.duplicatesSkipped > 0) {
+          alert(`Warning: ${data.duplicatesSkipped} duplicate question(s) skipped.`);
+        }
         setUploadForm({ file: null, subject: "", grade: "", year: "" });
         fetchPapers();
       } else {
@@ -330,14 +348,14 @@ export default function QuestionPapers() {
       grade: paperInfo?.grade || "N/A",
       year: paperInfo?.year || "N/A",
     });
-    // Initialize header fields with defaults (can be customized based on paper info)
+    const totalFromQuestions = selected.reduce((s, q) => s + (Number(q.marks) || 0), 0);
     setHeaderFields({
-      schoolName: "Divya High School",
+      schoolName: "Divya High School BCM",
       location: "Bhadrachalam",
-      examTitle: "PRE-FINAL EXAMINATIONS, FEBRUARY - 2026",
-      subject: paperInfo?.subject?.toUpperCase() || "MATHEMATICS (English Version)",
-      class: paperInfo?.grade || "X",
-      maxMarks: "80",
+      examTitle: paperInfo ? `${paperInfo.subject} - ${paperInfo.year} EXAMINATIONS` : "PRE-FINAL EXAMINATIONS, FEBRUARY - 2026",
+      subject: paperInfo?.subject ?? "MATHEMATICS (English Version)",
+      class: paperInfo?.grade ?? "X",
+      maxMarks: String(totalFromQuestions || 80),
       time: "3.00 Hrs",
       date: "",
     });
@@ -364,14 +382,51 @@ export default function QuestionPapers() {
       .replace(/∞/g, 'infinity');
   };
   
-  // Generate PDF from edited questions
-  const handleDownloadPDFFromPreview = () => {
+  // Generate PDF from edited questions (via API with reportlab, fallback to jsPDF)
+  const handleDownloadPDFFromPreview = async () => {
     if (!paperMetadata) return;
     
-    // Calculate total marks
-    const totalMarks = editableQuestions.reduce((sum, q) => sum + q.marks, 0);
+    const payload = {
+      questions: editableQuestions.map((q) => ({
+        id: q.id,
+        number: q.number,
+        text: q.text,
+        options: q.options || [],
+        section: q.section,
+        type: q.type,
+        marks: Math.max(1, Number(q.marks) || 1),
+      })),
+      header: headerFields,
+    };
     
-    // Initialize PDF
+    try {
+      const res = await fetch("/api/questions/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          questions: payload.questions,
+          header: { ...payload.header, examCode: "JK-82" },
+        }),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Question_Paper_${new Date().toISOString().split("T")[0]}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setEditPreviewMode(false);
+        return;
+      }
+    } catch (e) {
+      console.warn("API PDF failed, using jsPDF fallback", e);
+    }
+    
+    // Fallback: jsPDF in-browser
+    const totalMarks = editableQuestions.reduce((sum, q) => sum + q.marks, 0);
     const doc = new jsPDF({ format: 'a4', unit: 'mm' });
     const pageWidth = 210;
     const margin = 15;
@@ -379,10 +434,8 @@ export default function QuestionPapers() {
     let y = 20;
     const maxY = 270;
     
-    // Set font to helvetica for all text
     doc.setFont('helvetica');
     
-    // Helper function to add new page if needed
     const checkPageBreak = (requiredSpace: number) => {
       if (y + requiredSpace > maxY) {
         doc.addPage();
@@ -390,7 +443,6 @@ export default function QuestionPapers() {
       }
     };
     
-    // Header using editable header fields
     doc.setFontSize(18).setFont('helvetica', 'bold');
     doc.text(headerFields.schoolName, pageWidth / 2, y, { align: 'center' });
     y += 7;
@@ -419,11 +471,9 @@ export default function QuestionPapers() {
     doc.text(`Total Questions: ${editableQuestions.length} | Total Marks: ${totalMarks}`, pageWidth / 2, y, { align: 'center' });
     y += 8;
     
-    // Draw line
     doc.line(margin, y, pageWidth - margin, y);
     y += 8;
     
-    // Group questions by section (using edited section names)
     const questionsBySection: Record<string, Question[]> = {};
     editableQuestions.forEach((q) => {
       const sectionName = editableSections[q.section] || q.section;
@@ -433,11 +483,8 @@ export default function QuestionPapers() {
       questionsBySection[sectionName].push(q);
     });
     
-    // Fixed section order: SECTION-I, SECTION-II, SECTION-III, then MCQ sections last
     const fixedOrder = ['SECTION-I', 'SECTION-II', 'SECTION-III'];
     const allSections = Object.keys(questionsBySection);
-    
-    // Separate MCQ sections (PART-B, SECTION-A, OBJECTIVE) from regular sections
     const mcqSections: string[] = [];
     const regularSections: string[] = [];
     
@@ -450,7 +497,6 @@ export default function QuestionPapers() {
       }
     });
     
-    // Sort regular sections according to fixed order
     const orderedRegularSections: string[] = [];
     fixedOrder.forEach(orderSection => {
       const found = regularSections.find(s => s.toUpperCase().includes(orderSection));
@@ -459,77 +505,55 @@ export default function QuestionPapers() {
       }
     });
     
-    // Add remaining regular sections alphabetically
     regularSections.forEach(section => {
       if (!orderedRegularSections.includes(section)) {
         orderedRegularSections.push(section);
       }
     });
     
-    // Combine: regular sections first, then MCQ sections
     const sectionsWithQuestions = [...orderedRegularSections, ...mcqSections].filter(
       section => questionsBySection[section] && questionsBySection[section].length > 0
     );
     
-    // Question numbering: continuous for regular sections, restart from 1 for MCQ sections
     let questionNumber = 1;
     let mcqNumber = 1;
     
-    // For each section
     for (let i = 0; i < sectionsWithQuestions.length; i++) {
       const section = sectionsWithQuestions[i];
       const questions = questionsBySection[section];
-      
-      // Check if this is an MCQ section
       const upperSection = section.toUpperCase();
       const isMcqSection = upperSection.includes('PART-B') || upperSection.includes('SECTION-A') || upperSection.includes('OBJECTIVE');
       
-      // Section header
       checkPageBreak(15);
       doc.setFontSize(12).setFont('helvetica', 'bold');
       doc.text(section, margin, y);
       y += 7;
       
-      // Draw line under section
       doc.line(margin, y, pageWidth - margin, y);
       y += 5;
       
-      // Questions in this section
       for (const q of questions) {
         checkPageBreak(20);
-        
-        // Use appropriate numbering based on section type
         const currentQuestionNumber = isMcqSection ? mcqNumber : questionNumber;
-        
-        // Question number and marks on same line
         doc.setFontSize(11).setFont('helvetica', 'normal');
         const questionNumberText = `Q${currentQuestionNumber}.`;
         const marksText = `[${q.marks} marks]`;
-        
-        // Question number (left)
         doc.text(questionNumberText, margin, y);
-        
-        // Increment appropriate counter
         if (isMcqSection) {
           mcqNumber++;
         } else {
           questionNumber++;
         }
-        
-        // Marks (right-aligned)
         const marksWidth = doc.getTextWidth(marksText);
         doc.text(marksText, pageWidth - margin - marksWidth, y);
-        
         y += 6;
         
-        // Question text (wrapped using splitTextToSize)
         checkPageBreak(15);
         const cleanedQuestionText = cleanText(q.text);
         const questionLines = doc.splitTextToSize(cleanedQuestionText, contentWidth);
         doc.text(questionLines, margin, y);
         y += questionLines.length * 6;
         
-        // MCQ options - render in 2 columns (A) and B) on same line, C) and D) on next line
         if (q.options && q.options.length > 0) {
           checkPageBreak(Math.ceil(q.options.length / 2) * 6);
           const optWidth = contentWidth / 2 - 5;
@@ -537,13 +561,10 @@ export default function QuestionPapers() {
           const rightX = margin + contentWidth / 2 + 5;
           
           for (let optIdx = 0; optIdx < q.options.length; optIdx += 2) {
-            // Left option (A, C, E, etc.)
             const leftOpt = cleanText(q.options[optIdx]);
             const leftLines = doc.splitTextToSize(leftOpt, optWidth);
             doc.text(leftLines, leftX, y);
             const leftHeight = leftLines.length * 6;
-            
-            // Right option (B, D, F, etc.) if exists
             let rightHeight = 0;
             if (optIdx + 1 < q.options.length) {
               const rightOpt = cleanText(q.options[optIdx + 1]);
@@ -551,20 +572,17 @@ export default function QuestionPapers() {
               doc.text(rightLines, rightX, y);
               rightHeight = rightLines.length * 6;
             }
-            
-            // Move y by the maximum height of the two options
             y += Math.max(leftHeight, rightHeight) + 2;
           }
           y += 3;
         }
         
-        y += 3; // Space between questions
+        y += 3;
       }
       
-      y += 5; // Space between sections
+      y += 5;
     }
     
-    // Save PDF
     doc.save(`Question_Paper_${new Date().toISOString().split('T')[0]}.pdf`);
     setEditPreviewMode(false);
   };
@@ -595,26 +613,32 @@ export default function QuestionPapers() {
   };
   
   const updateQuestionText = (index: number, text: string) => {
-    const newQuestions = [...editableQuestions];
-    newQuestions[index].text = text;
+    const newQuestions = editableQuestions.map((q, i) =>
+      i === index ? { ...q, text } : q
+    );
     setEditableQuestions(newQuestions);
   };
   
   const updateQuestionMarks = (index: number, marks: number) => {
-    const newQuestions = [...editableQuestions];
-    newQuestions[index].marks = marks;
+    const v = Math.round(Number(marks));
+    const value = (v >= 1 && v <= 10) ? v : (v === 0 || isNaN(v) ? 0 : Math.min(10, Math.max(1, v)));
+    const newQuestions = editableQuestions.map((q, i) =>
+      i === index ? { ...q, marks: value } : q
+    );
     setEditableQuestions(newQuestions);
   };
   
   const updateOption = (questionIndex: number, optionIndex: number, value: string) => {
-    const newQuestions = [...editableQuestions];
-    if (!newQuestions[questionIndex].options) {
-      newQuestions[questionIndex].options = [];
-    }
-    newQuestions[questionIndex].options[optionIndex] = value;
+    const newQuestions = editableQuestions.map((q, i) => {
+      if (i !== questionIndex) return q;
+      const options = [...(q.options || [])];
+      while (options.length <= optionIndex) options.push("");
+      options[optionIndex] = value;
+      return { ...q, options };
+    });
     setEditableQuestions(newQuestions);
   };
-  
+
   const updateSectionName = (oldSection: string, newSection: string) => {
     const newSections = { ...editableSections };
     newSections[oldSection] = newSection;
@@ -629,6 +653,36 @@ export default function QuestionPapers() {
     });
     setEditableQuestions(newQuestions);
   };
+  
+  const handleMathSymbolInsert = useCallback((symbol: string) => {
+    if (!mathActiveField) return;
+    const { questionIndex, field, optionIndex } = mathActiveField;
+    const { start, end } = mathSelection;
+    if (field === "text") {
+      const q = editableQuestions[questionIndex];
+      if (!q) return;
+      const val = q.text || "";
+      const newVal = val.slice(0, start) + symbol + val.slice(end);
+      updateQuestionText(questionIndex, newVal);
+    } else if (field === "option" && optionIndex !== undefined) {
+      const q = editableQuestions[questionIndex];
+      if (!q) return;
+      const opts = [...(q.options || [])];
+      while (opts.length <= optionIndex) opts.push("");
+      const val = opts[optionIndex] || "";
+      const newVal = val.slice(0, start) + symbol + val.slice(end);
+      updateOption(questionIndex, optionIndex, newVal);
+    }
+    const nextPos = start + symbol.length;
+    setTimeout(() => {
+      const el = mathActiveInputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(nextPos, nextPos);
+        setMathSelection({ start: nextPos, end: nextPos });
+      }
+    }, 0);
+  }, [mathActiveField, mathSelection, editableQuestions]);
   
   // Delete paper
   const handleDeletePaper = async (paperId: string) => {
@@ -757,7 +811,7 @@ export default function QuestionPapers() {
             </div>
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-sm font-medium text-gray-500 mb-1">MCQ Questions</h3>
-              <p className="text-3xl font-bold text-blue-600">{statistics.byType.MCQ || 0}</p>
+              <p className="text-3xl font-bold text-blue-600">{statistics.byType?.MCQ ?? 0}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-sm font-medium text-gray-500 mb-1">Selected</h3>
@@ -1097,7 +1151,7 @@ export default function QuestionPapers() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                       Section
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                       Marks
                     </th>
                   </tr>
@@ -1121,11 +1175,18 @@ export default function QuestionPapers() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {question.number}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700 max-w-md">
-                        <div className="truncate">{question.text}</div>
-                        {question.options.length > 0 && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            Options: {question.options.join(", ")}
+                      <td className="px-4 py-3 text-sm text-gray-700 max-w-2xl align-top">
+                        <div className="whitespace-pre-wrap break-words">{question.text}</div>
+                        {question.options && question.options.length > 0 && (
+                          <div className="text-sm text-gray-600 mt-1.5">
+                            {question.options.map((opt, idx) => {
+                              const label = String.fromCharCode(65 + idx);
+                              return (
+                                <span key={idx}>
+                                  {label}) {opt}{idx < question.options.length - 1 ? " " : ""}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </td>
@@ -1136,6 +1197,8 @@ export default function QuestionPapers() {
                               ? "bg-blue-100 text-blue-800"
                               : question.type === "Long"
                               ? "bg-purple-100 text-purple-800"
+                              : question.type === "Medium"
+                              ? "bg-orange-100 text-orange-800"
                               : "bg-green-100 text-green-800"
                           }`}
                         >
@@ -1145,7 +1208,7 @@ export default function QuestionPapers() {
                       <td className="px-4 py-3 text-sm text-gray-700">
                         {question.section}
                       </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
                         {question.marks}
                       </td>
                     </tr>
@@ -1218,14 +1281,14 @@ export default function QuestionPapers() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="p-6 border-b flex justify-between items-center">
+            <div className="p-6 border-b flex justify-between items-center shrink-0">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">Edit & Preview Paper</h2>
                 <p className="text-sm text-gray-600 mt-1">
                   Subject: {paperMetadata.subject} | Grade: {paperMetadata.grade} | Year: {paperMetadata.year}
                 </p>
                 <p className="text-sm text-gray-600">
-                  Total Questions: {editableQuestions.length} | Total Marks: {editableQuestions.reduce((sum, q) => sum + q.marks, 0)}
+                  Total Questions: {editableQuestions.length} | Total Marks: {editableQuestions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0)}
                 </p>
               </div>
               <button
@@ -1319,10 +1382,8 @@ export default function QuestionPapers() {
               </div>
               
               {(() => {
-                // Group questions by section while maintaining order
                 const sections: Record<string, { question: Question; index: number }[]> = {};
                 const sectionOrder: string[] = [];
-                
                 editableQuestions.forEach((q, index) => {
                   const sectionName = editableSections[q.section] || q.section;
                   if (!sections[sectionName]) {
@@ -1331,60 +1392,74 @@ export default function QuestionPapers() {
                   }
                   sections[sectionName].push({ question: q, index });
                 });
-                
                 return sectionOrder.map((sectionName) => {
                   const items = sections[sectionName];
                   const originalSection = items[0]?.question.section || sectionName;
+                  const isObjectiveType = /PART-B|SECTION-A|OBJECTIVE|MCQ/i.test(sectionName);
                   return (
                     <div key={sectionName} className="mb-8">
-                      {/* Section Header - Editable */}
-                      <div className="mb-4 pb-2 border-b-2 border-gray-300">
+                      {/* Section divider label */}
+                      <div className="mb-3 py-2 px-3 bg-gray-100 border-l-4 border-gray-400 rounded-r text-sm font-semibold text-gray-700">
+                        {isObjectiveType ? "[OBJECTIVE TYPE]" : `[${sectionName}]`}
+                      </div>
+                      {/* Section name - editable */}
+                      <div className="mb-4 pb-2 border-b border-gray-300">
                         <input
                           type="text"
                           value={sectionName}
                           onChange={(e) => updateSectionName(originalSection, e.target.value)}
-                          className="text-xl font-bold bg-transparent border-none outline-none focus:bg-gray-50 px-2 py-1 rounded w-full"
+                          className="text-lg font-bold bg-transparent border-none outline-none focus:bg-gray-50 px-2 py-1 rounded w-full"
                           placeholder="Section Name"
                         />
                       </div>
                       
-                      {/* Questions in this section */}
-                      {items.map(({ question, index }) => (
-                        <div key={index} className="mb-6 p-4 border border-gray-200 rounded-lg hover:border-blue-300 transition-colors">
+                      {items.map(({ question, index }) => {
+                        const marksNum = Number(question.marks);
+                        const marksInvalid = marksNum < 1 || question.marks === "" || isNaN(marksNum);
+                        const optionSlots = question.type === "MCQ"
+                          ? [0, 1, 2, 3].map((i) => (question.options || [])[i] ?? "")
+                          : (question.options || []);
+                        return (
+                        <div key={`${question.id}-${index}`} className="mb-6 p-4 border border-gray-200 rounded-lg hover:border-blue-300 transition-colors">
                           <div className="flex items-start gap-2 mb-3">
-                            {/* Move buttons */}
                             <div className="flex flex-col gap-1">
                               <button
+                                type="button"
                                 onClick={() => moveQuestionUp(index)}
                                 disabled={index === 0}
-                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 rounded text-sm"
+                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed rounded text-sm"
                                 title="Move up"
                               >
                                 ↑
                               </button>
                               <button
+                                type="button"
                                 onClick={() => moveQuestionDown(index)}
                                 disabled={index === editableQuestions.length - 1}
-                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 rounded text-sm"
+                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed rounded text-sm"
                                 title="Move down"
                               >
                                 ↓
                               </button>
                             </div>
                             
-                            {/* Question number and marks */}
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-2">
                                 <span className="font-semibold text-lg">Q{question.number}.</span>
                                 <input
                                   type="number"
+                                  min={1}
+                                  max={10}
                                   value={question.marks}
-                                  onChange={(e) => updateQuestionMarks(index, parseInt(e.target.value) || 0)}
-                                  className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
-                                  min="0"
+                                  onChange={(e) => {
+                                    const raw = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
+                                    updateQuestionMarks(index, isNaN(raw) ? 0 : raw);
+                                  }}
+                                  className={`w-16 px-2 py-1 border rounded text-sm ${marksInvalid ? "border-red-500 bg-red-50" : "border-gray-300"}`}
                                 />
                                 <span className="text-sm text-gray-600">marks</span>
                                 <button
+                                  type="button"
                                   onClick={() => deleteQuestion(index)}
                                   className="ml-auto px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
                                 >
@@ -1392,41 +1467,76 @@ export default function QuestionPapers() {
                                 </button>
                               </div>
                               
-                              {/* Question text - Editable */}
                               <textarea
                                 value={question.text}
                                 onChange={(e) => updateQuestionText(index, e.target.value)}
+                                onFocus={(e) => {
+                                  setMathKeyboardVisible(true);
+                                  setMathActiveField({ questionIndex: index, field: "text" });
+                                  mathActiveInputRef.current = e.target;
+                                  setMathSelection({ start: e.target.selectionStart, end: e.target.selectionEnd });
+                                }}
+                                onSelect={(e) => {
+                                  const t = e.target as HTMLTextAreaElement;
+                                  setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                }}
+                                onKeyUp={(e) => {
+                                  const t = e.target as HTMLTextAreaElement;
+                                  setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                }}
                                 className="w-full p-2 border border-gray-300 rounded mb-3 min-h-[60px] resize-y"
                                 placeholder="Question text..."
                               />
                               
-                              {/* MCQ Options - Editable */}
-                              {question.options && question.options.length > 0 && (
+                              {(question.type === "MCQ" || (question.options && question.options.length > 0)) && (
                                 <div className="ml-4 space-y-2">
-                                  {question.options.map((opt, optIdx) => (
-                                    <input
-                                      key={optIdx}
-                                      type="text"
-                                      value={opt}
-                                      onChange={(e) => updateOption(index, optIdx, e.target.value)}
-                                      className="w-full p-2 border border-gray-300 rounded text-sm"
-                                      placeholder={`Option ${optIdx + 1}`}
-                                    />
+                                  {(question.type === "MCQ" ? optionSlots : (question.options || [])).map((opt, optIdx) => (
+                                    <div key={optIdx} className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-gray-600 w-6">{String.fromCharCode(65 + optIdx)})</span>
+                                      <input
+                                        type="text"
+                                        value={question.type === "MCQ" ? optionSlots[optIdx] : opt}
+                                        onChange={(e) => updateOption(index, optIdx, e.target.value)}
+                                        onFocus={(e) => {
+                                          setMathKeyboardVisible(true);
+                                          setMathActiveField({ questionIndex: index, field: "option", optionIndex: optIdx });
+                                          mathActiveInputRef.current = e.target;
+                                          setMathSelection({ start: e.target.selectionStart, end: e.target.selectionEnd });
+                                        }}
+                                        onSelect={(e) => {
+                                          const t = e.target as HTMLInputElement;
+                                          setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                        }}
+                                        onKeyUp={(e) => {
+                                          const t = e.target as HTMLInputElement;
+                                          setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                        }}
+                                        className="flex-1 p-2 border border-gray-300 rounded text-sm"
+                                        placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
+                                      />
+                                    </div>
                                   ))}
                                 </div>
                               )}
                             </div>
                           </div>
                         </div>
-                      ))}
+                      );})}
                     </div>
                   );
                 });
               })()}
             </div>
             
+            {/* Math symbol keyboard - fixed at bottom of modal content, above footer */}
+            <MathKeyboard
+              visible={mathKeyboardVisible}
+              onInsert={handleMathSymbolInsert}
+              onClose={() => setMathKeyboardVisible(false)}
+            />
+            
             {/* Footer with action buttons */}
-            <div className="p-6 border-t flex justify-end gap-4">
+            <div className="p-6 border-t flex justify-end gap-4 shrink-0">
               <button
                 onClick={() => setEditPreviewMode(false)}
                 className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"

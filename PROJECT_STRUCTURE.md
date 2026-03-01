@@ -148,3 +148,4 @@ RootLayout (layout.tsx)
 - **Background**: `slate-50`
 - **Font**: Inter (Google Fonts)
 
+

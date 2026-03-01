@@ -11,20 +11,22 @@ import os
 import sys
 import base64
 import time
+import difflib
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import uuid
 import hashlib
 from io import BytesIO
 
 try:
     from pdf2image import convert_from_path
+    from pypdf import PdfReader
     from PIL import Image
     from anthropic import Anthropic
     from dotenv import load_dotenv
 except ImportError as e:
-    print(f"Error: Missing required package. Install with: pip install pdf2image pillow anthropic python-dotenv")
+    print(f"Error: Missing required package. Install with: pip install pdf2image pypdf pillow anthropic python-dotenv")
     sys.exit(1)
 
 # Load environment variables
@@ -157,11 +159,10 @@ class QuestionExtractor:
         self.claude_client = Anthropic(api_key=api_key)
         
     def _get_total_pages(self) -> int:
-        """Get total number of pages in PDF"""
+        """Get total number of pages in PDF using pypdf (reliable, no image conversion)."""
         try:
-            # Convert all pages with low DPI to count
-            all_images = convert_from_path(self.pdf_path, dpi=100)
-            return len(all_images)
+            reader = PdfReader(self.pdf_path)
+            return len(reader.pages)
         except Exception as e:
             print(f"Error counting pages: {e}")
             return 0
@@ -232,7 +233,7 @@ class QuestionExtractor:
                         q["section"] = section
                         q["id"] = f"q_{uuid.uuid4().hex[:12]}"
                         # Ensure type is one of the expected values
-                        if "type" not in q or q["type"] not in ["MCQ", "Short", "Long"]:
+                        if "type" not in q or q["type"] not in ["MCQ", "Short", "Long", "Medium"]:
                             # Auto-detect type
                             q["type"] = self.detect_question_type(q.get("text", ""))
                         # Ensure marks is a number
@@ -353,6 +354,40 @@ class QuestionExtractor:
         return paper_id
 
 
+def normalize_text_for_similarity(text: str) -> str:
+    """Normalize question text for similarity comparison."""
+    if not text:
+        return ""
+    import re
+    t = text.lower().strip()
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+
+def count_duplicates(new_questions: List[Dict], existing_texts: List[str], threshold: float = 0.85) -> Tuple[List[Dict], int]:
+    """Filter out questions that are >threshold similar to any existing text. Returns (non_duplicates, skipped_count)."""
+    kept = []
+    skipped = 0
+    for q in new_questions:
+        new_text = normalize_text_for_similarity(q.get("text", ""))
+        if not new_text:
+            kept.append(q)
+            continue
+        is_dup = False
+        for existing in existing_texts:
+            if not existing:
+                continue
+            ratio = difflib.SequenceMatcher(None, new_text, existing).ratio()
+            if ratio >= threshold:
+                is_dup = True
+                break
+        if is_dup:
+            skipped += 1
+        else:
+            kept.append(q)
+    return kept, skipped
+
+
 def main():
     parser = argparse.ArgumentParser(description='Extract questions from PDF using Claude API Vision')
     parser.add_argument('--pdf', required=True, help='Path to PDF file')
@@ -373,6 +408,25 @@ def main():
     # Extract questions
     extractor = QuestionExtractor(args.pdf, args.subject, args.grade, args.year)
     extractor.questions = extractor.extract_questions_from_pdf()
+    
+    # Duplicate detection: skip questions >85% similar to existing for same subject+grade
+    existing_texts = []
+    db_path = Path(args.output)
+    if db_path.exists():
+        try:
+            with open(db_path, "r") as f:
+                db = json.load(f)
+            for paper in db.get("papers", []):
+                if paper.get("subject") == args.subject and paper.get("grade") == args.grade:
+                    for q in paper.get("questions", []):
+                        existing_texts.append(normalize_text_for_similarity(q.get("text", "")))
+        except (json.JSONDecodeError, IOError):
+            pass
+    non_duplicates, duplicates_skipped = count_duplicates(extractor.questions, existing_texts, threshold=0.85)
+    extractor.questions = non_duplicates
+    if duplicates_skipped > 0:
+        print(f"DUPLICATES_SKIPPED: {duplicates_skipped}")
+    
     paper_id = extractor.save_to_json(args.output)
     
     print(f"\n✅ Extraction complete!")

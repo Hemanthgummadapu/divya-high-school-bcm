@@ -125,6 +125,13 @@ export async function POST(request: NextRequest) {
         console.error("OCR Warnings/Errors (stderr):", stderr);
       }
       
+      // Parse duplicates skipped from script stdout (e.g. "DUPLICATES_SKIPPED: 3")
+      let duplicatesSkipped = 0;
+      const dupMatch = (stdout || "").match(/DUPLICATES_SKIPPED:\s*(\d+)/);
+      if (dupMatch) {
+        duplicatesSkipped = parseInt(dupMatch[1], 10);
+      }
+      
       // Read the updated database to get the new paper ID
       const db = await readDatabase();
       const newPaper = db.papers[db.papers.length - 1];
@@ -141,6 +148,7 @@ export async function POST(request: NextRequest) {
         success: true,
         paper: newPaper,
         message: `Successfully extracted ${newPaper.questions.length} questions`,
+        duplicatesSkipped,
       });
     } catch (execError: any) {
       // Enhanced error logging
