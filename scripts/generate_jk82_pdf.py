@@ -3,7 +3,7 @@
 JK-82 style Indian school exam paper PDF generator.
 Reads JSON from stdin: { "header": {...}, "questions": [...], "logoPath": "/path/to/logo.png" }
 Outputs PDF bytes to stdout (binary).
-Layout: Page 1 PART-B (Objective), then PART-A with SECTION-I, II, III.
+Layout: Page 1 PART-A (SECTION-I, II, III), then PART-B (Objective) at the end.
 Logo: watermark on every page (8%), header logo 60x60 on page 1.
 Helvetica only, A4 portrait, 1.8cm margins.
 """
@@ -171,6 +171,7 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
 
 
 def main():
+    part_a_questions = []
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError as e:
@@ -210,7 +211,7 @@ def main():
         draw_watermark(c, logo_path)
         y = PAGE_HEIGHT - MARGIN
 
-    # ---------- PAGE 1: Watermark, then header (logo+text or text-only), then PART-B or PART-A ----------
+    # ---------- PAGE 1: Watermark, then header (logo+text or text-only), then PART-A then PART-B ----------
     draw_watermark(c, logo_path)
     if logo_path:
         location = clean(header.get("location", "Bhadrachalam"))
@@ -230,65 +231,13 @@ def main():
         draw_line(c, y)
         y -= lead
 
-    if part_b:
-        # PART-B block
-        c.setFont("Helvetica", FONT_SUB)
-        c.drawString(CONTENT_LEFT, y, "PART - B    Objective Type    Marks: 20")
-        y -= line_height
-        c.setFont("Helvetica", FONT_BODY)
-        c.drawString(CONTENT_LEFT, y, "Time: 30 Min")
-        y -= line_height
-        c.drawString(CONTENT_LEFT, y, "Instructions:  i) Answer all   ii) 1 mark each")
-        y -= lead
-        draw_line(c, y)
-        y -= lead
-
-        part_b_marks = sum(int(q.get("marks", 1)) for q in part_b)
-        for i, q in enumerate(part_b):
-            num = i + 1
-            text = clean(q.get("text", ""))
-            opts = q.get("options") or []
-            opts = (opts + ["", "", "", ""])[:4]
-            if y < 2 * MARGIN + 40:
-                new_page()
-                y = PAGE_HEIGHT - MARGIN
-            c.setFont("Helvetica", FONT_BODY)
-            bubble_x = CONTENT_RIGHT - 15
-            c.drawString(CONTENT_LEFT, y, f"{num}.")
-            text_lines = wrap_text(c, text, CONTENT_WIDTH - 60, size=FONT_BODY)
-            if text_lines:
-                for line in text_lines[:-1]:
-                    c.drawString(CONTENT_LEFT + 12, y, line)
-                    y -= line_height
-                last_line = text_lines[-1]
-                c.drawString(CONTENT_LEFT + 12, y, last_line)
-                c.rect(bubble_x - 4, y - 1, 12, 5)
-            else:
-                c.rect(bubble_x - 4, y - 1, 12, 5)
-            y -= line_height
-            row1 = f"A) {clean(opts[0])}    B) {clean(opts[1])}"
-            row2 = f"C) {clean(opts[2])}    D) {clean(opts[3])}"
-            for line in wrap_text(c, row1, CONTENT_WIDTH - 20, size=FONT_SMALL):
-                c.drawString(CONTENT_LEFT + 12, y, line)
-                y -= line_height
-            for line in wrap_text(c, row2, CONTENT_WIDTH - 20, size=FONT_SMALL):
-                c.drawString(CONTENT_LEFT + 12, y, line)
-                y -= line_height
-            y -= line_height
-
-        y -= 3 * mm
-
-    # PART-A (start on new page if we had PART-B)
-    if part_b and part_a_questions:
-        new_page()
-        y = PAGE_HEIGHT - MARGIN
     part_a_questions = sec_i + sec_ii + sec_iii
     for name, qs in rest:
         part_a_questions.extend(qs)
-    if not part_b and part_a_questions:
-        pass  # header already drawn
+
+    # PART-A first (SECTION-I, SECTION-II, SECTION-III, then rest)
     if part_a_questions:
-        if y < PAGE_HEIGHT - 4 * MARGIN or (part_b and y < 3 * MARGIN):
+        if y < PAGE_HEIGHT - 4 * MARGIN:
             new_page()
             y = PAGE_HEIGHT - MARGIN
         c.setFont("Helvetica", FONT_SUB)
@@ -395,6 +344,58 @@ def main():
                     c.drawString(CONTENT_LEFT + 14, y, line)
                     y -= line_height
                 y -= lead
+
+    # PART-B at the end (new page if we had PART-A)
+    if part_b:
+        if part_a_questions:
+            new_page()
+            y = PAGE_HEIGHT - MARGIN
+        # PART-B block
+        c.setFont("Helvetica", FONT_SUB)
+        c.drawString(CONTENT_LEFT, y, "PART - B    Objective Type    Marks: 20")
+        y -= line_height
+        c.setFont("Helvetica", FONT_BODY)
+        c.drawString(CONTENT_LEFT, y, "Time: 30 Min")
+        y -= line_height
+        c.drawString(CONTENT_LEFT, y, "Instructions:  i) Answer all   ii) 1 mark each")
+        y -= lead
+        draw_line(c, y)
+        y -= lead
+
+        part_b_marks = sum(int(q.get("marks", 1)) for q in part_b)
+        for i, q in enumerate(part_b):
+            num = i + 1
+            text = clean(q.get("text", ""))
+            opts = q.get("options") or []
+            opts = (opts + ["", "", "", ""])[:4]
+            if y < 2 * MARGIN + 40:
+                new_page()
+                y = PAGE_HEIGHT - MARGIN
+            c.setFont("Helvetica", FONT_BODY)
+            bubble_x = CONTENT_RIGHT - 15
+            c.drawString(CONTENT_LEFT, y, f"{num}.")
+            text_lines = wrap_text(c, text, CONTENT_WIDTH - 60, size=FONT_BODY)
+            if text_lines:
+                for line in text_lines[:-1]:
+                    c.drawString(CONTENT_LEFT + 12, y, line)
+                    y -= line_height
+                last_line = text_lines[-1]
+                c.drawString(CONTENT_LEFT + 12, y, last_line)
+                c.rect(bubble_x - 4, y - 1, 12, 5)
+            else:
+                c.rect(bubble_x - 4, y - 1, 12, 5)
+            y -= line_height
+            row1 = f"A) {clean(opts[0])}    B) {clean(opts[1])}"
+            row2 = f"C) {clean(opts[2])}    D) {clean(opts[3])}"
+            for line in wrap_text(c, row1, CONTENT_WIDTH - 20, size=FONT_SMALL):
+                c.drawString(CONTENT_LEFT + 12, y, line)
+                y -= line_height
+            for line in wrap_text(c, row2, CONTENT_WIDTH - 20, size=FONT_SMALL):
+                c.drawString(CONTENT_LEFT + 12, y, line)
+                y -= line_height
+            y -= line_height
+
+        y -= 3 * mm
 
     c.save()
     pdf_bytes = buffer.getvalue()
