@@ -91,8 +91,8 @@ export default function Navbar() {
                   aria-expanded={openDropdown === "about"}
                   aria-haspopup="true"
                   aria-label="About menu"
-                >
-                  About
+            >
+              About
                   <svg 
                     className={`w-4 h-4 transition-transform ${openDropdown === "about" ? "rotate-180" : ""}`}
                     fill="currentColor" 
@@ -129,8 +129,8 @@ export default function Navbar() {
                   aria-expanded={openDropdown === "admissions"}
                   aria-haspopup="true"
                   aria-label="Admissions menu"
-                >
-                  Admissions
+            >
+              Admissions
                   <svg 
                     className={`w-4 h-4 transition-transform ${openDropdown === "admissions" ? "rotate-180" : ""}`}
                     fill="currentColor" 

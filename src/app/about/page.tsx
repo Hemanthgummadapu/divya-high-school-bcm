@@ -13,7 +13,6 @@ function SectionDivider() {
   return (
     <div className="w-full flex justify-center py-0" aria-hidden="true">
       <div className="h-px w-full max-w-4xl mx-4 bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-    </div>
   );
 }
 
