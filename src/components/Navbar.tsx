@@ -282,19 +282,19 @@ export default function Navbar() {
             </div>
             <div className="flex items-center gap-1 rounded-xl bg-white/10 border border-white/20 px-2 py-1.5 md:px-2.5 md:py-2">
               <Link
-                href="#"
+                href="/student-portal"
                 className="text-xs md:text-sm px-2 md:px-2.5 py-1 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold hover:text-white font-medium transition-all duration-200 whitespace-nowrap"
               >
                 Student
               </Link>
               <Link
-                href="#"
+                href="/staff-portal"
                 className="text-xs md:text-sm px-2 md:px-2.5 py-1 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold hover:text-white font-medium transition-all duration-200 whitespace-nowrap"
               >
                 Staff
               </Link>
               <Link
-                href="#"
+                href="/admin-portal"
                 className="text-xs md:text-sm px-2 md:px-2.5 py-1 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold hover:text-white font-medium transition-all duration-200 whitespace-nowrap"
               >
                 Admin
@@ -416,9 +416,9 @@ export default function Navbar() {
             <Link href="/contact" className={`block py-3 px-3 rounded-lg font-heading ${pathname === "/contact" ? "text-[#60a5fa] bg-white/10" : "text-white hover:bg-white/10"}`} onClick={() => setMobileMenuOpen(false)}>Contact</Link>
 
             <div className="pt-4 border-t border-white/20 mt-4 flex flex-wrap gap-2">
-              <Link href="#" className="flex-1 min-w-[80px] text-center py-2.5 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold font-medium text-sm transition-colors" onClick={() => setMobileMenuOpen(false)}>Student</Link>
-              <Link href="#" className="flex-1 min-w-[80px] text-center py-2.5 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold font-medium text-sm transition-colors" onClick={() => setMobileMenuOpen(false)}>Staff</Link>
-              <Link href="#" className="flex-1 min-w-[80px] text-center py-2.5 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold font-medium text-sm transition-colors" onClick={() => setMobileMenuOpen(false)}>Admin</Link>
+              <Link href="/student-portal" className="flex-1 min-w-[80px] text-center py-2.5 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold font-medium text-sm transition-colors" onClick={() => setMobileMenuOpen(false)}>Student</Link>
+              <Link href="/staff-portal" className="flex-1 min-w-[80px] text-center py-2.5 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold font-medium text-sm transition-colors" onClick={() => setMobileMenuOpen(false)}>Staff</Link>
+              <Link href="/admin-portal" className="flex-1 min-w-[80px] text-center py-2.5 rounded-lg border border-accent-gold/80 text-white hover:bg-accent-gold font-medium text-sm transition-colors" onClick={() => setMobileMenuOpen(false)}>Admin</Link>
             </div>
           </div>
         </div>

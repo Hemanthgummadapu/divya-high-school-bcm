@@ -306,6 +306,6 @@ export default function Sports() {
           </Link>
         </div>
       </section>
-    </div>
+         </div>
   );
 }
