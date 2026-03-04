@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
-const SLIDE_DURATION = 5000;
+const SLIDE_DURATION = 3500;
 const TOTAL_SLIDES = 2;
 
 export default function SportsSlideshow() {
@@ -24,10 +24,10 @@ export default function SportsSlideshow() {
   const goNext = () => setCurrentSlide((prev) => (prev + 1) % TOTAL_SLIDES);
 
   const arrowClass =
-    "absolute top-1/2 -translate-y-1/2 z-20 w-12 h-12 flex items-center justify-center rounded-full bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:text-[#d4af37] transition-colors duration-300";
+    "absolute top-1/2 -translate-y-1/2 z-20 w-12 h-12 flex items-center justify-center rounded-full bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:text-school-gold transition-colors duration-300";
 
   return (
-    <section className="relative min-h-screen bg-gradient-to-br from-[#0d1b2a] via-[#1a365d] to-[#1e4976] text-white flex items-center overflow-hidden">
+    <section className="relative min-h-screen bg-gradient-to-br from-school-navy-dark via-school-navy to-[#0d3a6e] text-white flex items-center overflow-hidden">
       {/* Left arrow */}
       <button
         type="button"
@@ -67,7 +67,7 @@ export default function SportsSlideshow() {
             className="object-cover"
             sizes="100vw"
           />
-          <div className="absolute inset-0 bg-[#0d1b2a]/40 flex items-end justify-center pb-8">
+          <div className="absolute inset-0 bg-school-navy/40 flex items-end justify-center pb-8">
             <span className="text-white text-lg font-semibold drop-shadow-md">
               View Results & Achievements →
             </span>
@@ -89,7 +89,7 @@ export default function SportsSlideshow() {
             className="object-cover"
             sizes="100vw"
           />
-          <div className="absolute inset-0 bg-[#0d1b2a]/30 flex items-end justify-center pb-8">
+          <div className="absolute inset-0 bg-school-navy/30 flex items-end justify-center pb-8">
             <span className="text-white text-lg font-semibold drop-shadow-md">
               Campus & Student Life
             </span>
@@ -106,7 +106,7 @@ export default function SportsSlideshow() {
             onClick={() => setCurrentSlide(i)}
             className={`h-2 rounded-full transition-all duration-300 ${
               currentSlide === i
-                ? "w-8 bg-[#d4af37]"
+                ? "w-8 bg-school-gold"
                 : "w-2 bg-white/50 hover:bg-white/70"
             }`}
             aria-label={`Go to slide ${i + 1}`}

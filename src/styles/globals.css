@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: #1E3A8A;
+  --color-accent: #F59E0B;
+  --color-heading: #0F172A;
+  --color-body: #334155;
+  --color-muted: #64748B;
+  --color-bg: #F8FAFC;
+  --color-card: #FFFFFF;
+  --color-navy: #1E3A8A;
+  --color-charcoal: #334155;
+}
+
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading text-heading font-semibold;
+  }
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -15,5 +33,217 @@
 
 .animate-fade-in {
   animation: fade-in 0.6s ease-out forwards;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.7s ease-out forwards;
+}
+
+/* Hero cinematic Ken Burns — subtle slow zoom */
+@keyframes hero-ken-burns {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.07);
+  }
+}
+
+.animate-hero-ken-burns {
+  animation: hero-ken-burns 18s ease-out forwards;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center px-6 py-2 rounded-xl font-medium transition-all duration-200 bg-accent-gold text-white hover:bg-accent-gold-dark;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center px-6 py-2 rounded-xl font-medium transition-all duration-200 border-2 border-accent-gold text-accent-gold hover:bg-accent-gold hover:text-white;
+}
+
+.school-name {
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.form-section-header {
+  background: linear-gradient(90deg, #e7f0ff, #f4f8ff);
+  border-left: 5px solid #2563eb;
+  padding: 10px 16px;
+  margin-top: 28px;
+  margin-bottom: 16px;
+  border-radius: 6px;
+}
+
+.form-section-header:first-of-type {
+  margin-top: 0;
+}
+
+.form-section-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+
+/* Admission popup — slide-in from right */
+@keyframes admission-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.admission-popup-slide {
+  animation: admission-slide-in 0.4s ease-out forwards;
+}
+
+/* Admission popup — Apply Now (primary blue) hover */
+.admission-apply-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(30, 58, 138, 0.35);
+}
+
+/* Footer theme */
+.footer-theme {
+  background: linear-gradient(
+    180deg,
+    #0f2a63 0%,
+    #0b1f4a 60%,
+    #081735 100%
+  );
+}
+
+.footer-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 18px;
+  letter-spacing: 0.4px;
+  border-bottom: 2px solid #E39B2D;
+  display: inline-block;
+  padding-bottom: 6px;
+}
+
+.footer-desc {
+  color: #cbd5f5;
+  line-height: 1.7;
+  font-size: 15px;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (min-width: 768px) {
+  .footer-desc {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+.footer-quick-link {
+  color: #dbe3ff;
+  font-size: 15px;
+  margin-bottom: 10px;
+  display: block;
+  transition: all 0.2s ease;
+}
+
+.footer-quick-link:hover {
+  color: #ffffff;
+  padding-left: 6px;
+}
+
+.footer-contact-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.footer-contact-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: #dbe3ff;
+  font-size: 15px;
+  transition: color 0.2s ease;
+}
+
+.footer-contact-row:hover {
+  color: #ffffff;
+}
+
+.footer-contact-icon {
+  color: #E39B2D;
+  min-width: 18px;
+  flex-shrink: 0;
+}
+
+.footer-social-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  color: #dbe3ff;
+  transition: all 0.25s ease;
+}
+
+.footer-social-icon:hover {
+  background: #E39B2D;
+  color: white;
+  transform: translateY(-2px);
+}
+
+.footer-social-icon:last-child {
+  margin-right: 0;
+}
+
+.footer-divider {
+  margin-top: 40px;
+  margin-bottom: 20px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+}
+
+.footer-copyright {
+  text-align: center;
+  color: #9fb0ff;
+  font-size: 14px;
+}
+
+.footer-copyright-school {
+  color: #ffffff;
+  font-weight: 600;
 }
 
