@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
+import { platform } from "os";
 
 /**
  * POST /api/questions/generate
@@ -29,8 +30,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const venvPython = join(process.cwd(), "venv", "bin", "python3");
-    const pythonCmd = existsSync(venvPython) ? venvPython : "python3";
+    const isWindows = platform() === "win32";
+    const venvPython = isWindows
+      ? join(process.cwd(), "venv", "Scripts", "python.exe")
+      : join(process.cwd(), "venv", "bin", "python3");
+    const systemPython = isWindows ? "python" : "python3";
+    const pythonCmd = existsSync(venvPython) ? venvPython : systemPython;
     const publicImages = join(process.cwd(), "public", "images");
     const logoPath = join(publicImages, "school-logo.png");
     const examLogoPath = join(publicImages, "school-logo-exam.png");

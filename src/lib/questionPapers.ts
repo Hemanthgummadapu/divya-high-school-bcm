@@ -10,6 +10,7 @@ export interface Question {
   section: string;
   type: "MCQ" | "Short" | "Medium" | "Long";
   marks: number;
+  correctAnswer?: string;
 }
 
 export interface QuestionPaper {
