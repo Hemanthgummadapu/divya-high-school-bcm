@@ -16,6 +16,7 @@ const FOOTER_SOCIAL_LINKS = [
 const QUICK_LINKS = [
   { href: "/about", label: "About" },
   { href: "/admissions", label: "Admissions" },
+  { href: "/sports", label: "Sports" },
   { href: "/gallery", label: "Gallery" },
   { href: "/contact", label: "Contact" },
 ];

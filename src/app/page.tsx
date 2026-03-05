@@ -83,12 +83,12 @@ const WHY_CHOOSE = [
 ];
 
 const GALLERY_IMAGES = [
-  "/slideshow-sports.png",
-  "/slideshow-school.png",
-  "/slideshow-assembly.png",
-  "/slideshow-sports.png",
-  "/slideshow-school.png",
-  "/slideshow-assembly.png",
+  "/slideshow1.png",
+  "/slideshow2.png",
+  "/slideshow3.png",
+  "/school-building.png",
+  "/slideshow4.png",
+  "/images/cultural/divya-annual-day-1.jpg",
 ];
 
 const TESTIMONIALS = [
@@ -110,7 +110,7 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
             <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-lg order-2 lg:order-1">
               <Image
-                src="/slideshow-school.png"
+                src="/school-building.png"
                 alt="Divya High School - Campus"
                 fill
                 className="object-cover"
@@ -237,7 +237,7 @@ export default function Home() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
             {GALLERY_IMAGES.map((src, i) => (
               <Link key={i} href="/gallery" className="group relative aspect-[4/3] rounded-xl overflow-hidden shadow-md">
-                <Image src={src} alt="" fill className="object-cover transition-transform duration-200 group-hover:scale-105" sizes="(max-width: 768px) 50vw, 33vw" />
+                <Image src={src} alt="Gallery preview" fill className="object-cover transition-transform duration-200 group-hover:scale-105" sizes="(max-width: 768px) 50vw, 33vw" />
                 <div className="absolute inset-0 bg-heading/0 group-hover:bg-heading/40 transition-colors duration-200" />
               </Link>
             ))}
@@ -282,7 +282,7 @@ export default function Home() {
               </div>
             ))}
           </div>
-      </div>
+        </div>
       </section>
     </div>
   );

@@ -1867,7 +1867,7 @@ export default function QuestionPapers() {
                       
                       {items.map(({ question, index }) => {
                         const marksNum = Number(question.marks);
-                        const marksInvalid = marksNum < 1 || question.marks === "" || isNaN(marksNum);
+                        const marksInvalid = marksNum < 1 || isNaN(marksNum) || String(question.marks ?? "").trim() === "";
                         const optionSlots = question.type === "MCQ"
                           ? [0, 1, 2, 3].map((i) => (question.options || [])[i] ?? "")
                           : (question.options || []);
@@ -1931,15 +1931,15 @@ export default function QuestionPapers() {
                                   setMathKeyboardVisible(true);
                                   setMathActiveField({ questionIndex: index, field: "text" });
                                   mathActiveInputRef.current = e.target;
-                                  setMathSelection({ start: e.target.selectionStart, end: e.target.selectionEnd });
+                                  setMathSelection({ start: e.target.selectionStart ?? 0, end: e.target.selectionEnd ?? 0 });
                                 }}
                                 onSelect={(e) => {
                                   const t = e.target as HTMLTextAreaElement;
-                                  setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                  setMathSelection({ start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 });
                                 }}
                                 onKeyUp={(e) => {
                                   const t = e.target as HTMLTextAreaElement;
-                                  setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                  setMathSelection({ start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 });
                                 }}
                                 className="w-full p-2 border border-gray-300 rounded mb-3 min-h-[60px] resize-y"
                                 placeholder="Question text..."
@@ -1961,15 +1961,15 @@ export default function QuestionPapers() {
                                           setMathKeyboardVisible(true);
                                           setMathActiveField({ questionIndex: index, field: "option", optionIndex: optIdx });
                                           mathActiveInputRef.current = e.target;
-                                          setMathSelection({ start: e.target.selectionStart, end: e.target.selectionEnd });
+                                          setMathSelection({ start: e.target.selectionStart ?? 0, end: e.target.selectionEnd ?? 0 });
                                         }}
                                         onSelect={(e) => {
                                           const t = e.target as HTMLInputElement;
-                                          setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                          setMathSelection({ start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 });
                                         }}
                                         onKeyUp={(e) => {
                                           const t = e.target as HTMLInputElement;
-                                          setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                                          setMathSelection({ start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 });
                                         }}
                                         className="flex-1 p-2 border border-gray-300 rounded text-sm"
                                         placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}

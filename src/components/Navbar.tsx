@@ -66,7 +66,7 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-full gap-2">
           <Link href="/" className="flex items-center gap-2.5 font-heading text-lg md:text-xl font-bold transition-colors duration-200 whitespace-nowrap">
             <Image
-              src="/logo.png"
+              src="/images/school-logo.png"
               alt="Divya High School"
               width={36}
               height={36}

@@ -68,7 +68,7 @@ export default function AdmissionBanner() {
           {/* School logo on top */}
           <div className="flex justify-center pt-5 pb-2">
             <Image
-              src="/logo.png"
+              src="/images/school-logo.png"
               alt="Divya High School"
               width={56}
               height={56}

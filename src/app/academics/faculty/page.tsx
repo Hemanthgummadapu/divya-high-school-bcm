@@ -13,7 +13,7 @@ export default function Faculty() {
     <div className="container mx-auto px-4 py-16">
       <h1 className="text-4xl font-bold text-center mb-4 font-heading text-heading">Faculty</h1>
       <p className="text-center text-body text-gray-600 max-w-2xl mx-auto mb-12">
-        This is the faculty page. Content will be added here.
+        Our dedicated teachers bring expertise and care to every subject, helping students achieve their best.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
@@ -22,10 +22,9 @@ export default function Faculty() {
             key={subject}
             className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden hover:shadow-lg transition-shadow duration-300 flex flex-col items-center text-center p-6"
           >
-            {/* Placeholder image - gray avatar box */}
-            <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center mb-4 flex-shrink-0">
+            <div className="w-24 h-24 rounded-full bg-primary-blue/10 flex items-center justify-center mb-4 flex-shrink-0">
               <svg
-                className="w-12 h-12 text-gray-400"
+                className="w-12 h-12 text-primary-blue"
                 fill="currentColor"
                 viewBox="0 0 24 24"
                 aria-hidden="true"
@@ -35,7 +34,7 @@ export default function Faculty() {
             </div>
             <h2 className="font-heading text-xl font-semibold text-heading mb-2">{subject}</h2>
             <p className="text-body text-gray-600 text-sm leading-relaxed">
-              Faculty details will be updated soon
+              Our dedicated teachers for this subject. Profiles will be updated here.
             </p>
           </div>
         ))}
