@@ -9,10 +9,10 @@ const FADE_DURATION = 800;
 
 const HERO_SLIDES = [
   { src: "/school-building.png", alt: "Divya High School - School Building", title: "Our Campus" },
-  { src: "/slideshow-school.png", alt: "Divya High School - Campus", title: "Campus & Student Life" },
-  { src: "/slideshow-assembly.png", alt: "Divya High School - Assembly", title: "Events & Assembly" },
-  { src: "/slideshow1.png", alt: "Divya High School", title: "Classroom Learning" },
-  { src: "/slideshow2.png", alt: "Divya High School", title: "Sports & Activities" },
+  { src: "/slideshow1.png", alt: "Divya High School - Campus", title: "Campus & Student Life" },
+  { src: "/slideshow2.png", alt: "Divya High School - Assembly", title: "Events & Assembly" },
+  { src: "/slideshow3.png", alt: "Divya High School - Learning", title: "Classroom Learning" },
+  { src: "/slideshow4.png", alt: "Divya High School - Sports", title: "Sports & Activities" },
 ];
 
 const TOTAL_SLIDES = HERO_SLIDES.length;
@@ -63,16 +63,16 @@ export default function HeroSlideshow() {
               />
             </div>
 
-            {/* Dark gradient overlay */}
+            {/* Dark gradient overlay - do not block clicks */}
             <div
-              className="absolute inset-0 z-[1] bg-gradient-to-r from-black/70 via-black/50 to-black/40"
+              className="absolute inset-0 z-[1] bg-gradient-to-r from-black/70 via-black/50 to-black/40 pointer-events-none"
               aria-hidden
             />
 
-            {/* Centered hero content — only on first slide */}
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-4 sm:px-6">
+            {/* Centered hero content — only on first slide; ensure clickable */}
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-4 sm:px-6 pointer-events-none">
               {index === 0 && (
-                <div className="max-w-3xl mx-auto">
+                <div className="max-w-3xl mx-auto pointer-events-auto">
                   <h1 className="text-4xl md:text-6xl font-extrabold font-heading text-white tracking-wide drop-shadow-[0_2px_12px_rgba(0,0,0,0.5)] mb-3 sm:mb-4">
                     Welcome to Divya High School
                   </h1>
@@ -97,9 +97,9 @@ export default function HeroSlideshow() {
               )}
             </div>
 
-            {/* Bottom caption */}
+            {/* Bottom caption - do not block nav dots/arrows */}
             <div
-              className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-center pb-12 md:pb-14 pt-32"
+              className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-center pb-12 md:pb-14 pt-32 pointer-events-none"
               style={{
                 background: "linear-gradient(to top, rgba(0,0,0,0.6), transparent)",
               }}

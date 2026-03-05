@@ -61,7 +61,7 @@ export default function SportsSlideshow() {
       >
         <div className="relative w-full h-full min-h-full">
           <Image
-            src="/slideshow-sports.png"
+            src="/slideshow1.png"
             alt="Divya High School - Sports and achievements"
             fill
             className="object-cover"
@@ -83,7 +83,7 @@ export default function SportsSlideshow() {
       >
         <div className="relative w-full h-full min-h-full">
           <Image
-            src="/slideshow-school.png"
+            src="/slideshow2.png"
             alt="Divya High School - Campus and student life"
             fill
             className="object-cover"
