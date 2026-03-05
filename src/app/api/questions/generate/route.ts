@@ -3,6 +3,7 @@ import { spawn } from "child_process";
 import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { platform } from "os";
+import { supabase } from "@/lib/supabase";
 
 /**
  * POST /api/questions/generate
@@ -102,6 +103,41 @@ export async function POST(request: NextRequest) {
         { success: false, error: "PDF was not generated" },
         { status: 500 }
       );
+    }
+
+    // Insert into Supabase generated_pdfs (non-blocking; do not fail response on error)
+    const hasSupabase =
+      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (hasSupabase && header && typeof header === "object") {
+      const subject = (header as { subject?: string }).subject ?? "";
+      const grade =
+        (header as { class?: string; grade?: string }).class ??
+        (header as { grade?: string }).grade ??
+        "";
+      const year =
+        (header as { year?: string | number }).year != null
+          ? String((header as { year?: string | number }).year)
+          : String(new Date().getFullYear());
+      const total_questions = questions.length;
+      const total_marks = (questions as { marks?: number }[]).reduce(
+        (sum, q) => sum + (Number(q.marks) || 0),
+        0
+      );
+      const question_ids = (questions as { id?: string }[])
+        .map((q) => q.id)
+        .filter(Boolean) as string[];
+      try {
+        await supabase.from("generated_pdfs").insert({
+          subject,
+          grade,
+          year,
+          total_questions,
+          total_marks,
+          question_ids,
+        });
+      } catch (err) {
+        console.warn("Supabase generated_pdfs insert failed:", err);
+      }
     }
 
     return new NextResponse(pdfBuffer, {
