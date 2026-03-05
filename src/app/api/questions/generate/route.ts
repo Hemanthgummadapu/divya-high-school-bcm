@@ -140,7 +140,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return new NextResponse(pdfBuffer, {
+    // pdfBuffer is a Node.js Buffer; cast to BodyInit so NextResponse typing is satisfied.
+    return new NextResponse(pdfBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

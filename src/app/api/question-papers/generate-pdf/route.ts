@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     const result = await new Promise<{ success: boolean; out?: string; err?: string }>(
       (resolve) => {
-        const proc = spawn(pythonCmd, [scriptPath, tmpPdfPath], {
+        const proc = spawn(pythonCmd, [scriptPath, tmpPdfPath!], {
           stdio: ["pipe", "pipe", "pipe"],
         });
         let stdout = "";

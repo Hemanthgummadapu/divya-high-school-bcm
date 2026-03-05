@@ -1657,22 +1657,22 @@ export default function QuestionPapers() {
                             });
                             mathActiveInputRef.current = e.target;
                             setMathSelection({
-                              start: e.target.selectionStart,
-                              end: e.target.selectionEnd,
+                              start: e.target.selectionStart ?? 0,
+                              end: e.target.selectionEnd ?? 0,
                             });
                           }}
                           onSelect={(e) => {
                             const t = e.target as HTMLInputElement;
                             setMathSelection({
-                              start: t.selectionStart,
-                              end: t.selectionEnd,
+                              start: t.selectionStart ?? 0,
+                              end: t.selectionEnd ?? 0,
                             });
                           }}
                           onKeyUp={(e) => {
                             const t = e.target as HTMLInputElement;
                             setMathSelection({
-                              start: t.selectionStart,
-                              end: t.selectionEnd,
+                              start: t.selectionStart ?? 0,
+                              end: t.selectionEnd ?? 0,
                             });
                           }}
                           className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
