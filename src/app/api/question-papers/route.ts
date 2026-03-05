@@ -8,13 +8,14 @@ import {
   type QuestionPaper,
   type FilterOptions,
 } from "@/lib/questionPapers";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
+import { platform } from "os";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * GET /api/question-papers
@@ -108,17 +109,31 @@ export async function POST(request: NextRequest) {
     // Run OCR extraction script
     const scriptPath = join(process.cwd(), "scripts", "extract_pdf.py");
     const dbPath = join(process.cwd(), "data", "question-papers.json");
-    
-    // Use venv Python if it exists, otherwise fall back to system python3
-    const venvPython = join(process.cwd(), "venv", "bin", "python3");
-    const pythonCmd = existsSync(venvPython) ? venvPython : "python3";
-    
-    const command = `"${pythonCmd}" "${scriptPath}" --pdf "${filepath}" --subject "${subject}" --grade "${grade}" --year "${year}" --output "${dbPath}"`;
-    
-    console.log("Executing OCR command:", command);
-    
+
+    // Use venv Python if it exists (Windows: venv\Scripts\python.exe, Unix: venv/bin/python3)
+    const isWindows = platform() === "win32";
+    const venvPython = isWindows
+      ? join(process.cwd(), "venv", "Scripts", "python.exe")
+      : join(process.cwd(), "venv", "bin", "python3");
+    const systemPython = isWindows ? "python" : "python3";
+    const pythonCmd = existsSync(venvPython) ? venvPython : systemPython;
+
+    const args = [
+      scriptPath,
+      "--pdf", filepath,
+      "--subject", subject,
+      "--grade", grade,
+      "--year", year,
+      "--output", dbPath,
+    ];
+
+    console.log("Executing OCR script:", pythonCmd, args.join(" "));
+
     try {
-      const { stdout, stderr } = await execAsync(command);
+      const { stdout, stderr } = await execFileAsync(pythonCmd, args, {
+        cwd: process.cwd(),
+        maxBuffer: 10 * 1024 * 1024, // 10MB for long extraction output
+      });
       
       console.log("OCR Output (stdout):", stdout);
       if (stderr) {
@@ -153,7 +168,7 @@ export async function POST(request: NextRequest) {
     } catch (execError: any) {
       // Enhanced error logging
       console.error("=== OCR Script Execution Failed ===");
-      console.error("Command:", command);
+      console.error("Python:", pythonCmd, "Args:", args);
       console.error("Error message:", execError.message);
       console.error("Error code:", execError.code);
       if (execError.stdout) {
@@ -164,7 +179,7 @@ export async function POST(request: NextRequest) {
       }
       console.error("Full error object:", JSON.stringify(execError, null, 2));
       console.error("===================================");
-      
+
       // Clean up uploaded file
       try {
         const { unlink } = await import("fs/promises");
@@ -172,20 +187,37 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.error("Error deleting temp file:", e);
       }
-      
-      // Return detailed error information
+
+      // Build user-facing error: prefer Python/poppler stderr over generic message
+      const stderr = execError.stderr?.trim() || execError.stdout?.trim() || "";
+      const hasPopplerHint =
+        /poppler|pdftoppm|Unable to get page count/i.test(stderr) ||
+        /PDFInfoNotFound|pdf2image/i.test(execError.message || "");
+      const hasImportError = /ModuleNotFoundError|ImportError|No module named/i.test(stderr || execError.message || "");
+      let userError =
+        "OCR processing failed. Make sure Python dependencies are installed.";
+      if (hasPopplerHint) {
+        userError =
+          "PDF conversion failed: Poppler is required. Install poppler-utils (Linux), brew install poppler (macOS), or add Poppler to PATH on Windows. See SETUP_QUESTION_BANK.md.";
+      } else if (hasImportError) {
+        userError =
+          "Python dependencies missing. Run: pip install -r requirements.txt (and ensure venv is activated if you use one).";
+      } else if (stderr) {
+        userError = stderr.slice(0, 500);
+      }
+
       const errorDetails = {
         message: execError.message,
         code: execError.code,
         stdout: execError.stdout || null,
         stderr: execError.stderr || null,
-        command: command,
+        command: `${pythonCmd} ${args.join(" ")}`,
       };
-      
+
       return NextResponse.json(
         {
           success: false,
-          error: "OCR processing failed. Make sure Python dependencies are installed.",
+          error: userError,
           details: errorDetails,
         },
         { status: 500 }
