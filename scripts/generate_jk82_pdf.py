@@ -3,11 +3,12 @@
 JK-82 style Indian school exam paper PDF generator.
 Reads JSON from stdin: { "header": {...}, "questions": [...], "logoPath": "/path/to/logo.png" }
 Outputs PDF bytes to stdout (binary).
-Layout: Page 1 PART-B (Objective), then PART-A with SECTION-I, II, III.
+Layout: Page 1 PART-A (SECTION-I, II, III), then PART-B (Objective) at the end.
 Logo: watermark on every page (8%), header logo 60x60 on page 1.
 Helvetica only, A4 portrait, 1.8cm margins.
 """
 
+import argparse
 import json
 import sys
 import re
@@ -19,6 +20,9 @@ try:
     from reportlab.lib.units import cm, mm
     from reportlab.lib.utils import ImageReader
     from reportlab.pdfgen import canvas
+    from reportlab.platypus import Table, TableStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
 except ImportError:
     print("Error: Install reportlab: pip install reportlab", file=sys.stderr)
     sys.exit(1)
@@ -38,6 +42,10 @@ FONT_SUB = 11
 FONT_BODY = 10
 FONT_SMALL = 9
 
+# Font family: set in main() to DejaVuSans if available, else Helvetica
+FONT_FAMILY = "Helvetica"
+FONT_FAMILY_BOLD = "Helvetica-Bold"
+
 
 def clean(s):
     if s is None:
@@ -45,10 +53,31 @@ def clean(s):
     return " ".join(str(s).split())
 
 
-def wrap_text(c, text, width, font="Helvetica", size=FONT_BODY):
+def fix_special_chars(text):
+    """Pass through; subscript letters mapped to _x for clarity."""
+    if not text:
+        return text
+    text = text.replace("\u2099", "_n")   # ₙ
+    text = text.replace("\u2090", "_a")   # ₐ
+    text = text.replace("\u2091", "_e")   # ₑ
+    text = text.replace("\u2092", "_o")   # ₒ
+    text = text.replace("\u1d62", "_i")   # ᵢ
+    text = text.replace("\u1d63", "_r")   # ᵣ
+    return text
+
+
+def clean_preserve_newlines(s):
+    if s is None:
+        return ""
+    return "\n".join(" ".join(fix_special_chars(line).split()) for line in str(s).splitlines())
+
+
+def wrap_text(c, text, width, font=None, size=FONT_BODY):
     """Return list of lines that fit in width."""
+    if font is None:
+        font = FONT_FAMILY
     c.setFont(font, size)
-    words = re.split(r"\s+", clean(text))
+    words = re.split(r"\s+", text.strip())
     lines = []
     current = []
     current_width = 0
@@ -73,26 +102,22 @@ def is_mcq_section(name):
 
 
 def group_questions(questions):
-    by_section = {}
-    for q in questions:
-        sec = q.get("section", "SECTION-A")
-        if sec not in by_section:
-            by_section[sec] = []
-        by_section[sec].append(q)
+    """Partition by marks: 2→SECTION-I, 4→SECTION-II, 6→SECTION-III, 1→PART-B. Order: PART-A (I, II, III) then PART-B."""
     part_b = []
     sec_i, sec_ii, sec_iii = [], [], []
     rest = []
-    for name, qs in by_section.items():
-        if is_mcq_section(name):
-            part_b.extend(qs)
-        elif "SECTION-I" in name.upper() or "SECTION I" in name.upper():
-            sec_i = qs
-        elif "SECTION-II" in name.upper() or "SECTION II" in name.upper():
-            sec_ii = qs
-        elif "SECTION-III" in name.upper() or "SECTION III" in name.upper():
-            sec_iii = qs
+    for q in questions:
+        m = int(q.get("marks", 0))
+        if m == 1:
+            part_b.append(q)
+        elif m == 2:
+            sec_i.append(q)
+        elif m == 4:
+            sec_ii.append(q)
+        elif m == 6:
+            sec_iii.append(q)
         else:
-            rest.append((name, qs))
+            rest.append(q)
     return part_b, sec_i, sec_ii, sec_iii, rest
 
 
@@ -102,23 +127,166 @@ def draw_line(c, y, left=None, right=None):
     c.line(left, y, right, y)
 
 
+def preprocess_question_text_for_tables(text):
+    """Split single-line table data into proper lines: find segments with 3+ pipes, put each on its own line."""
+    if not text or not text.strip():
+        return text
+    pattern = r'((?:[^|]+\|){3,}[^|]*)'
+    parts = re.split(pattern, text)
+    if len(parts) < 3:
+        return text
+    lines = []
+    if parts[0].strip():
+        lines.append(parts[0].strip())
+    for i in range(1, len(parts), 2):
+        if i < len(parts) and parts[i].strip():
+            lines.append(parts[i].strip())
+    if len(parts) % 2 == 0 and len(parts) > 1 and parts[-1].strip():
+        lines.append(parts[-1].strip())
+    return "\n".join(lines) if lines else text
+
+
+def parse_table_in_text(text):
+    """Parse text into (before_lines, list_of_table_blocks, after_lines). Table row = line with 3+ '|'. Cells stripped; empty cells filtered then rows padded to same length."""
+    text = preprocess_question_text_for_tables(text or "")
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    before = []
+    tables = []
+    after = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.count("|") >= 3:
+            table_rows = []
+            while i < len(lines) and lines[i].count("|") >= 3:
+                row = [cell.strip() for cell in lines[i].split("|")]
+                row = [c for c in row if c]
+                if row:
+                    table_rows.append(row)
+                i += 1
+            if table_rows:
+                max_cols = max(len(r) for r in table_rows)
+                padded = [row + [""] * (max_cols - len(row)) for row in table_rows]
+                tables.append(padded)
+        else:
+            if not tables:
+                before.append(line)
+            else:
+                after.append(line)
+            i += 1
+    if not tables:
+        return (lines, [], [])
+    return (before, tables, after)
+
+
+def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=None, is_mcq=False, same_line_y=None):
+    """Draw question text; pipe-separated table blocks (3+ '|' per line) drawn with reportlab Table. Returns new y.
+    When is_mcq=True, skip table parsing and render as plain text.
+    When same_line_y is set, the first line of text is drawn at same_line_y (same line as question number)."""
+    text = (text or "").replace("\\n", "\n")
+    if is_mcq:
+        # Plain text only: each line wrapped and drawn, no table parsing
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        avail_width = CONTENT_WIDTH - 30
+        first_done = False
+        for line in lines:
+            for ln in wrap_text(c, line, avail_width, size=FONT_BODY):
+                if same_line_y is not None and not first_done:
+                    c.drawString(CONTENT_LEFT + indent, same_line_y, ln)
+                    first_done = True
+                    y = same_line_y - line_height
+                else:
+                    c.drawString(CONTENT_LEFT + indent, y, ln)
+                    y -= line_height
+        return y
+    before, tables, after = parse_table_in_text(text)
+    avail_width = CONTENT_WIDTH - 30
+    first_line_done = False
+    if same_line_y is not None:
+        y = same_line_y
+    if before:
+        for line in before:
+            wrapped = wrap_text(c, line, avail_width, size=FONT_BODY)
+            for idx, ln in enumerate(wrapped):
+                if same_line_y is not None and not first_line_done:
+                    c.drawString(CONTENT_LEFT + indent, same_line_y, ln)
+                    first_line_done = True
+                    y = same_line_y - line_height
+                else:
+                    c.drawString(CONTENT_LEFT + indent, y, ln)
+                    y -= line_height
+        if (tables or after) and (first_line_done or same_line_y is None):
+            y -= lead
+        if same_line_y is not None and not first_line_done:
+            y = same_line_y - line_height
+    for table_rows in tables:
+        if not table_rows:
+            continue
+        if same_line_y is not None and not first_line_done:
+            y = same_line_y - line_height
+            first_line_done = True
+        col_count = max(len(r) for r in table_rows)
+        col_width = avail_width / col_count
+        col_widths = [col_width] * col_count
+        data = [list(row) for row in table_rows]
+        t = Table(data, colWidths=col_widths, repeatRows=0)
+        t.setStyle(TableStyle([
+            ("FONT", (0, 0), (-1, -1), FONT_FAMILY, 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, (0, 0, 0)),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        tw, th = t.wrap(avail_width, PAGE_HEIGHT)
+        if y - th < 2 * MARGIN and new_page_cb:
+            new_page_cb()
+            y = PAGE_HEIGHT - MARGIN
+        if y - th >= 2 * MARGIN:
+            t.drawOn(c, CONTENT_LEFT + indent, y - th)
+            y -= th + lead
+    if after:
+        for line in after:
+            wrapped = wrap_text(c, line, avail_width, size=FONT_BODY)
+            for idx, ln in enumerate(wrapped):
+                if same_line_y is not None and not first_line_done:
+                    c.drawString(CONTENT_LEFT + indent, same_line_y, ln)
+                    first_line_done = True
+                    y = same_line_y - line_height
+                else:
+                    c.drawString(CONTENT_LEFT + indent, y, ln)
+                    y -= line_height
+        y -= lead
+    return y
+
+
 def draw_footer(c, page_num, total_pages, school_name, date_str, is_last):
-    c.setFont("Helvetica", FONT_SMALL)
+    c.setFont(FONT_FAMILY, FONT_SMALL)
     c.drawString(CONTENT_LEFT, FOOTER_Y, school_name or "")
     c.drawCentredString(PAGE_WIDTH / 2, FOOTER_Y, f"Page {page_num} of {total_pages}")
     c.drawRightString(CONTENT_RIGHT, FOOTER_Y, date_str or "")
     if is_last:
-        c.drawCentredString(PAGE_WIDTH / 2, TURN_OVER_Y, "\u2726   \u2726   \u2726")
+        pass
     else:
         c.drawRightString(CONTENT_RIGHT, TURN_OVER_Y, "[ Turn Over ]")
 
 
 def draw_watermark(c, logo_path):
-    if not logo_path or not os.path.isfile(logo_path):
+    base = os.getcwd()
+    exam_path = os.path.join(base, "public", "images", "school-logo-exam.png")
+    logo_pub_path = os.path.join(base, "public", "images", "school-logo.png")
+    if os.path.isfile(exam_path):
+        watermark_path = exam_path
+    elif os.path.isfile(logo_pub_path):
+        watermark_path = logo_pub_path
+    else:
+        watermark_path = logo_path
+    if not watermark_path or not os.path.isfile(watermark_path):
         return
     try:
         from PIL import Image as PILImage
-        img_pil = PILImage.open(logo_path).convert("RGBA")
+        img_pil = PILImage.open(watermark_path).convert("RGBA")
         w, h = img_pil.size
         pixels = img_pil.load()
         for i in range(w):
@@ -131,7 +299,7 @@ def draw_watermark(c, logo_path):
         img_pil.save(buf, format="PNG")
         buf.seek(0)
         img = ImageReader(buf)
-        size = 280
+        size = 220
         x = (PAGE_WIDTH - size) / 2
         y = (PAGE_HEIGHT - size) / 2
         c.drawImage(img, x, y, width=size, height=size, preserveAspectRatio=True, mask="auto")
@@ -152,16 +320,16 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
     text_center_x = (CONTENT_LEFT + logo_size + CONTENT_RIGHT) / 2
     lead = 5 * mm
     y = y_top - 4
-    c.setFont("Helvetica-Bold", 14)
+    c.setFont(FONT_FAMILY_BOLD, 14)
     c.drawCentredString(text_center_x, y, school_name or "DIVYA HIGH SCHOOL BCM")
     y -= lead
-    c.setFont("Helvetica", 10)
+    c.setFont(FONT_FAMILY, 10)
     c.drawCentredString(text_center_x, y, location or "Bhadrachalam")
     y -= lead
-    c.setFont("Helvetica-Bold", 11)
+    c.setFont(FONT_FAMILY_BOLD, 11)
     c.drawCentredString(text_center_x, y, exam_title or "PRE-FINAL EXAMINATIONS")
     y -= lead
-    c.setFont("Helvetica", 10)
+    c.setFont(FONT_FAMILY, 10)
     c.drawCentredString(text_center_x, y, subject or "MATHEMATICS (English Version)")
     y -= 3 * mm
     c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max.Marks: {max_marks}    Time: {time_str}")
@@ -171,6 +339,36 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
 
 
 def main():
+    global FONT_FAMILY, FONT_FAMILY_BOLD
+    parser = argparse.ArgumentParser(description="JK-82 style exam paper PDF generator.")
+    parser.add_argument("--output", dest="output", default=None, metavar="filepath", help="Write PDF to file instead of stdout")
+    args = parser.parse_args()
+
+    # Register Unicode-capable font if available (Segoe UI, else Arial fallback)
+    segoe_path = "C:/Windows/Fonts/segoeui.ttf"
+    segoe_bold_path = "C:/Windows/Fonts/segoeuib.ttf"
+    arial_path = "C:/Windows/Fonts/arial.ttf"
+    arial_bold_path = "C:/Windows/Fonts/arialbd.ttf"
+    if os.path.isfile(segoe_path):
+        try:
+            pdfmetrics.registerFont(TTFont("SegoeUI", segoe_path))
+            if os.path.isfile(segoe_bold_path):
+                pdfmetrics.registerFont(TTFont("SegoeUIBold", segoe_bold_path))
+            FONT_FAMILY = "SegoeUI"
+            FONT_FAMILY_BOLD = "SegoeUIBold"
+        except Exception:
+            pass
+    if FONT_FAMILY == "Helvetica" and os.path.isfile(arial_path):
+        try:
+            pdfmetrics.registerFont(TTFont("Arial", arial_path))
+            if os.path.isfile(arial_bold_path):
+                pdfmetrics.registerFont(TTFont("Arial-Bold", arial_bold_path))
+            FONT_FAMILY = "Arial"
+            FONT_FAMILY_BOLD = "Arial-Bold"
+        except Exception:
+            pass
+
+    part_a_questions = []
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError as e:
@@ -197,7 +395,7 @@ def main():
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    c.setFont("Helvetica", FONT_BODY)
+    c.setFont(FONT_FAMILY, FONT_BODY)
     line_height = 5 * mm
     lead = 6 * mm
     y = PAGE_HEIGHT - MARGIN
@@ -210,103 +408,49 @@ def main():
         draw_watermark(c, logo_path)
         y = PAGE_HEIGHT - MARGIN
 
-    # ---------- PAGE 1: Watermark, then header (logo+text or text-only), then PART-B or PART-A ----------
+    # ---------- PAGE 1: Watermark, then header (logo+text or text-only), then PART-A then PART-B ----------
     draw_watermark(c, logo_path)
     if logo_path:
         location = clean(header.get("location", "Bhadrachalam"))
         y = draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str)
     else:
-        c.setFont("Helvetica", FONT_SMALL)
+        c.setFont(FONT_FAMILY, FONT_SMALL)
         c.drawCentredString(PAGE_WIDTH / 2, y, exam_code)
         y -= lead
-        c.setFont("Helvetica", FONT_SUB)
+        c.setFont(FONT_FAMILY, FONT_SUB)
         c.drawCentredString(PAGE_WIDTH / 2, y, exam_title)
         y -= lead
         c.drawCentredString(PAGE_WIDTH / 2, y, subject)
         y -= lead
-        c.setFont("Helvetica", FONT_BODY)
+        c.setFont(FONT_FAMILY, FONT_BODY)
         c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max.Marks: {max_marks}    Time: {time_str}")
         y -= lead
         draw_line(c, y)
         y -= lead
 
-    if part_b:
-        # PART-B block
-        c.setFont("Helvetica", FONT_SUB)
-        c.drawString(CONTENT_LEFT, y, "PART - B    Objective Type    Marks: 20")
-        y -= line_height
-        c.setFont("Helvetica", FONT_BODY)
-        c.drawString(CONTENT_LEFT, y, "Time: 30 Min")
-        y -= line_height
-        c.drawString(CONTENT_LEFT, y, "Instructions:  i) Answer all   ii) 1 mark each")
-        y -= lead
-        draw_line(c, y)
-        y -= lead
+    part_a_questions = sec_i + sec_ii + sec_iii + rest
 
-        part_b_marks = sum(int(q.get("marks", 1)) for q in part_b)
-        for i, q in enumerate(part_b):
-            num = i + 1
-            text = clean(q.get("text", ""))
-            opts = q.get("options") or []
-            opts = (opts + ["", "", "", ""])[:4]
-            if y < 2 * MARGIN + 40:
-                new_page()
-                y = PAGE_HEIGHT - MARGIN
-            c.setFont("Helvetica", FONT_BODY)
-            bubble_x = CONTENT_RIGHT - 15
-            c.drawString(CONTENT_LEFT, y, f"{num}.")
-            text_lines = wrap_text(c, text, CONTENT_WIDTH - 60, size=FONT_BODY)
-            if text_lines:
-                for line in text_lines[:-1]:
-                    c.drawString(CONTENT_LEFT + 12, y, line)
-                    y -= line_height
-                last_line = text_lines[-1]
-                c.drawString(CONTENT_LEFT + 12, y, last_line)
-                c.rect(bubble_x - 4, y - 1, 12, 5)
-            else:
-                c.rect(bubble_x - 4, y - 1, 12, 5)
-            y -= line_height
-            row1 = f"A) {clean(opts[0])}    B) {clean(opts[1])}"
-            row2 = f"C) {clean(opts[2])}    D) {clean(opts[3])}"
-            for line in wrap_text(c, row1, CONTENT_WIDTH - 20, size=FONT_SMALL):
-                c.drawString(CONTENT_LEFT + 12, y, line)
-                y -= line_height
-            for line in wrap_text(c, row2, CONTENT_WIDTH - 20, size=FONT_SMALL):
-                c.drawString(CONTENT_LEFT + 12, y, line)
-                y -= line_height
-            y -= line_height
-
-        y -= 3 * mm
-
-    # PART-A (start on new page if we had PART-B)
-    if part_b and part_a_questions:
-        new_page()
-        y = PAGE_HEIGHT - MARGIN
-    part_a_questions = sec_i + sec_ii + sec_iii
-    for name, qs in rest:
-        part_a_questions.extend(qs)
-    if not part_b and part_a_questions:
-        pass  # header already drawn
+    # PART-A first (SECTION-I, SECTION-II, SECTION-III, then rest)
     if part_a_questions:
-        if y < PAGE_HEIGHT - 4 * MARGIN or (part_b and y < 3 * MARGIN):
+        if y < PAGE_HEIGHT - 4 * MARGIN:
             new_page()
             y = PAGE_HEIGHT - MARGIN
-        c.setFont("Helvetica", FONT_SUB)
-        part_a_marks = sum(int(q.get("marks", 1)) for q in part_a_questions)
+        c.setFont(FONT_FAMILY, FONT_SUB)
+        part_a_marks = sum(int(q.get("marks", 0)) for q in part_a_questions)
         c.drawString(CONTENT_LEFT, y, f"PART - A    Time: 2.30 Hrs    Marks: {part_a_marks}")
         y -= lead
         draw_line(c, y)
         y -= lead
 
         q_global = 0
-        # SECTION - I
+        # SECTION - I (2 marks)
         if sec_i:
-            c.setFont("Helvetica", FONT_SUB)
-            sec_i_marks = sum(int(q.get("marks", 1)) for q in sec_i)
-            n, m = len(sec_i), (sec_i[0].get("marks", 2) if sec_i else 2)
-            c.drawString(CONTENT_LEFT, y, f"SECTION - I  (Marks {n}x{m}={sec_i_marks})")
+            c.setFont(FONT_FAMILY, FONT_SUB)
+            sec_i_marks = sum(int(q.get("marks", 0)) for q in sec_i)
+            n = len(sec_i)
+            c.drawString(CONTENT_LEFT, y, f"SECTION - I  (2 marks)")
             y -= line_height
-            c.setFont("Helvetica", FONT_SMALL)
+            c.setFont(FONT_FAMILY, FONT_SMALL)
             c.drawString(CONTENT_LEFT, y, "NOTE:  i) Answer all   ii) Each question carries 2 marks")
             y -= lead
             for q in sec_i:
@@ -314,50 +458,42 @@ def main():
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean(q.get("text", ""))
-                marks = int(q.get("marks", 2))
-                c.setFont("Helvetica", FONT_BODY)
+                text = clean_preserve_newlines(q.get("text", ""))
+                marks = int(q.get("marks", 0)) or 2
+                c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
-                c.drawString(CONTENT_RIGHT - 25, y, f"[{marks} m]")
-                y -= line_height
-                for line in wrap_text(c, text, CONTENT_WIDTH - 30, size=FONT_BODY):
-                    c.drawString(CONTENT_LEFT + 14, y, line)
-                    y -= line_height
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y)
                 y -= lead
             y -= 2 * mm
 
-        # SECTION - II
+        # SECTION - II (4 marks)
         if sec_ii:
-            c.setFont("Helvetica", FONT_SUB)
-            sec_ii_marks = sum(int(q.get("marks", 1)) for q in sec_ii)
-            n, m = len(sec_ii), (sec_ii[0].get("marks", 4) if sec_ii else 4)
-            c.drawString(CONTENT_LEFT, y, f"SECTION - II  ({n}x{m}={sec_ii_marks})")
+            c.setFont(FONT_FAMILY, FONT_SUB)
+            sec_ii_marks = sum(int(q.get("marks", 0)) for q in sec_ii)
+            n = len(sec_ii)
+            c.drawString(CONTENT_LEFT, y, f"SECTION - II  (4 marks)")
             y -= lead
             for q in sec_ii:
                 q_global += 1
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean(q.get("text", ""))
-                marks = int(q.get("marks", 4))
-                c.setFont("Helvetica", FONT_BODY)
+                text = clean_preserve_newlines(q.get("text", ""))
+                marks = int(q.get("marks", 0)) or 4
+                c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
-                c.drawString(CONTENT_RIGHT - 25, y, f"[{marks} m]")
-                y -= line_height
-                for line in wrap_text(c, text, CONTENT_WIDTH - 30, size=FONT_BODY):
-                    c.drawString(CONTENT_LEFT + 14, y, line)
-                    y -= line_height
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y)
                 y -= lead
             y -= 2 * mm
 
-        # SECTION - III
+        # SECTION - III (6 marks)
         if sec_iii:
-            c.setFont("Helvetica", FONT_SUB)
-            sec_iii_marks = sum(int(q.get("marks", 1)) for q in sec_iii)
-            n, m = len(sec_iii), (sec_iii[0].get("marks", 6) if sec_iii else 6)
-            c.drawString(CONTENT_LEFT, y, f"SECTION - III  (4x{m}={4*m})")
+            c.setFont(FONT_FAMILY, FONT_SUB)
+            sec_iii_marks = sum(int(q.get("marks", 0)) for q in sec_iii)
+            n = len(sec_iii)
+            c.drawString(CONTENT_LEFT, y, f"SECTION - III  (6 marks)")
             y -= line_height
-            c.setFont("Helvetica", FONT_SMALL)
+            c.setFont(FONT_FAMILY, FONT_SMALL)
             c.drawString(CONTENT_LEFT, y, "NOTE: Answer any 4 of the following")
             y -= lead
             for q in sec_iii:
@@ -365,36 +501,68 @@ def main():
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean(q.get("text", ""))
-                marks = int(q.get("marks", 6))
-                c.setFont("Helvetica", FONT_BODY)
+                text = clean_preserve_newlines(q.get("text", ""))
+                marks = int(q.get("marks", 0)) or 6
+                c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
-                c.drawString(CONTENT_RIGHT - 25, y, f"[{marks} m]")
-                y -= line_height
-                for line in wrap_text(c, text, CONTENT_WIDTH - 30, size=FONT_BODY):
-                    c.drawString(CONTENT_LEFT + 14, y, line)
-                    y -= line_height
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y)
                 y -= lead
 
-        for name, qs in rest:
-            c.setFont("Helvetica", FONT_SUB)
-            c.drawString(CONTENT_LEFT, y, name)
-            y -= lead
-            for q in qs:
+        if rest:
+            for q in rest:
                 q_global += 1
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean(q.get("text", ""))
-                marks = int(q.get("marks", 1))
-                c.setFont("Helvetica", FONT_BODY)
+                text = clean_preserve_newlines(q.get("text", ""))
+                marks = int(q.get("marks", 0)) or 1
+                c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
                 c.drawString(CONTENT_RIGHT - 25, y, f"[{marks} m]")
-                y -= line_height
-                for line in wrap_text(c, text, CONTENT_WIDTH - 30, size=FONT_BODY):
-                    c.drawString(CONTENT_LEFT + 14, y, line)
-                    y -= line_height
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, is_mcq=True, same_line_y=y)
                 y -= lead
+
+    # PART-B at the end (new page if we had PART-A)
+    if part_b:
+        if part_a_questions:
+            new_page()
+            y = PAGE_HEIGHT - MARGIN
+        # PART-B block
+        c.setFont(FONT_FAMILY, FONT_SUB)
+        c.drawString(CONTENT_LEFT, y, "PART - B    Objective Type    Marks: 20")
+        y -= line_height
+        c.setFont(FONT_FAMILY, FONT_BODY)
+        c.drawString(CONTENT_LEFT, y, "Time: 30 Min")
+        y -= line_height
+        c.drawString(CONTENT_LEFT, y, "Instructions:  i) Answer all   ii) 1 mark each")
+        y -= lead
+        draw_line(c, y)
+        y -= lead
+
+        part_b_marks = sum(int(q.get("marks", 0)) for q in part_b)
+        for i, q in enumerate(part_b):
+            num = i + 1
+            text = clean_preserve_newlines(q.get("text", ""))
+            opts = q.get("options") or []
+            opts = (opts + ["", "", "", ""])[:4]
+            if y < 2 * MARGIN + 40:
+                new_page()
+                y = PAGE_HEIGHT - MARGIN
+            c.setFont(FONT_FAMILY, FONT_BODY)
+            question_y = y
+            c.drawString(CONTENT_LEFT, y, f"{num}.")
+            c.drawString(CONTENT_RIGHT - 20, question_y, "(        )")
+            y = draw_question_content(c, text, y, line_height, lead, 20, new_page, same_line_y=question_y)
+            c.setFont(FONT_FAMILY, FONT_SMALL)
+            c.drawString(CONTENT_LEFT + 12, y, f"A) {clean(opts[0])}")
+            c.drawString(CONTENT_LEFT + CONTENT_WIDTH / 2, y, f"B) {clean(opts[1])}")
+            y -= line_height
+            c.drawString(CONTENT_LEFT + 12, y, f"C) {clean(opts[2])}")
+            c.drawString(CONTENT_LEFT + CONTENT_WIDTH / 2, y, f"D) {clean(opts[3])}")
+            y -= line_height
+            y -= lead
+
+        y -= 3 * mm
 
     c.save()
     pdf_bytes = buffer.getvalue()
@@ -416,7 +584,11 @@ def main():
         writer.add_page(page)
     out = BytesIO()
     writer.write(out)
-    sys.stdout.buffer.write(out.getvalue())
+    if args.output is not None:
+        with open(args.output, "wb") as f:
+            f.write(out.getvalue())
+    else:
+        sys.stdout.buffer.write(out.getvalue())
 
 
 if __name__ == "__main__":
