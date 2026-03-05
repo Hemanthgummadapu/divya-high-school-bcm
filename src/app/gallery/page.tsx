@@ -7,12 +7,10 @@ import { useState, useEffect, useCallback, type ReactNode } from "react";
 const GALLERY_IMAGES = [
   // Campus – school building and courtyard (from homepage slideshow)
   { src: "/school-building.png", alt: "Divya High School - School Building", caption: "School Building & Courtyard", category: "campus" as const },
-  { src: "/slideshow1.png", alt: "Divya High School - Campus", caption: "Campus & Classroom Learning", category: "campus" as const },
+  { src: "/slideshow1.png", alt: "Divya High School - Campus", caption: "Campus & Student Life", category: "campus" as const },
   // Sports – playground and running track (from homepage slideshow)
-  { src: "/slideshow2.png", alt: "Divya High School - Sports", caption: "Sports & Activities", category: "sports" as const },
-  { src: "/slideshow3.png", alt: "Divya High School - Sports", caption: "Playground & Sports", category: "sports" as const },
-  // Events – assembly or celebration courtyard (from homepage slideshow)
-  { src: "/slideshow4.png", alt: "Divya High School - Event", caption: "Celebration Courtyard", category: "events" as const },
+  { src: "/slideshow2.png", alt: "Divya High School - Sports", caption: "Playground & Sports", category: "sports" as const },
+  // Events – (slideshow3/slideshow4 removed; add event images here when available)
   // Cultural
   { src: "/images/cultural/divya-annual-day-2.jpg", alt: "Cultural performance", caption: "Cultural Dance by Students", category: "cultural" as const },
   { src: "/images/cultural/divya-annual-day-8.jpg", alt: "Cultural program", caption: "Folk Dance Performance", category: "cultural" as const },
@@ -27,6 +25,91 @@ const GALLERY_IMAGES = [
   { src: "/images/cultural/divya-annual-day-12.jpg", alt: "Annual Day", caption: "Group Performance at Annual Day", category: "annual-day" as const },
   { src: "/images/cultural/divya-annual-day-14.jpg", alt: "Stage performance", caption: "Student Talent on Stage", category: "annual-day" as const },
   { src: "/images/cultural/divya-annual-day-17.jpg", alt: "Annual Day highlight", caption: "Cultural Event at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-24.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Celebration", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-25.jpg", alt: "Annual Day at Divya High School", caption: "Students Performing on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-26.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-27.jpg", alt: "Annual Day at Divya High School", caption: "Kids Showcasing Talent", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-28.jpg", alt: "Annual Day at Divya High School", caption: "School Cultural Event", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-29.jpg", alt: "Annual Day at Divya High School", caption: "Student Talent Showcase", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-30.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-31.jpg", alt: "Annual Day at Divya High School", caption: "Stage Performance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-32.jpg", alt: "Annual Day at Divya High School", caption: "Young Artists Performing", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-33.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Fest at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-34.jpg", alt: "Annual Day at Divya High School", caption: "Group Dance at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-35.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Stage Show", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-36.jpg", alt: "Annual Day at Divya High School", caption: "Student Performance Highlights", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-37.jpg", alt: "Annual Day at Divya High School", caption: "Celebration at Divya High School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-38.jpg", alt: "Annual Day at Divya High School", caption: "Dance and Music at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-39.jpg", alt: "Annual Day at Divya High School", caption: "Folk Dance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-40.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Festivities", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-41.jpg", alt: "Annual Day at Divya High School", caption: "Students on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-42.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Program at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-43.jpg", alt: "Annual Day at Divya High School", caption: "Talent Show at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-44.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Celebration", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-45.jpg", alt: "Annual Day at Divya High School", caption: "Students Performing on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-46.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-47.jpg", alt: "Annual Day at Divya High School", caption: "Kids Showcasing Talent", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-48.jpg", alt: "Annual Day at Divya High School", caption: "School Cultural Event", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-49.jpg", alt: "Annual Day at Divya High School", caption: "Student Talent Showcase", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-50.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-51.jpg", alt: "Annual Day at Divya High School", caption: "Stage Performance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-52.jpg", alt: "Annual Day at Divya High School", caption: "Young Artists Performing", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-53.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Fest at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-54.jpg", alt: "Annual Day at Divya High School", caption: "Group Dance at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-55.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Stage Show", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-56.jpg", alt: "Annual Day at Divya High School", caption: "Student Performance Highlights", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-57.jpg", alt: "Annual Day at Divya High School", caption: "Celebration at Divya High School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-58.jpg", alt: "Annual Day at Divya High School", caption: "Dance and Music at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-59.jpg", alt: "Annual Day at Divya High School", caption: "Folk Dance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-60.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Festivities", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-61.jpg", alt: "Annual Day at Divya High School", caption: "Students on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-62.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Program at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-63.jpg", alt: "Annual Day at Divya High School", caption: "Talent Show at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-64.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Celebration", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-65.jpg", alt: "Annual Day at Divya High School", caption: "Students Performing on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-66.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-67.jpg", alt: "Annual Day at Divya High School", caption: "Kids Showcasing Talent", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-68.jpg", alt: "Annual Day at Divya High School", caption: "School Cultural Event", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-69.jpg", alt: "Annual Day at Divya High School", caption: "Student Talent Showcase", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-70.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-71.jpg", alt: "Annual Day at Divya High School", caption: "Stage Performance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-72.jpg", alt: "Annual Day at Divya High School", caption: "Young Artists Performing", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-73.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Fest at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-74.jpg", alt: "Annual Day at Divya High School", caption: "Group Dance at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-75.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Stage Show", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-76.jpg", alt: "Annual Day at Divya High School", caption: "Student Performance Highlights", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-77.jpg", alt: "Annual Day at Divya High School", caption: "Celebration at Divya High School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-78.jpg", alt: "Annual Day at Divya High School", caption: "Dance and Music at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-79.jpg", alt: "Annual Day at Divya High School", caption: "Folk Dance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-80.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Festivities", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-81.jpg", alt: "Annual Day at Divya High School", caption: "Students on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-82.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Program at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-83.jpg", alt: "Annual Day at Divya High School", caption: "Talent Show at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-84.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Celebration", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-85.jpg", alt: "Annual Day at Divya High School", caption: "Students Performing on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-86.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-87.jpg", alt: "Annual Day at Divya High School", caption: "Kids Showcasing Talent", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-88.jpg", alt: "Annual Day at Divya High School", caption: "School Cultural Event", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-89.jpg", alt: "Annual Day at Divya High School", caption: "Student Talent Showcase", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-90.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-91.jpg", alt: "Annual Day at Divya High School", caption: "Stage Performance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-92.jpg", alt: "Annual Day at Divya High School", caption: "Young Artists Performing", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-93.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Fest at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-94.jpg", alt: "Annual Day at Divya High School", caption: "Group Dance at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-95.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Stage Show", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-96.jpg", alt: "Annual Day at Divya High School", caption: "Student Performance Highlights", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-97.jpg", alt: "Annual Day at Divya High School", caption: "Celebration at Divya High School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-98.jpg", alt: "Annual Day at Divya High School", caption: "Dance and Music at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-99.jpg", alt: "Annual Day at Divya High School", caption: "Folk Dance by Students", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-100.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Festivities", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-101.jpg", alt: "Annual Day at Divya High School", caption: "Students on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-102.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Program at School", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-103.jpg", alt: "Annual Day at Divya High School", caption: "Talent Show at Annual Day", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-104.jpg", alt: "Annual Day at Divya High School", caption: "Annual Day Celebration", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-105.jpg", alt: "Annual Day at Divya High School", caption: "Students Performing on Stage", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-106.jpg", alt: "Annual Day at Divya High School", caption: "Cultural Dance Performance", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-107.jpg", alt: "Annual Day at Divya High School", caption: "Kids Showcasing Talent", category: "annual-day" as const },
+  { src: "/images/cultural/divya-annual-day-108.jpg", alt: "Annual Day at Divya High School", caption: "School Cultural Event", category: "annual-day" as const },
 ];
 
 type FilterValue = "all" | "annual-day" | "cultural" | "sports" | "events" | "campus";
@@ -39,6 +122,9 @@ const FILTERS: { value: FilterValue; label: string }[] = [
   { value: "cultural", label: "Cultural" },
   { value: "annual-day", label: "Annual Day" },
 ];
+
+const INITIAL_PAGE_SIZE = 12;
+const LOAD_MORE_SIZE = 12;
 
 function FadeInItem({ children, delayMs = 0 }: { children: ReactNode; delayMs?: number }) {
   const [visible, setVisible] = useState(false);
@@ -61,6 +147,7 @@ function FadeInItem({ children, delayMs = 0 }: { children: ReactNode; delayMs?: 
 
 export default function Gallery() {
   const [activeFilter, setActiveFilter] = useState<FilterValue>("all");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [lightboxFade, setLightboxFade] = useState<"in" | "out" | null>(null);
 
@@ -70,6 +157,20 @@ export default function Gallery() {
   const filteredIndices = activeFilter === "all"
     ? GALLERY_IMAGES.map((_, i) => i)
     : GALLERY_IMAGES.map((img, i) => (img.category === activeFilter ? i : -1)).filter((i) => i >= 0);
+
+  // Show only the first visibleCount items for performance (Load More)
+  const visibleImages = filteredImages.slice(0, visibleCount);
+  const visibleIndices = filteredIndices.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredImages.length;
+
+  // Reset to first page when filter changes
+  useEffect(() => {
+    setVisibleCount(INITIAL_PAGE_SIZE);
+  }, [activeFilter]);
+
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + LOAD_MORE_SIZE, filteredImages.length));
+  }, [filteredImages.length]);
 
   const openLightbox = useCallback((index: number) => {
     setLightboxIndex(index);
@@ -171,14 +272,15 @@ export default function Gallery() {
 
           {/* Photo count */}
           <p className="text-center text-gray-500 text-sm mb-8">
-            {activeFilter === "all" ? GALLERY_IMAGES.length : filteredImages.length} photo
-            {(activeFilter === "all" ? GALLERY_IMAGES.length : filteredImages.length) !== 1 ? "s" : ""}
+            {hasMore
+              ? `Showing ${visibleImages.length} of ${filteredImages.length} photo${filteredImages.length !== 1 ? "s" : ""}`
+              : `${filteredImages.length} photo${filteredImages.length !== 1 ? "s" : ""}`}
           </p>
 
-          {/* Responsive grid */}
+          {/* Responsive grid – only render visible items for performance */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 md:gap-10">
-            {filteredImages.map((img, i) => {
-              const originalIndex = filteredIndices[i];
+            {visibleImages.map((img, i) => {
+              const originalIndex = visibleIndices[i];
               return (
                 <FadeInItem key={originalIndex} delayMs={100 + i * 40}>
                   <button
@@ -190,6 +292,7 @@ export default function Gallery() {
                       src={img.src}
                       alt={img.alt}
                       fill
+                      loading="lazy"
                       className="object-cover transition-transform duration-300 ease-out group-hover:scale-105"
                       sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                     />
@@ -207,6 +310,19 @@ export default function Gallery() {
               );
             })}
           </div>
+
+          {/* Load More – only show when there are more items in current filter */}
+          {hasMore && (
+            <div className="mt-12 flex justify-center">
+              <button
+                type="button"
+                onClick={loadMore}
+                className="rounded-full px-8 py-3.5 text-base font-semibold font-heading text-white bg-[#2563eb] hover:bg-[#1d4ed8] shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:ring-offset-2"
+              >
+                Load More
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

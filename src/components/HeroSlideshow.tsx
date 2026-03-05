@@ -11,8 +11,6 @@ const HERO_SLIDES = [
   { src: "/school-building.png", alt: "Divya High School - School Building", title: "Our Campus" },
   { src: "/slideshow1.png", alt: "Divya High School - Campus", title: "Campus & Student Life" },
   { src: "/slideshow2.png", alt: "Divya High School - Assembly", title: "Events & Assembly" },
-  { src: "/slideshow3.png", alt: "Divya High School - Learning", title: "Classroom Learning" },
-  { src: "/slideshow4.png", alt: "Divya High School - Sports", title: "Sports & Activities" },
 ];
 
 const TOTAL_SLIDES = HERO_SLIDES.length;
