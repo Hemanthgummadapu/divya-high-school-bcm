@@ -1,6 +1,5 @@
 FROM node:20-slim
 
-# Install Python and system dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -11,20 +10,22 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Create Python venv and install dependencies
 COPY requirements.txt ./
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --upgrade pip && \
     /app/venv/bin/pip install -r requirements.txt
 
-# Install Node dependencies
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy all source files
 COPY . .
 
-# Build Next.js
+# Build args for Next.js public env vars needed at build time
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
 ENV NODE_ENV=production
 RUN npm run build
 
