@@ -452,6 +452,7 @@ def main():
             y -= line_height
             c.setFont(FONT_FAMILY, FONT_SMALL)
             c.drawString(CONTENT_LEFT, y, "NOTE:  i) Answer all   ii) Each question carries 2 marks")
+            y -= 14
             y -= lead
             for q in sec_i:
                 q_global += 1
@@ -495,6 +496,7 @@ def main():
             y -= line_height
             c.setFont(FONT_FAMILY, FONT_SMALL)
             c.drawString(CONTENT_LEFT, y, "NOTE: Answer any 4 of the following")
+            y -= 14
             y -= lead
             for q in sec_iii:
                 q_global += 1

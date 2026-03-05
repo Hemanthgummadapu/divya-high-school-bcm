@@ -27,11 +27,23 @@ try:
     from anthropic import Anthropic
     from dotenv import load_dotenv
 except ImportError as e:
-    print(f"Error: Missing required package. Install with: pip install pdf2image pypdf pillow anthropic python-dotenv")
+    print(
+        "Error: Missing required package. Install with: pip install pdf2image pypdf pillow anthropic python-dotenv"
+    )
     sys.exit(1)
 
-# Load environment variables (project root = parent of scripts/)
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env.local")
+# In production (Railway), env vars are set directly in the environment
+# In development, they come from .env.local
+print(
+    f"DEBUG: ANTHROPIC_API_KEY present: {bool(os.getenv('ANTHROPIC_API_KEY'))}",
+    file=sys.stderr,
+)
+
+# Load environment variables (project root = parent of scripts/). Optional in production.
+load_dotenv(
+    dotenv_path=Path(__file__).resolve().parent.parent / ".env.local",
+    override=False,
+)
 
 
 def check_poppler_available(pdf_path: str) -> None:
@@ -264,10 +276,10 @@ class QuestionExtractor:
         # Initialize Claude client
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            print("Error: ANTHROPIC_API_KEY not found in .env.local")
-            print("Please add ANTHROPIC_API_KEY=your_key_here to .env.local")
-            sys.exit(1)
-        
+            # In production this should be set via environment variables.
+            # Raise a clear exception instead of exiting the interpreter so callers can handle it.
+            raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+
         self.claude_client = Anthropic(api_key=api_key)
         
     def _get_total_pages(self) -> int:

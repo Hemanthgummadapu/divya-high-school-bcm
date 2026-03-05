@@ -1,1 +1,463 @@
-{"header": {"schoolName": "Divya High School", "examTitle": "Test Exam", "subject": "Maths", "class": "10", "maxMarks": "100", "time": "3.00 Hrs"}, "questions": [{"number": "1", "text": "If A={x:x is a even prime} and B={x:x is a factor of 16} then find the value of n(AUB)", "marks": 2, "type": "Short", "section": "SECTION-I", "id": "q_030595382894", "options": []}, {"number": "2", "text": "Srikanth says \"\u221a2 and 2 is a zero of the polynomial p(x)=x\u00b2-2x\"? Do you agree with his answer? give reason?", "marks": 2, "type": "Short", "section": "SECTION-I", "id": "q_c6d5cccde2c6", "options": []}, {"number": "3", "text": "Prove that the value of 2log\u20822, log\u208216, 4log\u20824 are in geometric progression.", "marks": 2, "type": "Short", "section": "SECTION-I", "id": "q_538e763f8c56", "options": []}, {"number": "4", "text": "One card is selected from a well shuffled Deck of 52 cards. Find the probability of getting a red card with prime number.", "marks": 2, "type": "Short", "section": "SECTION-I", "id": "q_303d64c862e4", "options": []}, {"number": "5", "text": "The vertex angle of a cone is 60\u00b0. Find the ratio of the diameter with the height of the cone.", "marks": 2, "type": "Short", "section": "SECTION-I", "id": "q_969612797f13", "options": []}, {"number": "6", "text": "If 2sin \u03b8 = 1 then find Tan\u00b2 \u03b8 + Cos\u00b2 \u03b8", "marks": 2, "type": "Short", "section": "SECTION-I", "id": "q_54c3b447f35f", "options": []}, {"number": "7", "text": "Divide x\u00b3-4x\u00b2+5x-2 with x-2, write quotient and remainder.", "marks": 4, "type": "Medium", "section": "SECTION-II", "id": "q_0ddace7fd337", "options": []}, {"number": "8", "text": "Explain the tops in the formula S_n = 1/2 [2a+(n-1)d]", "marks": 4, "type": "Medium", "section": "SECTION-II", "id": "q_1dc4c04e5b30", "options": []}, {"number": "9", "text": "Two boys on either side of their school building 20m height, observes its top at the angles of elevation 30\u00b0 and 60\u00b0 respectively. Find the distance between two boys.", "marks": 4, "type": "Medium", "section": "SECTION-II", "id": "q_a280e32dec52", "options": []}, {"number": "10", "text": "Show that [(1+cot\u00b2\u03b8)(1-cos\u03b8)(1+cos\u03b8)]/2 = sin 30\u00b0", "marks": 4, "type": "Medium", "section": "SECTION-II", "id": "q_89263a8d34fa", "options": []}, {"number": "11", "text": "Devide the line segment of length 6cm in the ratio 3:5", "marks": 4, "type": "Medium", "section": "SECTION-II", "id": "q_70ba44d2c123", "options": []}, {"number": "12", "text": "Find the value of \"K\" for which points (K, K), (3, 2), (4, -1) are collinear.", "marks": 4, "type": "Medium", "section": "SECTION-II", "id": "q_aa5926257acc", "options": []}, {"number": "7", "text": "The angle between two parallel lines", "options": ["0\u00b0", "180\u00b0", "not define", "90\u00b0"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_ffa08df4ad00"}, {"number": "8", "text": "In a \u25b3ABC, the DE||BC, then AD/DB =", "options": ["AE/EC", "AC/EC", "EC/AE", "AB/DB"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_634b38301e51"}, {"number": "9", "text": "In adjacent figure, AB is diameter then \u2220C is", "options": ["90\u00b0", "180\u00b0", "0\u00b0", "360\u00b0"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_adc98bd0db57"}, {"number": "10", "text": "Volume of cone 3cm\u00b3 then volume of cylinder is (both radius and heights are same)", "options": ["3cm\u00b3", "9cm\u00b3", "6cm\u00b3", "12cm\u00b3"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_993718aa61f9"}, {"number": "11", "text": "Sin25\u00b0 \u00d7 Cosec25\u00b0", "options": ["0", "1", "2", "-1"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_0944fe3930a0"}, {"number": "12", "text": "In evening due to the sunlight, shadow of tree is \u221a3 time of its height then angle between sunrays and shadow is", "options": ["90\u00b0", "60\u00b0", "30\u00b0", "45\u00b0"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_de4601b97229"}, {"number": "13", "text": "If a letter is selected at random from a word MATHEMATICS then probability that it will be \"A\".", "options": ["2/10", "2/11", "2/13", "2/9"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_5d01d2b27c64"}, {"number": "1", "text": "Which of the following is irrational.", "options": ["log\u2081\u208010", "log\u2081\u20802", "log_a a", "log\u2081\u2080(1)"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_4bcc1eb9606e"}, {"number": "2", "text": "The number of subset of A={1, 2}", "options": ["2", "4", "0", "none"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_3de3cb5c9782"}, {"number": "3", "text": "The degree of constant polynomial is =", "options": ["2", "\u221a2", "0", "1"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_4b30e09628f1"}, {"number": "4", "text": "2x+3y+5=0, 4x+6y+10=0 are_____ lines.", "options": ["parallel", "intersecting", "coinciding", "all the above"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_7ecb2e22d539"}, {"number": "5", "text": "Sin\u00b2\u03b8+(1- Sin\u00b2\u03b8) =", "options": ["0", "1", "2", "10"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_d0f762b1902e"}, {"number": "6", "text": "If a, b, c are G.P. then b=", "options": ["a+c", "\u221aac", "a-c", "(a-c)/2"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_4b7c9c04a7e0"}, {"number": "14", "text": "Type of Vehicle | No.of vehicles sold\nCars | 14\nBusses | 15\nbikes | 16\n\nMode of the above data", "options": ["cars", "busses", "bikes", "none"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_cf9534fa621a"}, {"number": "15", "text": "a, b are zeros of x\u00b2-5x+6 then (a+b)\u00b2 = ____", "options": ["10", "25", "20", "36"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_9a5285f1b0a4"}, {"number": "16", "text": "The area of similar triangles are in the ratio is 25:49 then the ratio of it their corresponding sides are.", "options": ["5:7", "7:5", "25:49", "49:25"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_18187810e74b"}, {"number": "17", "text": "A={x:x is single digit whole number} then n(A)", "options": ["9", "10", "0", "5"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_103c26ecaa8a"}, {"number": "18", "text": "The angle between tangent and radius of a circle is", "options": ["right", "obtuse", "acute", "complete"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_7d9d8d9d1817"}, {"number": "19", "text": "a+(n-1)d is nth term of", "options": ["G.P.", "A.P.", "both A, B", "none"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_193b79424462"}, {"number": "20", "text": "Which of the following is Ramanjan number", "options": ["2917", "1729", "2719", "9712"], "marks": 1, "type": "MCQ", "section": "PART-B", "id": "q_9435599f5e1c"}], "logoPath": null}
+{
+  "header": {
+    "subject": "maths",
+    "class": "10"
+  },
+  "questions": [
+    {
+      "number": "1",
+      "text": "If A={x:x is a even prime} and B={x:x is a factor of 16} then find the value of n(AUB)",
+      "marks": 2,
+      "type": "Short",
+      "section": "SECTION-I",
+      "id": "q_1096f2c4a430",
+      "options": []
+    },
+    {
+      "number": "2",
+      "text": "Srikanth says \"-√2 and 2 is a zero of the polynomial p(x)=x³-2x\"? Do you agree with his answer? give reason?",
+      "marks": 2,
+      "type": "Short",
+      "section": "SECTION-I",
+      "id": "q_8cf5ae3177d0",
+      "options": []
+    },
+    {
+      "number": "3",
+      "text": "Prove that the value of 2log 2, log 16, 4log 4 are in geometric progression.",
+      "marks": 2,
+      "type": "Short",
+      "section": "SECTION-I",
+      "id": "q_95b56f00721d",
+      "options": []
+    },
+    {
+      "number": "4",
+      "text": "One card is selected from a well shuffled Deck of 52 cards. Find the probability of getting a red card with prime number.",
+      "marks": 2,
+      "type": "MCQ",
+      "section": "SECTION-I",
+      "id": "q_480d6e33dd22",
+      "options": []
+    },
+    {
+      "number": "5",
+      "text": "The vertex angle of a cone is 60°. Find the ratio of the diameter with the height of the cone.",
+      "marks": 2,
+      "type": "Short",
+      "section": "SECTION-I",
+      "id": "q_b00d1282fe03",
+      "options": []
+    },
+    {
+      "number": "6",
+      "text": "If 2sin θ = 1 then find Tan² θ + Cos² θ",
+      "marks": 2,
+      "type": "Short",
+      "section": "SECTION-I",
+      "id": "q_57c7ae61fa3b",
+      "options": []
+    },
+    {
+      "number": "7",
+      "text": "Divide x³-4x²+5x-2 with x-2, write quotient and remainder.",
+      "marks": 4,
+      "type": "Short",
+      "section": "SECTION-II",
+      "id": "q_02a6d68d8f4d",
+      "options": []
+    },
+    {
+      "number": "8",
+      "text": "Explain the tops in the formula S_n = 1/2 [2a+(n-1)d]",
+      "marks": 4,
+      "type": "Long",
+      "section": "SECTION-II",
+      "id": "q_9e0cd9496549",
+      "options": []
+    },
+    {
+      "number": "9",
+      "text": "Two boys on either side of their school building 20m height, observes its top at the angles of elevation 30° and 60° respectively. Find the distance between two boys.",
+      "marks": 4,
+      "type": "Short",
+      "section": "SECTION-II",
+      "id": "q_9ef3b684552e",
+      "options": []
+    },
+    {
+      "number": "10",
+      "text": "Show that (1+cot²θ)(1-cosθ)(1+cosθ)/2 = sin 30°",
+      "marks": 4,
+      "type": "Short",
+      "section": "SECTION-II",
+      "id": "q_67c7056454ec",
+      "options": []
+    },
+    {
+      "number": "11",
+      "text": "Devide the line segment of length 6cm in the ratio 3:5",
+      "marks": 4,
+      "type": "Short",
+      "section": "SECTION-II",
+      "id": "q_9ff4779289f2",
+      "options": []
+    },
+    {
+      "number": "12",
+      "text": "Find the value of \"K\" for which points (K, K), (3, 2), (4, -1) are collinear.",
+      "marks": 4,
+      "type": "Short",
+      "section": "SECTION-II",
+      "id": "q_121e7508f389",
+      "options": []
+    },
+    {
+      "number": "13",
+      "text": "Prove that 2√2 + 2√3 is irrational number.",
+      "marks": 6,
+      "type": "Short",
+      "section": "SECTION-III",
+      "id": "q_02e72d743030",
+      "options": []
+    },
+    {
+      "number": "14",
+      "text": "Find mode for the following data.",
+      "table": {
+        "headers": [
+          "C.I.",
+          "0-20",
+          "20-40",
+          "40-60",
+          "60-80",
+          "80-100",
+          "100-120",
+          "120-140"
+        ],
+        "frequency": [
+          "F",
+          "2",
+          "5",
+          "12",
+          "31",
+          "36",
+          "10",
+          "4"
+        ]
+      },
+      "marks": 6,
+      "type": "Short",
+      "section": "SECTION-III",
+      "id": "q_2166c1eb95d4",
+      "options": []
+    },
+    {
+      "number": "15",
+      "text": "If cosec θ \\ cot θ = k, then write all trigonometric ratios in terms of k.",
+      "marks": 6,
+      "type": "Short",
+      "section": "SECTION-III",
+      "id": "q_c07fd155da1a",
+      "options": []
+    },
+    {
+      "number": "16",
+      "text": "Find zeros of polynomial x² + x - 6 using graphical method.",
+      "marks": 6,
+      "type": "Short",
+      "section": "SECTION-III",
+      "id": "q_b934c8801052",
+      "options": []
+    },
+    {
+      "number": "17",
+      "text": "Draw a pair of tangents to the circle of radius 4cm, which are inclined to each other at an angle of 60°.",
+      "marks": 6,
+      "type": "Short",
+      "section": "SECTION-III",
+      "id": "q_d77cbfd2ffaf",
+      "options": []
+    },
+    {
+      "number": "7",
+      "text": "The angle between two parallel lines",
+      "options": [
+        "A) 0°",
+        "B) 180°",
+        "C) not define",
+        "D) 90°"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_ad2404c4c46d"
+    },
+    {
+      "number": "8",
+      "text": "In a △ ABC, the DE||BC, then AD/DB =",
+      "options": [
+        "A) AE/EC",
+        "B) AC/EC",
+        "C) EC/AE",
+        "D) AB/DB"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_7916a381e6d0"
+    },
+    {
+      "number": "9",
+      "text": "In adjacent figure, AB is diameter then ∠ C is",
+      "options": [
+        "A) 90°",
+        "B) 180°",
+        "C) 0°",
+        "D) 360°"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_3cf1d47a0008"
+    },
+    {
+      "number": "10",
+      "text": "Volume of cone 3cm³ then volume of cylinder is (both radius and heights are same)______",
+      "options": [
+        "A) 3cm³",
+        "B) 9cm³",
+        "C) 6cm³",
+        "D) 12cm³"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_48b04a73013f"
+    },
+    {
+      "number": "11",
+      "text": "Sin25° × Cosec25°",
+      "options": [
+        "A) 0",
+        "B) 1",
+        "C) 2",
+        "D) -1"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_b8a67f043eb8"
+    },
+    {
+      "number": "12",
+      "text": "In evening due to the sunlight, shadow of tree is √3 time of its height then angle between sunrays and shadow is",
+      "options": [
+        "A) 90°",
+        "B) 60°",
+        "C) 30°",
+        "D) 45°"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_7ae7d789edf5"
+    },
+    {
+      "number": "13",
+      "text": "If a letter is selected at random from a word MATHEMATICS then probability that it will be \"A\".",
+      "options": [
+        "A) 2/10",
+        "B) 2/11",
+        "C) 2/13",
+        "D) 2/9"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_bb4b308e84ac"
+    },
+    {
+      "number": "1",
+      "text": "Which of the following is irrational.",
+      "options": [
+        "A) log₁₀10",
+        "B) log₁₀2",
+        "C) log₈a",
+        "D) log₁₀(1)"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "PART-B",
+      "id": "q_dc7557fb9e67"
+    },
+    {
+      "number": "2",
+      "text": "The number of subset of A={1, 2}",
+      "options": [
+        "A) 2",
+        "B) 4",
+        "C) 0",
+        "D) none"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "PART-B",
+      "id": "q_a79a8d0939c9"
+    },
+    {
+      "number": "3",
+      "text": "The degree of constant polynomial is =",
+      "options": [
+        "A) 2",
+        "B) √2",
+        "C) 0",
+        "D) 1"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "PART-B",
+      "id": "q_e9d4b146dc5f"
+    },
+    {
+      "number": "4",
+      "text": "2x+3y+5=0, 4x+6y+10=0 are_____ lines.",
+      "options": [
+        "A) parallel",
+        "B) intersecting",
+        "C) coinciding",
+        "D) all the above"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "PART-B",
+      "id": "q_8c8ff494c128"
+    },
+    {
+      "number": "5",
+      "text": "Sin²θ+(1- Sin²θ) =",
+      "options": [
+        "A) 0",
+        "B) 1",
+        "C) 2",
+        "D) 10"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "PART-B",
+      "id": "q_7c9cfc23af92"
+    },
+    {
+      "number": "6",
+      "text": "If a, b, c are G.P. then b=",
+      "options": [
+        "A) a+c",
+        "B) √ac",
+        "C) a-c",
+        "D) (a-c)/2"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "PART-B",
+      "id": "q_c61b32cc7127"
+    },
+    {
+      "number": "14",
+      "text": "Mode of the above data",
+      "options": [
+        "A) cars",
+        "B) busses",
+        "C) bikes",
+        "D) none"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_217aeeeec9f7"
+    },
+    {
+      "number": "15",
+      "text": "a, b are zeros of x²-5x+6 then (a+b)² = ____",
+      "options": [
+        "A) 10",
+        "B) 25",
+        "C) 20",
+        "D) 36"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_e38e828e43a9"
+    },
+    {
+      "number": "16",
+      "text": "The area of similar triangles are in the ratio is 25:49 then the ratio of it their corresponding sides are.",
+      "options": [
+        "A) 5:7",
+        "B) 7:5",
+        "C) 25:49",
+        "D) 49:25"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_526e3aa52936"
+    },
+    {
+      "number": "17",
+      "text": "A={x:x is single digit whole number} then n(A)",
+      "options": [
+        "A) 9",
+        "B) 10",
+        "C) 0",
+        "D) 5"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_5c76c86af9fb"
+    },
+    {
+      "number": "18",
+      "text": "The angle between tangent and radius of a circle is",
+      "options": [
+        "A) right",
+        "B) obtuse",
+        "C) acute",
+        "D) complete"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_fbedc10486dd"
+    },
+    {
+      "number": "19",
+      "text": "a+(n-1)d is nᵗʰ term of",
+      "options": [
+        "A) G.P.",
+        "B) A.P.",
+        "C) both A, B",
+        "D) none"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_40966e45f2ca"
+    },
+    {
+      "number": "20",
+      "text": "Which of the following is Ramanjan number",
+      "options": [
+        "A) 2917",
+        "B) 1729",
+        "C) 2719",
+        "D) 9712"
+      ],
+      "marks": 1,
+      "type": "MCQ",
+      "section": "JK-82",
+      "id": "q_f4016675cf59"
+    }
+  ]
+}

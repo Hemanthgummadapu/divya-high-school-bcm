@@ -80,6 +80,7 @@ export default function QuestionPapers() {
   } | null>(null);
   const [mathSelection, setMathSelection] = useState({ start: 0, end: 0 });
   const mathActiveInputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  const [pdfGenLogs, setPdfGenLogs] = useState<string[]>([]);
   const generatedPaperRef = useRef<HTMLDivElement | null>(null);
   
   // Render question text with basic table detection
@@ -97,7 +98,7 @@ export default function QuestionPapers() {
       return <div className="whitespace-pre-wrap break-words font-sans">{text}</div>;
     }
     
-    return (
+  return (
       <div className="space-y-2 font-sans">
         {nonTableLines.length > 0 && (
           <div className="whitespace-pre-wrap break-words">
@@ -560,6 +561,7 @@ export default function QuestionPapers() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setPdfGenLogs([]);
         setEditPreviewMode(false);
         return;
       }
@@ -1993,6 +1995,12 @@ export default function QuestionPapers() {
               onInsert={handleMathSymbolInsert}
               onClose={() => setMathKeyboardVisible(false)}
             />
+            
+            {pdfGenLogs.length > 0 && (
+              <div className="px-6 py-3 border-t bg-slate-900 text-green-400 font-mono text-xs overflow-auto max-h-32">
+                <pre className="whitespace-pre-wrap">{pdfGenLogs.join("\n")}</pre>
+              </div>
+            )}
             
             {/* Footer with action buttons */}
             <div className="p-6 border-t flex justify-end gap-4 shrink-0">

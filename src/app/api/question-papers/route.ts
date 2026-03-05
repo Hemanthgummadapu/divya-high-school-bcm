@@ -6,8 +6,10 @@ import {
   filterQuestions,
   getStatistics,
   type QuestionPaper,
+  type Question,
   type FilterOptions,
 } from "@/lib/questionPapers";
+import { supabase } from "@/lib/supabase";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, mkdir } from "fs/promises";
@@ -19,47 +21,125 @@ const execFileAsync = promisify(execFile);
 
 /**
  * GET /api/question-papers
- * Get all question papers with optional filters
+ * Get all question papers with optional filters.
+ * Fetches from Supabase (questions + question_papers), falls back to local JSON on failure.
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    
+
     const filters: FilterOptions = {
       subject: searchParams.get("subject") || undefined,
       grade: searchParams.get("grade") || undefined,
       year: searchParams.get("year") || undefined,
-      type: (searchParams.get("type") as any) || undefined,
+      type: (searchParams.get("type") as Question["type"]) || undefined,
       section: searchParams.get("section") || undefined,
     };
-    
+
+    const hasSupabase =
+      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (hasSupabase) {
+      try {
+        let query = supabase.from("questions").select("*");
+        if (filters.subject) query = query.eq("subject", filters.subject);
+        if (filters.grade) query = query.eq("grade", filters.grade);
+        if (filters.year) query = query.eq("year", filters.year);
+        if (filters.type) query = query.eq("type", filters.type);
+        if (filters.section) query = query.eq("section", filters.section);
+
+        const { data: questionRows, error: questionsError } = await query;
+
+        if (!questionsError && questionRows && questionRows.length > 0) {
+          const paperIds = [...new Set(questionRows.map((r: { paper_id: string }) => r.paper_id))];
+          const { data: paperRows, error: papersError } = await supabase
+            .from("question_papers")
+            .select("*")
+            .in("id", paperIds);
+
+          if (!papersError && paperRows && paperRows.length > 0) {
+            const papers: QuestionPaper[] = paperRows.map(
+              (p: {
+                id: string;
+                file_name: string;
+                subject: string;
+                grade: string;
+                year: string;
+                total_questions?: number;
+              }) => {
+                const paperQuestions = questionRows
+                  .filter((q: { paper_id: string }) => q.paper_id === p.id)
+                  .map(
+                    (q: {
+                      id: string;
+                      number: string;
+                      text: string;
+                      options?: string[];
+                      section: string;
+                      type: string;
+                      marks: number;
+                    }): Question => ({
+                      id: q.id,
+                      number: String(q.number ?? ""),
+                      text: q.text ?? "",
+                      options: Array.isArray(q.options) ? q.options : [],
+                      section: q.section ?? "",
+                      type: (q.type as Question["type"]) || "Short",
+                      marks: Number(q.marks) ?? 0,
+                    })
+                  );
+                return {
+                  id: p.id,
+                  filename: p.file_name,
+                  subject: p.subject,
+                  grade: p.grade,
+                  year: p.year,
+                  uploadedAt: new Date().toISOString(),
+                  totalPages: 0,
+                  questions: paperQuestions,
+                };
+              }
+            );
+            const stats = getStatistics(papers);
+            return NextResponse.json({
+              success: true,
+              papers,
+              statistics: stats,
+              count: papers.length,
+            });
+          }
+        }
+      } catch (supabaseError) {
+        console.warn("Supabase fetch failed, falling back to local JSON:", supabaseError);
+      }
+    }
+
+    // Fallback: local JSON
     const db = await readDatabase();
     let papers = db.papers;
-    
-    // Filter papers
+
     papers = filterPapers(papers, filters);
-    
-    // If question type filter is applied, filter questions within papers
+
     if (filters.type || filters.section) {
       papers = papers.map((paper) => ({
         ...paper,
         questions: filterQuestions(paper.questions, filters),
       }));
     }
-    
-    // Get statistics
+
     const stats = getStatistics(db.papers);
-    
+
     return NextResponse.json({
       success: true,
       papers,
       statistics: stats,
       count: papers.length,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Error fetching question papers:", error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: message },
       { status: 500 }
     );
   }
@@ -150,7 +230,41 @@ export async function POST(request: NextRequest) {
       // Read the updated database to get the new paper ID
       const db = await readDatabase();
       const newPaper = db.papers[db.papers.length - 1];
-      
+
+      // Insert into Supabase (local JSON is fallback; do not fail request on Supabase errors)
+      const hasSupabase =
+        process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (hasSupabase && newPaper) {
+        try {
+          await supabase.from("question_papers").insert({
+            id: newPaper.id,
+            subject: newPaper.subject,
+            grade: newPaper.grade,
+            year: newPaper.year,
+            total_questions: newPaper.questions.length,
+            file_name: newPaper.filename,
+          });
+          if (newPaper.questions.length > 0) {
+            const rows = newPaper.questions.map((q) => ({
+              id: q.id,
+              paper_id: newPaper.id,
+              subject: newPaper.subject,
+              grade: newPaper.grade,
+              year: newPaper.year,
+              number: q.number,
+              text: q.text,
+              marks: q.marks,
+              type: q.type,
+              section: q.section ?? "",
+              options: q.options ?? [],
+            }));
+            await supabase.from("questions").insert(rows);
+          }
+        } catch (supabaseErr) {
+          console.warn("Supabase insert failed (local JSON saved):", supabaseErr);
+        }
+      }
+
       // Clean up uploaded file
       try {
         const { unlink } = await import("fs/promises");
@@ -158,7 +272,7 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.error("Error deleting temp file:", e);
       }
-      
+
       return NextResponse.json({
         success: true,
         paper: newPaper,
