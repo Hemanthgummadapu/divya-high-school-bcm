@@ -4,3 +4,4 @@ anthropic==0.34.2
 python-dotenv==1.0.0
 pypdf>=3.0.0
 reportlab>=4.0.0
+python-dotenv
