@@ -20,7 +20,6 @@ const ACHIEVEMENTS = [
 const GALLERY_ITEMS = [
   { src: "/slideshow1.png", alt: "Sports at Divya High School", label: "Sports Day 2024" },
   { src: "/slideshow2.png", alt: "Campus and activities", label: "Kho Kho Practice" },
-  { src: "/slideshow3.png", alt: "School events", label: "Kabaddi Tournament" },
 ];
 
 const WHY_SPORTS = [

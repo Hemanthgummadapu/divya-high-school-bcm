@@ -4,6 +4,7 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { platform } from "os";
 import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 /**
  * POST /api/questions/generate
@@ -140,8 +141,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // pdfBuffer is a Node.js Buffer; cast to BodyInit so NextResponse typing is satisfied.
-    return new NextResponse(pdfBuffer as unknown as BodyInit, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

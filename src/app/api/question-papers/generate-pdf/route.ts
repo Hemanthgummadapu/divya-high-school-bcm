@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
 
     const result = await new Promise<{ success: boolean; out?: string; err?: string }>(
       (resolve) => {
-        const proc = spawn(pythonCmd, [scriptPath, tmpPdfPath!], {
+        const pdfPath = tmpPdfPath as string;
+        const proc = spawn(pythonCmd, [scriptPath, pdfPath], {
           stdio: ["pipe", "pipe", "pipe"],
         });
         let stdout = "";
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
     const pdfBuffer = await readFile(tmpPdfPath);
     await unlink(tmpPdfPath).catch(() => {});
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
