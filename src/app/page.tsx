@@ -82,13 +82,14 @@ const WHY_CHOOSE = [
   { title: "Value-Based Education", description: "Character building and ethics at the heart of learning.", icon: "M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" },
 ];
 
-const GALLERY_IMAGES = [
-  "/slideshow1.png",
-  "/slideshow2.png",
-  "/slideshow3.png",
-  "/school-building.png",
-  "/slideshow4.png",
+// Homepage cultural/gallery section: 6 cultural activity photos (3×2 layout)
+const CULTURAL_GALLERY_IMAGES = [
   "/images/cultural/divya-annual-day-1.jpg",
+  "/images/cultural/divya-annual-day-2.jpg",
+  "/images/cultural/divya-annual-day-4.jpg",
+  "/images/cultural/divya-annual-day-7.jpg",
+  "/images/cultural/divya-annual-day-8.jpg",
+  "/images/cultural/divya-annual-day-9.jpg",
 ];
 
 const TESTIMONIALS = [
@@ -230,14 +231,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Gallery Preview */}
+      {/* Cultural / Gallery – 6 photos in 3×2 grid */}
       <section className="py-20 md:py-24 bg-bg-page">
         <div className="container mx-auto px-4">
           <h2 className="font-heading text-3xl md:text-4xl font-semibold text-heading text-center mb-12">Gallery</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
-            {GALLERY_IMAGES.map((src, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+            {CULTURAL_GALLERY_IMAGES.map((src, i) => (
               <Link key={i} href="/gallery" className="group relative aspect-[4/3] rounded-xl overflow-hidden shadow-md">
-                <Image src={src} alt="Gallery preview" fill className="object-cover transition-transform duration-200 group-hover:scale-105" sizes="(max-width: 768px) 50vw, 33vw" />
+                <Image src={src} alt="Cultural activity at Divya High School" fill className="object-cover transition-transform duration-200 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw" />
                 <div className="absolute inset-0 bg-heading/0 group-hover:bg-heading/40 transition-colors duration-200" />
               </Link>
             ))}

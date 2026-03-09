@@ -791,31 +791,30 @@ export default function QuestionPapers() {
     setEditableQuestions(newQuestions);
   };
   
-  const updateQuestionText = (index: number, text: string) => {
-    const newQuestions = editableQuestions.map((q, i) =>
-      i === index ? { ...q, text } : q
+  const updateQuestionText = useCallback((index: number, text: string) => {
+    setEditableQuestions((prev) =>
+      prev.map((q, i) => (i === index ? { ...q, text } : q))
     );
-    setEditableQuestions(newQuestions);
-  };
-  
+  }, []);
+
+  const updateOption = useCallback((questionIndex: number, optionIndex: number, value: string) => {
+    setEditableQuestions((prev) =>
+      prev.map((q, i) => {
+        if (i !== questionIndex) return q;
+        const options = [...(q.options || [])];
+        while (options.length <= optionIndex) options.push("");
+        options[optionIndex] = value;
+        return { ...q, options };
+      })
+    );
+  }, []);
+
   const updateQuestionMarks = (index: number, marks: number) => {
     const v = Math.round(Number(marks));
     const value = (v >= 1 && v <= 10) ? v : (v === 0 || isNaN(v) ? 0 : Math.min(10, Math.max(1, v)));
-    const newQuestions = editableQuestions.map((q, i) =>
-      i === index ? { ...q, marks: value } : q
+    setEditableQuestions((prev) =>
+      prev.map((q, i) => (i === index ? { ...q, marks: value } : q))
     );
-    setEditableQuestions(newQuestions);
-  };
-  
-  const updateOption = (questionIndex: number, optionIndex: number, value: string) => {
-    const newQuestions = editableQuestions.map((q, i) => {
-      if (i !== questionIndex) return q;
-      const options = [...(q.options || [])];
-      while (options.length <= optionIndex) options.push("");
-      options[optionIndex] = value;
-      return { ...q, options };
-    });
-    setEditableQuestions(newQuestions);
   };
 
   const updateSectionName = (oldSection: string, newSection: string) => {
@@ -861,7 +860,7 @@ export default function QuestionPapers() {
         setMathSelection({ start: nextPos, end: nextPos });
       }
     }, 0);
-  }, [mathActiveField, mathSelection, editableQuestions]);
+  }, [mathActiveField, mathSelection, editableQuestions, updateOption, updateQuestionText]);
   
   // Delete paper
   const handleDeletePaper = async (paperId: string) => {
@@ -1577,17 +1576,17 @@ export default function QuestionPapers() {
                     setMathActiveField({ questionIndex: -1, field: "text" });
                     mathActiveInputRef.current = e.target;
                     setMathSelection({
-                      start: e.target.selectionStart,
-                      end: e.target.selectionEnd,
+                      start: e.target.selectionStart ?? 0,
+                      end: e.target.selectionEnd ?? 0,
                     });
                   }}
                   onSelect={(e) => {
                     const t = e.target as HTMLTextAreaElement;
-                    setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                    setMathSelection({ start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 });
                   }}
                   onKeyUp={(e) => {
                     const t = e.target as HTMLTextAreaElement;
-                    setMathSelection({ start: t.selectionStart, end: t.selectionEnd });
+                    setMathSelection({ start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 });
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
                   required

@@ -21,7 +21,6 @@ const ADMISSIONS_LINKS = [
 const ACADEMICS_LINKS = [
   { href: "/academics", label: "Overview" },
   { href: "/academics/curriculum", label: "Curriculum" },
-  { href: "/academics/question-papers", label: "Previous Question Papers" },
   { href: "/academics/results", label: "Results" },
 ];
 
@@ -212,13 +211,6 @@ export default function Navbar() {
                         onClick={() => setOpenDropdown(null)}
                       >
                         Curriculum
-                      </Link>
-                      <Link
-                        href="/academics/question-papers"
-                        className="block px-4 py-2.5 text-white hover:text-[#60a5fa] hover:bg-white/5 transition-colors duration-300 text-sm"
-                        onClick={() => setOpenDropdown(null)}
-                      >
-                        Previous Question Papers
                       </Link>
                       <Link
                         href="/academics/results"
