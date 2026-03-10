@@ -2,8 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { QuestionPaper, Question } from "@/lib/questionPapers";
+import { ALL_GRADES, ALL_YEARS, getSubjectsForGrade } from "@/lib/subjects";
 import jsPDF from "jspdf";
 import MathKeyboard from "@/components/MathKeyboard";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Statistics {
   totalPapers: number;
@@ -63,12 +66,12 @@ export default function QuestionPapers() {
     section: "",
   });
   
-  // Upload form
+  // Upload form: default year to current year
   const [uploadForm, setUploadForm] = useState({
     file: null as File | null,
     subject: "",
     grade: "",
-    year: "",
+    year: String(new Date().getFullYear()),
   });
   
   // Math symbol keyboard (Edit & Preview modal)
@@ -85,55 +88,54 @@ export default function QuestionPapers() {
   
   // Render question text with basic table detection
   const renderQuestionText = (text: string) => {
-    const lines = (text || "").split("\n");
-    const isTableRow = (line: string) => {
-      const pipeCount = (line.match(/\|/g) || []).length;
-      return pipeCount >= 3;
-    };
-    const tableLines = lines.filter(isTableRow);
-    const nonTableLines = lines.filter((line) => !isTableRow(line));
-    
-    // If no table-like lines, render as plain text
-    if (tableLines.length === 0) {
-      return <div className="whitespace-pre-wrap break-words font-sans">{text}</div>;
-    }
-    
-  return (
-      <div className="space-y-2 font-sans">
-        {nonTableLines.length > 0 && (
-          <div className="whitespace-pre-wrap break-words">
-            {nonTableLines.join("\n")}
-          </div>
-        )}
-        <div className="inline-block border border-gray-300 rounded text-xs overflow-x-auto">
-          <table className="border-collapse">
-            <tbody>
-              {tableLines.map((line, rowIdx) => {
-                const cells = line
-                  .split("|")
-                  .map((c) => c.trim())
-                  .filter((c) => c.length > 0);
-                return (
-                  <tr key={rowIdx}>
-                    {cells.map((cell, cellIdx) => (
-                      <td key={cellIdx} className="border px-2 py-1">
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+    return (
+      <div className="prose prose-sm max-w-none font-sans">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({ node, ...props }) => (
+              <table
+                style={{
+                  borderCollapse: "collapse",
+                  fontSize: "13px",
+                  margin: "6px 0",
+                }}
+                {...props}
+              />
+            ),
+            th: ({ node, ...props }) => (
+              <th
+                style={{
+                  border: "1px solid #d1d5db",
+                  padding: "4px 8px",
+                  background: "#f9fafb",
+                }}
+                {...props}
+              />
+            ),
+            td: ({ node, ...props }) => (
+              <td
+                style={{
+                  border: "1px solid #d1d5db",
+                  padding: "4px 8px",
+                }}
+                {...props}
+              />
+            ),
+          }}
+        >
+          {text || ""}
+        </ReactMarkdown>
       </div>
     );
   };
   
-  // Get unique values for filters
-  const subjects = Array.from(new Set(papers.map((p) => p.subject))).sort();
-  const grades = Array.from(new Set(papers.map((p) => p.grade))).sort();
-  const years = Array.from(new Set(papers.map((p) => p.year))).sort();
+  // Get filter options: grade/subject from subjects.ts, years from ALL_YEARS
+  const filterGrades = ALL_GRADES.map(String);
+  const filterSubjects = filters.grade
+    ? getSubjectsForGrade(parseInt(filters.grade, 10))
+    : [];
+  const years = ALL_YEARS.map(String).sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
   
   // Get unique sections for tabs
   const sections = Array.from(new Set(allQuestions.map((q) => q.section))).sort();
@@ -192,8 +194,13 @@ export default function QuestionPapers() {
   
   // Handle upload
   const handleUpload = async () => {
+    const gradeNum = uploadForm.grade ? parseInt(uploadForm.grade, 10) : 0;
     if (!uploadForm.file || !uploadForm.subject || !uploadForm.grade || !uploadForm.year) {
       alert("Please fill all fields and select a PDF file");
+      return;
+    }
+    if (!gradeNum || gradeNum < 1 || gradeNum > 10) {
+      alert("Please select a valid grade (1–10)");
       return;
     }
     
@@ -1023,39 +1030,58 @@ export default function QuestionPapers() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Subject <span className="text-red-500">*</span>
+                Grade <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={uploadForm.subject}
-                onChange={(e) => setUploadForm({ ...uploadForm, subject: e.target.value })}
+              <select
+                value={uploadForm.grade}
+                onChange={(e) => {
+                  const grade = e.target.value;
+                  setUploadForm({ ...uploadForm, grade, subject: "" });
+                }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., Mathematics"
-              />
+              >
+                <option value="">Select grade</option>
+                {ALL_GRADES.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Grade <span className="text-red-500">*</span>
+                Subject <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={uploadForm.grade}
-                onChange={(e) => setUploadForm({ ...uploadForm, grade: e.target.value })}
+              <select
+                value={uploadForm.subject}
+                onChange={(e) => setUploadForm({ ...uploadForm, subject: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 10"
-              />
+                disabled={!uploadForm.grade}
+              >
+                <option value="">Select subject</option>
+                {uploadForm.grade &&
+                  getSubjectsForGrade(parseInt(uploadForm.grade, 10)).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Year <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
+              <select
                 value={uploadForm.year}
                 onChange={(e) => setUploadForm({ ...uploadForm, year: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., 2026"
-              />
+              >
+                {ALL_YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           
@@ -1114,35 +1140,35 @@ export default function QuestionPapers() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
+                Grade
+              </label>
+              <select
+                value={filters.grade}
+                onChange={(e) => setFilters({ ...filters, grade: e.target.value, subject: "" })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All Grades</option>
+                {filterGrades.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Subject
               </label>
               <select
                 value={filters.subject}
                 onChange={(e) => setFilters({ ...filters, subject: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                disabled={!filters.grade}
               >
                 <option value="">All Subjects</option>
-                {subjects.map((s) => (
+                {filterSubjects.map((s) => (
                   <option key={s} value={s}>
                     {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Grade
-              </label>
-              <select
-                value={filters.grade}
-                onChange={(e) => setFilters({ ...filters, grade: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Grades</option>
-                {grades.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
                   </option>
                 ))}
               </select>
@@ -1178,6 +1204,7 @@ export default function QuestionPapers() {
                 <option value="">All Types</option>
                 <option value="MCQ">MCQ</option>
                 <option value="Short">Short</option>
+                <option value="Medium">Medium</option>
                 <option value="Long">Long</option>
               </select>
             </div>
@@ -1202,6 +1229,7 @@ export default function QuestionPapers() {
           <h2 className="text-2xl font-semibold mb-4 text-slate-900">Export & Download</h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Download All (JSON) - commented out
             <button
               onClick={handleDownloadAllJSON}
               disabled={allQuestions.length === 0}
@@ -1212,7 +1240,8 @@ export default function QuestionPapers() {
               </svg>
               Download All (JSON)
             </button>
-            
+            */}
+            {/* Download Selected (JSON) - commented out
             <button
               onClick={handleDownloadSelectedJSON}
               disabled={selectedQuestions.size === 0}
@@ -1223,7 +1252,8 @@ export default function QuestionPapers() {
               </svg>
               Download Selected (JSON)
             </button>
-            
+            */}
+            {/* Export as CSV - commented out
             <button
               onClick={handleExportCSV}
               disabled={allQuestions.length === 0}
@@ -1234,6 +1264,7 @@ export default function QuestionPapers() {
               </svg>
               Export as CSV
             </button>
+            */}
             
             <button
               onClick={handleDownloadPDF}
@@ -1366,7 +1397,7 @@ export default function QuestionPapers() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredQuestions.map((question) => (
+                  {filteredQuestions.map((question, index) => (
                     <tr
                       key={question.id}
                       className={`hover:bg-gray-50 ${
@@ -1382,11 +1413,28 @@ export default function QuestionPapers() {
                         />
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                        {question.number}
+                        {index + 1}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 max-w-2xl align-top">
-                        {renderQuestionText(question.text)}
-                        {question.options && question.options.length > 0 && (
+                        <div className="question-text">{renderQuestionText(question.text)}</div>
+                        {question.diagram && (
+                          <div className="mt-2 block text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5">
+                            📐 Diagram: {question.diagram}
+                          </div>
+                        )}
+                        {question.type === "MCQ" && question.options && question.options.length > 0 ? (
+                          <div className="options-grid mt-1.5" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px", marginTop: "6px" }}>
+                            {question.options.map((opt, idx) => {
+                              const label = String.fromCharCode(65 + idx);
+                              const cleanedOpt = opt.replace(/^[A-Da-d]\)\s*/, "");
+                              return (
+                                <span key={idx} className="text-sm text-gray-600" style={{ fontSize: "13px", color: "#374151" }}>
+                                  {label}) {cleanedOpt}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : question.options && question.options.length > 0 ? (
                           <div className="text-sm text-gray-600 mt-1.5">
                             {question.options.map((opt, idx) => {
                               const label = String.fromCharCode(65 + idx);
@@ -1399,7 +1447,7 @@ export default function QuestionPapers() {
                               );
                             })}
                           </div>
-                        )}
+                        ) : null}
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -1492,6 +1540,9 @@ export default function QuestionPapers() {
                                         <span className="font-semibold text-slate-900 shrink-0 w-12 text-right font-sans">Q{q.number}.</span>
                                         <div className="min-w-0 flex-1 font-sans">
                                           <span className="whitespace-pre-wrap break-words block font-sans">{q.text}</span>
+                                          {q.diagram && (
+                                            <div className="mt-2 text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5 font-sans">📐 Diagram: {q.diagram}</div>
+                                          )}
                                           {(q.options || []).length > 0 && (
                                             <ul className="list-none text-sm text-gray-700 mt-1 space-y-0.5 font-sans">
                                               {(q.options || []).map((opt, i) => (
@@ -1508,6 +1559,9 @@ export default function QuestionPapers() {
                                       <span className="font-semibold text-slate-900 shrink-0 w-12 text-right font-sans">Q{q.number}.</span>
                                       <div className="min-w-0 flex-1 font-sans">
                                         {renderQuestionText(q.text)}
+                                        {q.diagram && (
+                                          <div className="mt-2 text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5 font-sans">📐 Diagram: {q.diagram}</div>
+                                        )}
                                         {(q.options || []).length > 0 && (
                                           <ul className="list-none text-sm text-gray-700 mt-1 space-y-0.5 font-sans">
                                             {(q.options || []).map((opt, i) => (
@@ -1923,6 +1977,9 @@ export default function QuestionPapers() {
                               {/* Preview with table rendering */}
                               <div className="mb-2 text-sm text-gray-800">
                                 {renderQuestionText(question.text)}
+                                {question.diagram && (
+                                  <div className="mt-2 text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5">📐 Diagram: {question.diagram}</div>
+                                )}
                               </div>
 
                               <textarea

@@ -98,10 +98,15 @@ Your most important task is to accurately capture the REAL section/part structur
    - For PART-B (1-mark MCQ questions), there are 20 questions numbered 1–20 across the paper. Extract ALL 20 MCQs.
    Do NOT focus only on PART-B; you must extract questions from SECTION-I, SECTION-II, SECTION-III, and PART-B.
 
-6) If a question contains a TABLE (for example, a frequency distribution table with class intervals and frequencies), you must preserve the table structure in plain text.
-   - Keep the same rows, columns, and headings as shown in the paper.
-   - Do NOT summarize or drop rows/columns from the table.
-   - Represent the table as text so that all class intervals and frequencies are clearly visible, similar to the printed layout.
+6) TABLES — When you see a data table/grid in the question:
+   - Extract it as a proper markdown table with header row and separator row.
+   - The table must be stored with REAL newline characters between rows in the JSON (not a single flattened line).
+   - Example: A vehicle sales table should become exactly:
+     \"| Type of Vehicle | Cars | Busses | Bikes |\\n|----------------|------|--------|-------|\\n| No. of vehicles sold | 14 | 15 | 16 |\"
+   - Each row must be on its own line separated by '\\n'. Never put the entire table on one line.
+   - Preserve ALL rows and columns exactly as they appear.
+   - Do NOT use pipe characters without proper table structure.
+   - The table must be part of the question text field.
 
 Format output as JSON:
 {

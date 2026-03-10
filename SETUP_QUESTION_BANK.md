@@ -54,7 +54,7 @@ python3 scripts/extract_pdf.py \
   --subject "Mathematics" \
   --grade "10" \
   --year "2026" \
-  --output data/question-papers.json
+  --output data/extract_temp.json
 ```
 
 **Note:** The script uses Claude API Vision for high-quality extraction from scanned images. Processing happens in batches of 5 pages with 1-second delays to respect API rate limits.
@@ -62,7 +62,7 @@ python3 scripts/extract_pdf.py \
 ### Via Web UI
 
 1. Navigate to `/academics/question-papers`
-2. Fill in Subject, Grade, and Year
+2. Select Grade (1–10), Subject (from dropdown), and Year (2020–2026)
 3. Select a PDF file
 4. Click "Upload & Extract Questions"
 5. Wait for OCR processing (progress bar will show status)
@@ -74,7 +74,7 @@ divya-high-school-bcm/
 ├── scripts/
 │   └── extract_pdf.py          # OCR extraction script
 ├── data/
-│   └── question-papers.json   # JSON database
+│   └── data/                   # Temp extraction output; question data in Supabase
 ├── uploads/                    # Temporary PDF storage (auto-created)
 └── src/
     ├── app/

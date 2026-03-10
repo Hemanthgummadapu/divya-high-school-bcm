@@ -4,7 +4,6 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { platform } from "os";
 import { supabase } from "@/lib/supabase";
-import { supabase } from "@/lib/supabase";
 
 /**
  * POST /api/questions/generate

@@ -1,4 +1,4 @@
-# This directory stores the question-papers.json database
+# This directory stores temp extraction output and ocr_cache; question data lives in Supabase.
 # The actual JSON file is gitignored to avoid committing large data files
 
 

@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import TopBar from "@/components/TopBar";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { AuthProvider } from "./providers";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -30,12 +31,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${poppins.variable}`}>
       <body className="font-sans bg-[#F8FAFC] text-[#334155] antialiased">
-        <header className="sticky top-0 z-50">
-          <TopBar />
-          <Navbar />
-        </header>
-        <main className="min-h-screen">{children}</main>
-        <Footer />
+        <AuthProvider>
+          <header className="sticky top-0 z-50">
+            <TopBar />
+            <Navbar />
+          </header>
+          <main className="min-h-screen">{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

@@ -11,6 +11,7 @@ export interface Question {
   type: "MCQ" | "Short" | "Medium" | "Long";
   marks: number;
   correctAnswer?: string;
+  diagram?: string;
 }
 
 export interface QuestionPaper {

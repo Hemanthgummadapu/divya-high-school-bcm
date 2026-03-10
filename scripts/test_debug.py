@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Paths relative to project root
 ROOT = Path(__file__).resolve().parent.parent
-DATA_PATH = ROOT / "data" / "question-papers.json"
+DATA_PATH = ROOT / "data" / "extract_temp.json"  # or any temp path; API uses Supabase
 OUT_PATH = ROOT / "tmp_payload.json"
 
 def main():

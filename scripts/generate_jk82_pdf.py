@@ -36,15 +36,18 @@ CONTENT_RIGHT = PAGE_WIDTH - MARGIN
 FOOTER_Y = 15 * mm
 TURN_OVER_Y = 12 * mm
 
-# Font sizes
-FONT_TITLE = 14
-FONT_SUB = 11
-FONT_BODY = 10
-FONT_SMALL = 9
+# Font sizes (increased by 2pt for better readability)
+FONT_TITLE = 16
+FONT_SUB = 13
+FONT_BODY = 12
+FONT_SMALL = 11
 
-# Font family: set in main() to DejaVuSans if available, else Helvetica
+# Font family: set in main() based on available fonts
 FONT_FAMILY = "Helvetica"
 FONT_FAMILY_BOLD = "Helvetica-Bold"
+NOTO_LOADED = False
+SYMBOL_FONT_FAMILY = "NotoSansSymbols2"
+SYMBOL_FONT_LOADED = False
 
 
 def clean(s):
@@ -71,6 +74,57 @@ def clean_preserve_newlines(s):
         return ""
     return "\n".join(" ".join(fix_special_chars(line).split()) for line in str(s).splitlines())
 
+
+def clean_for_pdf(text):
+    """Strip markdown table separator rows like |---|---| so they don't render as visible dashes."""
+    if not text:
+        return text
+    import re as _re
+    text = str(text)
+    # Remove lone pipe lines that sometimes appear before markdown tables
+    text = _re.sub(r"^\|\s*$", "", text, flags=_re.MULTILINE).strip()
+    lines = text.split("\n")
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip markdown table separator rows composed only of pipes, dashes, colons, and spaces
+        if stripped and all(c in "|-: " for c in stripped):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned)
+
+
+def choose_font_for_char(ch: str) -> str:
+    """Choose base font for a single character, using symbol font for geometric shapes if available."""
+    code = ord(ch)
+    # Geometric Shapes block: use symbol font when loaded (covers △▲■□, etc.)
+    if SYMBOL_FONT_LOADED and 0x25A0 <= code <= 0x25FF:
+        return SYMBOL_FONT_FAMILY
+    return FONT_FAMILY
+
+
+def draw_text_with_fallback(c, text: str, x: float, y: float, size: float = FONT_BODY):
+    """Draw text using per-character font fallback (e.g. NotoSans + NotoSansSymbols2)."""
+    if not text:
+        return
+    run_font = None
+    run = ""
+    current_x = x
+    for ch in text:
+        font_name = choose_font_for_char(ch)
+        if run_font is None:
+            run_font = font_name
+        if font_name != run_font and run:
+            c.setFont(run_font, size)
+            c.drawString(current_x, y, run)
+            current_x += c.stringWidth(run, run_font, size)
+            run = ch
+            run_font = font_name
+        else:
+            run += ch
+    if run:
+        c.setFont(run_font or FONT_FAMILY, size)
+        c.drawString(current_x, y, run)
 
 def wrap_text(c, text, width, font=None, size=FONT_BODY):
     """Return list of lines that fit in width."""
@@ -184,6 +238,12 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
     When is_mcq=True, skip table parsing and render as plain text.
     When same_line_y is set, the first line of text is drawn at same_line_y (same line as question number)."""
     text = (text or "").replace("\\n", "\n")
+    # Debug: confirm which font is active when drawing question text
+    try:
+        current_font = getattr(c, "_fontname", FONT_FAMILY)
+    except Exception:
+        current_font = FONT_FAMILY
+    print(f"[JK82 PDF] Drawing question text with font: {current_font}", file=sys.stderr)
     if is_mcq:
         # Plain text only: each line wrapped and drawn, no table parsing
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
@@ -209,13 +269,15 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
             wrapped = wrap_text(c, line, avail_width, size=FONT_BODY)
             for idx, ln in enumerate(wrapped):
                 if same_line_y is not None and not first_line_done:
-                    c.drawString(CONTENT_LEFT + indent, same_line_y, ln)
+                    draw_text_with_fallback(c, ln, CONTENT_LEFT + indent, same_line_y, FONT_BODY)
                     first_line_done = True
                     y = same_line_y - line_height
                 else:
-                    c.drawString(CONTENT_LEFT + indent, y, ln)
+                    draw_text_with_fallback(c, ln, CONTENT_LEFT + indent, y, FONT_BODY)
                     y -= line_height
-        if (tables or after) and (first_line_done or same_line_y is None):
+        # Add vertical spacing after non-table text only when there is trailing non-table content.
+        # When a table follows immediately, avoid extra gap so the table sits closer to the text.
+        if (after and not tables) and (first_line_done or same_line_y is None):
             y -= lead
         if same_line_y is not None and not first_line_done:
             y = same_line_y - line_height
@@ -251,11 +313,11 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
             wrapped = wrap_text(c, line, avail_width, size=FONT_BODY)
             for idx, ln in enumerate(wrapped):
                 if same_line_y is not None and not first_line_done:
-                    c.drawString(CONTENT_LEFT + indent, same_line_y, ln)
+                    draw_text_with_fallback(c, ln, CONTENT_LEFT + indent, same_line_y, FONT_BODY)
                     first_line_done = True
                     y = same_line_y - line_height
                 else:
-                    c.drawString(CONTENT_LEFT + indent, y, ln)
+                    draw_text_with_fallback(c, ln, CONTENT_LEFT + indent, y, FONT_BODY)
                     y -= line_height
         y -= lead
     return y
@@ -339,34 +401,71 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
 
 
 def main():
-    global FONT_FAMILY, FONT_FAMILY_BOLD
+    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED
     parser = argparse.ArgumentParser(description="JK-82 style exam paper PDF generator.")
     parser.add_argument("--output", dest="output", default=None, metavar="filepath", help="Write PDF to file instead of stdout")
     args = parser.parse_args()
 
-    # Register Unicode-capable font if available (Segoe UI, else Arial fallback)
-    segoe_path = "C:/Windows/Fonts/segoeui.ttf"
-    segoe_bold_path = "C:/Windows/Fonts/segoeuib.ttf"
-    arial_path = "C:/Windows/Fonts/arial.ttf"
-    arial_bold_path = "C:/Windows/Fonts/arialbd.ttf"
-    if os.path.isfile(segoe_path):
-        try:
-            pdfmetrics.registerFont(TTFont("SegoeUI", segoe_path))
-            if os.path.isfile(segoe_bold_path):
-                pdfmetrics.registerFont(TTFont("SegoeUIBold", segoe_bold_path))
-            FONT_FAMILY = "SegoeUI"
-            FONT_FAMILY_BOLD = "SegoeUIBold"
-        except Exception:
-            pass
-    if FONT_FAMILY == "Helvetica" and os.path.isfile(arial_path):
-        try:
-            pdfmetrics.registerFont(TTFont("Arial", arial_path))
-            if os.path.isfile(arial_bold_path):
-                pdfmetrics.registerFont(TTFont("Arial-Bold", arial_bold_path))
-            FONT_FAMILY = "Arial"
-            FONT_FAMILY_BOLD = "Arial-Bold"
-        except Exception:
-            pass
+    # Prefer project-local NotoSans (public/fonts) if available for full Unicode (log₂, √, θ, etc.)
+    try:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        noto_path = os.path.join(base, "public", "fonts", "NotoSans-Regular.ttf")
+        noto_bold_path = os.path.join(base, "public", "fonts", "NotoSans-Bold.ttf")
+        symbols_path = os.path.join(base, "public", "fonts", "NotoSansSymbols2-Regular.ttf")
+        if os.path.isfile(noto_path):
+            try:
+                pdfmetrics.registerFont(TTFont("NotoSans", noto_path))
+                if os.path.isfile(noto_bold_path):
+                    pdfmetrics.registerFont(TTFont("NotoSans-Bold", noto_bold_path))
+                    FONT_FAMILY_BOLD = "NotoSans-Bold"
+                else:
+                    FONT_FAMILY_BOLD = "NotoSans"
+                FONT_FAMILY = "NotoSans"
+                NOTO_LOADED = True
+            except Exception:
+                NOTO_LOADED = False
+        # Register symbols font (geometric shapes) if available
+        if os.path.isfile(symbols_path):
+            try:
+                pdfmetrics.registerFont(TTFont(SYMBOL_FONT_FAMILY, symbols_path))
+                SYMBOL_FONT_LOADED = True
+            except Exception:
+                SYMBOL_FONT_LOADED = False
+        else:
+            SYMBOL_FONT_LOADED = False
+    except Exception:
+        NOTO_LOADED = False
+        SYMBOL_FONT_LOADED = False
+
+    # If NotoSans not available, fall back to system Unicode fonts on Windows (Segoe UI / Arial), else core Helvetica.
+    if not NOTO_LOADED:
+        segoe_path = "C:/Windows/Fonts/segoeui.ttf"
+        segoe_bold_path = "C:/Windows/Fonts/segoeuib.ttf"
+        arial_path = "C:/Windows/Fonts/arial.ttf"
+        arial_bold_path = "C:/Windows/Fonts/arialbd.ttf"
+        if os.path.isfile(segoe_path):
+            try:
+                pdfmetrics.registerFont(TTFont("SegoeUI", segoe_path))
+                if os.path.isfile(segoe_bold_path):
+                    pdfmetrics.registerFont(TTFont("SegoeUIBold", segoe_bold_path))
+                FONT_FAMILY = "SegoeUI"
+                FONT_FAMILY_BOLD = "SegoeUIBold"
+            except Exception:
+                pass
+        if FONT_FAMILY == "Helvetica" and os.path.isfile(arial_path):
+            try:
+                pdfmetrics.registerFont(TTFont("Arial", arial_path))
+                if os.path.isfile(arial_bold_path):
+                    pdfmetrics.registerFont(TTFont("Arial-Bold", arial_bold_path))
+                FONT_FAMILY = "Arial"
+                FONT_FAMILY_BOLD = "Arial-Bold"
+            except Exception:
+                pass
+
+    print(
+        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, FONT_FAMILY_BOLD={FONT_FAMILY_BOLD}, NOTO_LOADED={NOTO_LOADED}, SYMBOL_FONT_LOADED={SYMBOL_FONT_LOADED}",
+        file=sys.stderr,
+    )
 
     part_a_questions = []
     try:
@@ -459,7 +558,7 @@ def main():
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean_preserve_newlines(q.get("text", ""))
+                text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
                 marks = int(q.get("marks", 0)) or 2
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
@@ -479,7 +578,7 @@ def main():
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean_preserve_newlines(q.get("text", ""))
+                text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
                 marks = int(q.get("marks", 0)) or 4
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
@@ -503,7 +602,7 @@ def main():
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean_preserve_newlines(q.get("text", ""))
+                text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
                 marks = int(q.get("marks", 0)) or 6
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
@@ -516,7 +615,7 @@ def main():
                 if y < 2 * MARGIN + 25:
                     new_page()
                     y = PAGE_HEIGHT - MARGIN
-                text = clean_preserve_newlines(q.get("text", ""))
+                text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
                 marks = int(q.get("marks", 0)) or 1
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
@@ -544,7 +643,7 @@ def main():
         part_b_marks = sum(int(q.get("marks", 0)) for q in part_b)
         for i, q in enumerate(part_b):
             num = i + 1
-            text = clean_preserve_newlines(q.get("text", ""))
+            text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
             opts = q.get("options") or []
             opts = (opts + ["", "", "", ""])[:4]
             if y < 2 * MARGIN + 40:
@@ -556,11 +655,11 @@ def main():
             c.drawString(CONTENT_RIGHT - 20, question_y, "(        )")
             y = draw_question_content(c, text, y, line_height, lead, 20, new_page, same_line_y=question_y)
             c.setFont(FONT_FAMILY, FONT_SMALL)
-            c.drawString(CONTENT_LEFT + 12, y, f"A) {clean(opts[0])}")
-            c.drawString(CONTENT_LEFT + CONTENT_WIDTH / 2, y, f"B) {clean(opts[1])}")
+            draw_text_with_fallback(c, f"A) {clean(opts[0])}", CONTENT_LEFT + 12, y, FONT_SMALL)
+            draw_text_with_fallback(c, f"B) {clean(opts[1])}", CONTENT_LEFT + CONTENT_WIDTH / 2, y, FONT_SMALL)
             y -= line_height
-            c.drawString(CONTENT_LEFT + 12, y, f"C) {clean(opts[2])}")
-            c.drawString(CONTENT_LEFT + CONTENT_WIDTH / 2, y, f"D) {clean(opts[3])}")
+            draw_text_with_fallback(c, f"C) {clean(opts[2])}", CONTENT_LEFT + 12, y, FONT_SMALL)
+            draw_text_with_fallback(c, f"D) {clean(opts[3])}", CONTENT_LEFT + CONTENT_WIDTH / 2, y, FONT_SMALL)
             y -= line_height
             y -= lead
 

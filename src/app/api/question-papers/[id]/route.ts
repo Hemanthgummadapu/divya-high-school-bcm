@@ -1,25 +1,89 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readDatabase, writeDatabase, type QuestionPaper, type Question } from "@/lib/questionPapers";
+import { getSupabase } from "@/lib/supabase";
+import type { QuestionPaper, Question } from "@/lib/questionPapers";
 
 /**
  * GET /api/question-papers/[id]
- * Get a single question paper by ID
+ * Get a single question paper by ID from Supabase
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const db = await readDatabase();
-    const paper = db.papers.find((p) => p.id === params.id);
-    
-    if (!paper) {
+    const hasSupabase =
+      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!hasSupabase) {
+      return NextResponse.json(
+        { success: false, error: "Supabase not configured" },
+        { status: 503 }
+      );
+    }
+
+    const { data: paperRow, error: paperError } = await getSupabase()
+      .from("question_papers")
+      .select("*")
+      .eq("id", params.id)
+      .single();
+
+    if (paperError || !paperRow) {
       return NextResponse.json(
         { success: false, error: "Paper not found" },
         { status: 404 }
       );
     }
-    
+
+    const { data: questionRows, error: questionsError } = await getSupabase()
+      .from("questions")
+      .select("*")
+      .eq("paper_id", params.id);
+
+    if (questionsError) {
+      return NextResponse.json(
+        { success: false, error: questionsError.message },
+        { status: 500 }
+      );
+    }
+
+    const p = paperRow as {
+      id: string;
+      file_name: string;
+      subject: string;
+      grade: number | string;
+      year: number | string;
+      total_questions?: number;
+    };
+    const paper: QuestionPaper = {
+      id: p.id,
+      filename: p.file_name,
+      subject: String(p.subject ?? ""),
+      grade: String(p.grade ?? ""),
+      year: String(p.year ?? ""),
+      uploadedAt: new Date().toISOString(),
+      totalPages: 0,
+      questions: (questionRows ?? []).map(
+        (q: {
+          id: string;
+          number: string;
+          text: string;
+          options?: string[];
+          section: string;
+          type: string;
+          marks: number;
+          diagram?: string;
+        }): Question => ({
+          id: q.id,
+          number: String(q.number ?? ""),
+          text: q.text ?? "",
+          options: Array.isArray(q.options) ? q.options : [],
+          section: q.section ?? "",
+          type: (q.type as Question["type"]) || "Short",
+          marks: Number(q.marks) ?? 0,
+          diagram: q.diagram ?? undefined,
+        })
+      ),
+    };
+
     return NextResponse.json({
       success: true,
       paper,
@@ -35,7 +99,7 @@ export async function GET(
 
 /**
  * POST /api/question-papers/[id]
- * Add a new question to an existing paper
+ * Add a new question to an existing paper (Supabase)
  */
 export async function POST(
   request: NextRequest,
@@ -52,17 +116,33 @@ export async function POST(
       );
     }
 
-    const db = await readDatabase();
-    const paper = db.papers.find((p) => p.id === params.id);
+    const hasSupabase =
+      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!hasSupabase) {
+      return NextResponse.json(
+        { success: false, error: "Supabase not configured" },
+        { status: 503 }
+      );
+    }
 
-    if (!paper) {
+    const { data: paperRow, error: paperError } = await getSupabase()
+      .from("question_papers")
+      .select("id, grade, subject, year")
+      .eq("id", params.id)
+      .single();
+
+    if (paperError || !paperRow) {
       return NextResponse.json(
         { success: false, error: "Paper not found" },
         { status: 404 }
       );
     }
 
-    const nextNumber = (paper.questions.length + 1).toString();
+    const { count } = await getSupabase()
+      .from("questions")
+      .select("*", { count: "exact", head: true })
+      .eq("paper_id", params.id);
+    const nextNumber = String((count ?? 0) + 1);
     const newQuestionId = `q_manual_${Date.now().toString(36)}_${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -79,10 +159,32 @@ export async function POST(
             .filter((o) => o.length > 0)
         : [];
 
+    const row = paperRow as { id: string; grade: number; subject: string; year: number };
+    const { error: insertError } = await getSupabase().from("questions").insert({
+      id: newQuestionId,
+      paper_id: params.id,
+      grade: row.grade,
+      subject: row.subject,
+      year: row.year,
+      number: nextNumber,
+      text,
+      marks: typeof marks === "number" && marks > 0 ? marks : 1,
+      type: safeType,
+      section: "SECTION-A",
+      options: normalizedOptions,
+    });
+
+    if (insertError) {
+      return NextResponse.json(
+        { success: false, error: insertError.message },
+        { status: 500 }
+      );
+    }
+
     const question: Question = {
       id: newQuestionId,
       number: nextNumber,
-      text: text,
+      text,
       options: normalizedOptions,
       section: "SECTION-A",
       type: safeType,
@@ -93,13 +195,10 @@ export async function POST(
           : undefined,
     };
 
-    paper.questions.push(question);
-    await writeDatabase(db);
-
     return NextResponse.json({
       success: true,
       question,
-      paperId: paper.id,
+      paperId: params.id,
     });
   } catch (error: any) {
     console.error("Error adding question:", error);
@@ -112,26 +211,35 @@ export async function POST(
 
 /**
  * DELETE /api/question-papers/[id]
- * Delete a question paper
+ * Delete a question paper and its questions from Supabase
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const db = await readDatabase();
-    const index = db.papers.findIndex((p) => p.id === params.id);
-    
-    if (index === -1) {
+    const hasSupabase =
+      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!hasSupabase) {
       return NextResponse.json(
-        { success: false, error: "Paper not found" },
-        { status: 404 }
+        { success: false, error: "Supabase not configured" },
+        { status: 503 }
       );
     }
-    
-    db.papers.splice(index, 1);
-    await writeDatabase(db);
-    
+
+    await getSupabase().from("questions").delete().eq("paper_id", params.id);
+    const { error } = await getSupabase()
+      .from("question_papers")
+      .delete()
+      .eq("id", params.id);
+
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: "Paper deleted successfully",
@@ -144,5 +252,3 @@ export async function DELETE(
     );
   }
 }
-
-

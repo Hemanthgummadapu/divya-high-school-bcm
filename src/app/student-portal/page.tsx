@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PortalLogoutButton from "@/components/PortalLogoutButton";
 
 const FEATURES = [
   { title: "My Classes", description: "View your class schedule and section details.", href: "#", icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" },
@@ -15,15 +16,7 @@ export default function StudentPortal() {
       <header className="relative bg-white border-b border-gray-100 pt-20 pb-12 md:pt-24 md:pb-16">
         <div className="container mx-auto px-4 max-w-4xl">
           <div className="absolute right-4 top-20 md:right-6 md:top-24">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              Logout
-            </Link>
+            <PortalLogoutButton />
           </div>
           <div className="text-center max-w-2xl mx-auto">
             <h1 className="font-heading text-4xl md:text-5xl font-bold text-heading mb-3">
