@@ -164,6 +164,8 @@ export async function GET(request: NextRequest) {
                 section: string;
                 type: string;
                 marks: number;
+                diagram?: string;
+                diagram_url?: string;
               }): Question => ({
                 id: q.id,
                 number: String(q.number ?? ""),
@@ -173,6 +175,7 @@ export async function GET(request: NextRequest) {
                 type: (q.type as Question["type"]) || "Short",
                 marks: Number(q.marks) ?? 0,
                 diagram: (q as { diagram?: string }).diagram ?? undefined,
+                diagram_url: (q as { diagram_url?: string }).diagram_url ?? undefined,
               })
             );
           return {

@@ -8,24 +8,31 @@ Logo: watermark on every page (8%), header logo 60x60 on page 1.
 Helvetica only, A4 portrait, 1.8cm margins.
 """
 
-import argparse
-import json
 import sys
-import re
 import os
-from io import BytesIO
 
-try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm, mm
-    from reportlab.lib.utils import ImageReader
-    from reportlab.pdfgen import canvas
-    from reportlab.platypus import Table, TableStyle
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-except ImportError:
-    print("Error: Install reportlab: pip install reportlab", file=sys.stderr)
-    sys.exit(1)
+# Force venv site-packages — works whether called directly or spawned from Node.js
+_site = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "venv", "lib", "python3.14", "site-packages")
+_site = os.path.normpath(_site)
+if os.path.isdir(_site):
+    sys.path.insert(0, _site)
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm, mm
+pt = 1.0  # 1 point = 1 ReportLab unit
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Table, TableStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+import argparse
+import base64
+import json
+import re
+import tempfile
+from io import BytesIO
 
 # Layout
 MARGIN = 1.8 * cm
@@ -35,6 +42,10 @@ CONTENT_LEFT = MARGIN
 CONTENT_RIGHT = PAGE_WIDTH - MARGIN
 FOOTER_Y = 15 * mm
 TURN_OVER_Y = 12 * mm
+# Diagram: inline right of question text; text uses 60% width when diagram present
+DIAGRAM_MAX_W = 130
+DIAGRAM_MAX_H = 110
+TEXT_WIDTH_RATIO_WITH_DIAGRAM = 0.6
 
 # Font sizes (increased by 2pt for better readability)
 FONT_TITLE = 16
@@ -233,21 +244,20 @@ def parse_table_in_text(text):
     return (before, tables, after)
 
 
-def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=None, is_mcq=False, same_line_y=None):
+def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=None, is_mcq=False, same_line_y=None, reserve_diagram=False):
     """Draw question text; pipe-separated table blocks (3+ '|' per line) drawn with reportlab Table. Returns new y.
     When is_mcq=True, skip table parsing and render as plain text.
-    When same_line_y is set, the first line of text is drawn at same_line_y (same line as question number)."""
+    When same_line_y is set, the first line of text is drawn at same_line_y (same line as question number).
+    When reserve_diagram=True, text uses 60% of content width so diagram sits alongside on the right."""
     text = (text or "").replace("\\n", "\n")
-    # Debug: confirm which font is active when drawing question text
-    try:
-        current_font = getattr(c, "_fontname", FONT_FAMILY)
-    except Exception:
-        current_font = FONT_FAMILY
-    print(f"[JK82 PDF] Drawing question text with font: {current_font}", file=sys.stderr)
+    if reserve_diagram:
+        base_avail = CONTENT_WIDTH * TEXT_WIDTH_RATIO_WITH_DIAGRAM - indent
+    else:
+        base_avail = CONTENT_WIDTH - 30
+    avail_width = base_avail
     if is_mcq:
         # Plain text only: each line wrapped and drawn, no table parsing
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        avail_width = CONTENT_WIDTH - 30
         first_done = False
         for line in lines:
             for ln in wrap_text(c, line, avail_width, size=FONT_BODY):
@@ -260,7 +270,7 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
                     y -= line_height
         return y
     before, tables, after = parse_table_in_text(text)
-    avail_width = CONTENT_WIDTH - 30
+    avail_width = base_avail
     first_line_done = False
     if same_line_y is not None:
         y = same_line_y
@@ -321,6 +331,48 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
                     y -= line_height
         y -= lead
     return y
+
+
+def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page_cb=None):
+    """Draw question diagram on the right, vertically centered with the question text block.
+    y_text_top: first line of question text; y_text_bottom: after last line.
+    Max 130pt x 110pt, aspect ratio preserved. Returns y for next content (min of text bottom and diagram bottom)."""
+    if not diagram_base64 or not isinstance(diagram_base64, str):
+        return y_text_bottom
+    try:
+        raw = base64.b64decode(diagram_base64)
+    except Exception:
+        return y_text_bottom
+    if not raw:
+        return y_text_bottom
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(suffix=".png")
+        os.write(fd, raw)
+        os.close(fd)
+        img = ImageReader(tmp)
+        iw, ih = img.getSize()
+    except Exception:
+        return y_text_bottom
+    finally:
+        if tmp and os.path.isfile(tmp):
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+    max_w = DIAGRAM_MAX_W
+    max_h = DIAGRAM_MAX_H
+    scale = min(max_w / iw, max_h / ih, 1.0)
+    w = iw * scale
+    h = ih * scale
+    text_center_y = (y_text_top + y_text_bottom) / 2
+    diagram_y_bottom = text_center_y - h / 2
+    if new_page_cb and diagram_y_bottom < 2 * MARGIN:
+        new_page_cb()
+        diagram_y_bottom = PAGE_HEIGHT - MARGIN - h
+    x = CONTENT_RIGHT - w
+    c.drawImage(img, x, diagram_y_bottom, width=w, height=h, preserveAspectRatio=True, mask="auto")
+    return min(y_text_bottom, diagram_y_bottom)
 
 
 def draw_footer(c, page_num, total_pages, school_name, date_str, is_last):
@@ -562,8 +614,11 @@ def main():
                 marks = int(q.get("marks", 0)) or 2
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
-                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y)
-                y -= lead
+                question_start_y = y
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y, reserve_diagram=bool(q.get("diagram")))
+                if q.get("diagram"):
+                    y = draw_question_diagram(c, q.get("diagram"), question_start_y, y, new_page)
+                y -= (2 * mm if q.get("diagram") else lead)
             y -= 2 * mm
 
         # SECTION - II (4 marks)
@@ -582,8 +637,11 @@ def main():
                 marks = int(q.get("marks", 0)) or 4
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
-                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y)
-                y -= lead
+                question_start_y = y
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y, reserve_diagram=bool(q.get("diagram")))
+                if q.get("diagram"):
+                    y = draw_question_diagram(c, q.get("diagram"), question_start_y, y, new_page)
+                y -= (2 * mm if q.get("diagram") else lead)
             y -= 2 * mm
 
         # SECTION - III (6 marks)
@@ -606,8 +664,11 @@ def main():
                 marks = int(q.get("marks", 0)) or 6
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
-                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y)
-                y -= lead
+                question_start_y = y
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, same_line_y=y, reserve_diagram=bool(q.get("diagram")))
+                if q.get("diagram"):
+                    y = draw_question_diagram(c, q.get("diagram"), question_start_y, y, new_page)
+                y -= (2 * mm if q.get("diagram") else lead)
 
         if rest:
             for q in rest:
@@ -620,8 +681,11 @@ def main():
                 c.setFont(FONT_FAMILY, FONT_BODY)
                 c.drawString(CONTENT_LEFT, y, f"{q_global}.")
                 c.drawString(CONTENT_RIGHT - 25, y, f"[{marks} m]")
-                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, is_mcq=True, same_line_y=y)
-                y -= lead
+                question_start_y = y
+                y = draw_question_content(c, text, y, line_height, lead, 25, new_page, is_mcq=True, same_line_y=y, reserve_diagram=bool(q.get("diagram")))
+                if q.get("diagram"):
+                    y = draw_question_diagram(c, q.get("diagram"), question_start_y, y, new_page)
+                y -= (2 * mm if q.get("diagram") else lead)
 
     # PART-B at the end (new page if we had PART-A)
     if part_b:
@@ -653,7 +717,11 @@ def main():
             question_y = y
             c.drawString(CONTENT_LEFT, y, f"{num}.")
             c.drawString(CONTENT_RIGHT - 20, question_y, "(        )")
-            y = draw_question_content(c, text, y, line_height, lead, 20, new_page, same_line_y=question_y)
+            question_start_y = question_y
+            y = draw_question_content(c, text, y, line_height, lead, 20, new_page, same_line_y=question_y, reserve_diagram=bool(q.get("diagram")))
+            if q.get("diagram"):
+                y = draw_question_diagram(c, q.get("diagram"), question_start_y, y, new_page)
+            y -= (2 * mm if q.get("diagram") else lead)
             c.setFont(FONT_FAMILY, FONT_SMALL)
             draw_text_with_fallback(c, f"A) {clean(opts[0])}", CONTENT_LEFT + 12, y, FONT_SMALL)
             draw_text_with_fallback(c, f"B) {clean(opts[1])}", CONTENT_LEFT + CONTENT_WIDTH / 2, y, FONT_SMALL)

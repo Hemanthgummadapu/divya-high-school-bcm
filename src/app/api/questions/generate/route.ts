@@ -5,6 +5,25 @@ import { existsSync, mkdirSync } from "fs";
 import { platform } from "os";
 import { supabase } from "@/lib/supabase";
 
+function resolvePythonCmd() {
+  const isWindows = platform() === "win32";
+  const candidates = isWindows
+    ? [
+        join(process.cwd(), "venv", "Scripts", "python.exe"),
+        join(process.cwd(), "venv", "Scripts", "python3.exe"),
+      ]
+    : [
+        join(process.cwd(), "venv", "bin", "python3"),
+        join(process.cwd(), "venv", "bin", "python"),
+        "/Users/hemanthgummadapu/divya-high-school-bcm/venv/bin/python3",
+      ];
+
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return isWindows ? "python" : "python3";
+}
+
 /**
  * POST /api/questions/generate
  * Generate JK-82 style exam paper PDF via Python reportlab script.
@@ -31,12 +50,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isWindows = platform() === "win32";
-    const venvPython = isWindows
-      ? join(process.cwd(), "venv", "Scripts", "python.exe")
-      : join(process.cwd(), "venv", "bin", "python3");
-    const systemPython = isWindows ? "python" : "python3";
-    const pythonCmd = existsSync(venvPython) ? venvPython : systemPython;
+    const pythonCmd = resolvePythonCmd();
     const publicImages = join(process.cwd(), "public", "images");
     const logoPath = join(publicImages, "school-logo.png");
     const examLogoPath = join(publicImages, "school-logo-exam.png");
@@ -50,7 +64,14 @@ export async function POST(request: NextRequest) {
         if (existsSync(updateLogoPath)) {
           mkdirSync(publicImages, { recursive: true });
           await new Promise<void>((resolve, reject) => {
-            const proc = spawn(pythonCmd, [updateLogoPath], { stdio: "pipe" });
+            const proc = spawn(pythonCmd, [updateLogoPath], {
+              stdio: "pipe",
+              env: {
+                ...process.env,
+                PYTHONPATH: join(process.cwd(), "venv", "lib", "python3.14", "site-packages"),
+                VIRTUAL_ENV: join(process.cwd(), "venv"),
+              },
+            });
             proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`Exit ${code}`))));
             proc.on("error", reject);
           });
@@ -64,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     const payload = JSON.stringify({
       header: header || {},
-      questions: questions.map((q: { id?: string; number?: string; text?: string; options?: string[]; section?: string; type?: string; marks?: number }) => ({
+      questions: questions.map((q: { id?: string; number?: string; text?: string; options?: string[]; section?: string; type?: string; marks?: number; diagram?: string }) => ({
         id: q.id,
         number: q.number,
         text: q.text,
@@ -72,6 +93,7 @@ export async function POST(request: NextRequest) {
         section: q.section,
         type: q.type,
         marks: q.marks,
+        diagram: q.diagram || undefined,
       })),
       logoPath: logoPathToUse,
     });
@@ -79,23 +101,44 @@ export async function POST(request: NextRequest) {
     const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
       const proc = spawn(pythonCmd, [scriptPath], {
         stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PYTHONPATH: join(process.cwd(), "venv", "lib", "python3.14", "site-packages"),
+          VIRTUAL_ENV: join(process.cwd(), "venv"),
+        },
       });
       const chunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
       proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
       proc.stderr.on("data", (chunk: Buffer) => {
         console.error("JK82 PDF stderr:", chunk.toString());
+        stderrChunks.push(chunk);
       });
       proc.on("error", (err) => reject(err));
       proc.on("close", (code) => {
         if (code !== 0) {
-          reject(new Error(`Script exited with code ${code}`));
+          const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+          reject(new Error(stderr || `Script exited with code ${code}`));
           return;
         }
         resolve(Buffer.concat(chunks));
       });
-      proc.stdin.write(payload, "utf-8", () => {
-        proc.stdin.end();
+      // If the python process exits early (e.g. missing deps), writing to stdin can throw EPIPE.
+      proc.stdin.on("error", (err: any) => {
+        if (err && (err.code === "EPIPE" || String(err.message || "").includes("EPIPE"))) return;
+        console.warn("JK82 PDF stdin error:", err);
       });
+      try {
+        proc.stdin.write(payload, "utf-8", () => {
+          proc.stdin.end();
+        });
+      } catch (err: any) {
+        if (err && (err.code === "EPIPE" || String(err.message || "").includes("EPIPE"))) {
+          // allow close handler to surface stderr/exit code
+          return;
+        }
+        reject(err);
+      }
     });
 
     if (!pdfBuffer.length) {

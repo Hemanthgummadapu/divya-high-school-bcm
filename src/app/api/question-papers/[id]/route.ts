@@ -71,6 +71,7 @@ export async function GET(
           type: string;
           marks: number;
           diagram?: string;
+          diagram_url?: string;
         }): Question => ({
           id: q.id,
           number: String(q.number ?? ""),
@@ -80,6 +81,7 @@ export async function GET(
           type: (q.type as Question["type"]) || "Short",
           marks: Number(q.marks) ?? 0,
           diagram: q.diagram ?? undefined,
+          diagram_url: q.diagram_url ?? undefined,
         })
       ),
     };
@@ -107,7 +109,7 @@ export async function POST(
 ) {
   try {
     const body = await request.json();
-    const { text, type, options, marks, correctAnswer } = body;
+    const { text, type, options, marks, correctAnswer, diagram } = body;
 
     if (!text || !type) {
       return NextResponse.json(
@@ -181,6 +183,32 @@ export async function POST(
       );
     }
 
+    let diagramUrl: string | undefined;
+    if (typeof diagram === "string" && diagram.trim().length > 0) {
+      try {
+        const buffer = Buffer.from(diagram, "base64");
+        const supabase = getSupabase();
+        const bucket = "diagrams";
+        const path = `${newQuestionId}.png`;
+        const { error: bucketError } = await supabase.storage.from(bucket).upload(path, buffer, {
+          contentType: "image/png",
+          upsert: true,
+        });
+        if (!bucketError) {
+          const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
+          diagramUrl = urlData?.publicUrl;
+          if (diagramUrl) {
+            await getSupabase()
+              .from("questions")
+              .update({ diagram_url: diagramUrl })
+              .eq("id", newQuestionId);
+          }
+        }
+      } catch (uploadErr) {
+        console.warn("Diagram upload failed:", uploadErr);
+      }
+    }
+
     const question: Question = {
       id: newQuestionId,
       number: nextNumber,
@@ -193,12 +221,14 @@ export async function POST(
         typeof correctAnswer === "string" && correctAnswer.trim().length > 0
           ? correctAnswer.trim()
           : undefined,
+      diagram_url: diagramUrl,
     };
 
     return NextResponse.json({
       success: true,
       question,
       paperId: params.id,
+      diagram_url: diagramUrl,
     });
   } catch (error: any) {
     console.error("Error adding question:", error);

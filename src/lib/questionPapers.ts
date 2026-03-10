@@ -11,7 +11,8 @@ export interface Question {
   type: "MCQ" | "Short" | "Medium" | "Long";
   marks: number;
   correctAnswer?: string;
-  diagram?: string;
+  diagram?: string; // base64 PNG (client state / PDF) or text description
+  diagram_url?: string; // public URL after upload to storage
 }
 
 export interface QuestionPaper {

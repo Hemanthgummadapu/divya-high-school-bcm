@@ -5,6 +5,7 @@ import type { QuestionPaper, Question } from "@/lib/questionPapers";
 import { ALL_GRADES, ALL_YEARS, getSubjectsForGrade } from "@/lib/subjects";
 import jsPDF from "jspdf";
 import MathKeyboard from "@/components/MathKeyboard";
+import DiagramSketchTool from "@/components/DiagramSketchTool";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -85,6 +86,7 @@ export default function QuestionPapers() {
   const mathActiveInputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
   const [pdfGenLogs, setPdfGenLogs] = useState<string[]>([]);
   const generatedPaperRef = useRef<HTMLDivElement | null>(null);
+  const [diagramSketchForIndex, setDiagramSketchForIndex] = useState<number | null>(null);
   
   // Render question text with basic table detection
   const renderQuestionText = (text: string) => {
@@ -545,6 +547,7 @@ export default function QuestionPapers() {
         section: q.section,
         type: q.type,
         marks: Math.max(1, Number(q.marks) || 1),
+        diagram: q.diagram || undefined,
       })),
       header: headerFields,
     };
@@ -838,6 +841,18 @@ export default function QuestionPapers() {
     });
     setEditableQuestions(newQuestions);
   };
+
+  const updateQuestionDiagram = useCallback((index: number, base64: string | undefined) => {
+    setEditableQuestions((prev) =>
+      prev.map((q, i) => (i === index ? { ...q, diagram: base64 } : q))
+    );
+  }, []);
+
+  const removeQuestionDiagram = useCallback((index: number) => {
+    setEditableQuestions((prev) =>
+      prev.map((q, i) => (i === index ? { ...q, diagram: undefined, diagram_url: undefined } : q))
+    );
+  }, []);
   
   const handleMathSymbolInsert = useCallback((symbol: string) => {
     if (!mathActiveField) return;
@@ -1417,11 +1432,20 @@ export default function QuestionPapers() {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 max-w-2xl align-top">
                         <div className="question-text">{renderQuestionText(question.text)}</div>
-                        {question.diagram && (
+                        {(question.diagram_url || (question.diagram && (question.diagram.startsWith("data:") || question.diagram.length > 200))) ? (
+                          <div className="mt-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- diagram: data URL or runtime URL */}
+                            <img
+                              src={question.diagram_url ?? (question.diagram!.startsWith("data:") ? question.diagram : `data:image/png;base64,${question.diagram}`)}
+                              alt="Diagram"
+                              className="max-w-[120px] max-h-16 object-contain border border-gray-200 rounded"
+                            />
+                          </div>
+                        ) : question.diagram ? (
                           <div className="mt-2 block text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5">
                             📐 Diagram: {question.diagram}
                           </div>
-                        )}
+                        ) : null}
                         {question.type === "MCQ" && question.options && question.options.length > 0 ? (
                           <div className="options-grid mt-1.5" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px", marginTop: "6px" }}>
                             {question.options.map((opt, idx) => {
@@ -1540,9 +1564,18 @@ export default function QuestionPapers() {
                                         <span className="font-semibold text-slate-900 shrink-0 w-12 text-right font-sans">Q{q.number}.</span>
                                         <div className="min-w-0 flex-1 font-sans">
                                           <span className="whitespace-pre-wrap break-words block font-sans">{q.text}</span>
-                                          {q.diagram && (
+                                          {(q.diagram_url || (q.diagram && (q.diagram.startsWith("data:") || q.diagram.length > 200))) ? (
+                                            <div className="mt-2 font-sans">
+                                              {/* eslint-disable-next-line @next/next/no-img-element -- diagram: data URL or runtime URL */}
+                                              <img
+                                                src={q.diagram_url ?? (q.diagram!.startsWith("data:") ? q.diagram : `data:image/png;base64,${q.diagram}`)}
+                                                alt="Diagram"
+                                                className="max-w-[150px] max-h-20 object-contain border border-gray-200 rounded"
+                                              />
+                                            </div>
+                                          ) : q.diagram ? (
                                             <div className="mt-2 text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5 font-sans">📐 Diagram: {q.diagram}</div>
-                                          )}
+                                          ) : null}
                                           {(q.options || []).length > 0 && (
                                             <ul className="list-none text-sm text-gray-700 mt-1 space-y-0.5 font-sans">
                                               {(q.options || []).map((opt, i) => (
@@ -1559,9 +1592,18 @@ export default function QuestionPapers() {
                                       <span className="font-semibold text-slate-900 shrink-0 w-12 text-right font-sans">Q{q.number}.</span>
                                       <div className="min-w-0 flex-1 font-sans">
                                         {renderQuestionText(q.text)}
-                                        {q.diagram && (
+                                        {(q.diagram_url || (q.diagram && (q.diagram.startsWith("data:") || q.diagram.length > 200))) ? (
+                                          <div className="mt-2 font-sans">
+                                            {/* eslint-disable-next-line @next/next/no-img-element -- diagram: data URL or runtime URL */}
+                                            <img
+                                              src={q.diagram_url ?? (q.diagram!.startsWith("data:") ? q.diagram : `data:image/png;base64,${q.diagram}`)}
+                                              alt="Diagram"
+                                              className="max-w-[150px] max-h-20 object-contain border border-gray-200 rounded"
+                                            />
+                                          </div>
+                                        ) : q.diagram ? (
                                           <div className="mt-2 text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5 font-sans">📐 Diagram: {q.diagram}</div>
-                                        )}
+                                        ) : null}
                                         {(q.options || []).length > 0 && (
                                           <ul className="list-none text-sm text-gray-700 mt-1 space-y-0.5 font-sans">
                                             {(q.options || []).map((opt, i) => (
@@ -1977,9 +2019,18 @@ export default function QuestionPapers() {
                               {/* Preview with table rendering */}
                               <div className="mb-2 text-sm text-gray-800">
                                 {renderQuestionText(question.text)}
-                                {question.diagram && (
+                                {(question.diagram_url || (question.diagram && (question.diagram.startsWith("data:") || question.diagram.length > 200))) ? (
+                                  <div className="mt-2">
+                                    {/* eslint-disable-next-line @next/next/no-img-element -- diagram: data URL or runtime URL */}
+                                    <img
+                                      src={question.diagram_url ?? (question.diagram!.startsWith("data:") ? question.diagram : `data:image/png;base64,${question.diagram}`)}
+                                      alt="Diagram"
+                                      className="max-w-[120px] max-h-16 object-contain border border-gray-200 rounded"
+                                    />
+                                  </div>
+                                ) : question.diagram ? (
                                   <div className="mt-2 text-sm text-gray-500 italic bg-gray-100 rounded px-2 py-1.5">📐 Diagram: {question.diagram}</div>
-                                )}
+                                ) : null}
                               </div>
 
                               <textarea
@@ -2002,6 +2053,46 @@ export default function QuestionPapers() {
                                 className="w-full p-2 border border-gray-300 rounded mb-3 min-h-[60px] resize-y"
                                 placeholder="Question text..."
                               />
+                              
+                              {/* Diagram: Add / Edit / Remove */}
+                              <div className="mb-3">
+                                {question.diagram || question.diagram_url ? (
+                                  <div className="flex items-center gap-3 flex-wrap">
+                                    {/* eslint-disable-next-line @next/next/no-img-element -- diagram: data URL or runtime URL */}
+                                    <img
+                                      src={question.diagram
+                                        ? (question.diagram.startsWith("data:") ? question.diagram : `data:image/png;base64,${question.diagram}`)
+                                        : question.diagram_url}
+                                      alt="Diagram"
+                                      className="w-24 h-16 object-contain border border-gray-300 rounded bg-white"
+                                    />
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setDiagramSketchForIndex(index)}
+                                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeQuestionDiagram(index)}
+                                        className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDiagramSketchForIndex(index)}
+                                    className="px-3 py-2 text-sm border border-dashed border-gray-400 text-gray-600 rounded hover:bg-gray-50 hover:border-gray-500"
+                                  >
+                                    Add Diagram
+                                  </button>
+                                )}
+                              </div>
                               
                               {(question.type === "MCQ" || (question.options && question.options.length > 0)) && (
                                 <div className="ml-4 space-y-2">
@@ -2083,6 +2174,24 @@ export default function QuestionPapers() {
           </div>
         </div>
       )}
+
+      {/* Diagram sketch tool overlay (Edit & Preview modal) */}
+      {editPreviewMode && diagramSketchForIndex !== null && (() => {
+        const q = editableQuestions[diagramSketchForIndex];
+        const existingImage = q?.diagram
+          ? (q.diagram.startsWith("data:") ? q.diagram : `data:image/png;base64,${q.diagram}`)
+          : q?.diagram_url;
+        return (
+          <DiagramSketchTool
+            existingImage={existingImage}
+            onSave={(base64) => {
+              updateQuestionDiagram(diagramSketchForIndex, base64);
+              setDiagramSketchForIndex(null);
+            }}
+            onCancel={() => setDiagramSketchForIndex(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
