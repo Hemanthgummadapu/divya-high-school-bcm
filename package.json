@@ -7,7 +7,8 @@
     "dev:webpack": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "node scripts/download-fonts.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
