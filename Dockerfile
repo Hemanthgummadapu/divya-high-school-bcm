@@ -12,7 +12,7 @@ RUN npm ci
 
 COPY . .
 
-RUN pip3 install reportlab pillow requests --break-system-packages
+RUN pip3 install reportlab pillow requests pypdf --break-system-packages
 
 RUN mkdir -p public/fonts && \
     curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf" -o public/fonts/NotoSans-Regular.ttf || true && \
