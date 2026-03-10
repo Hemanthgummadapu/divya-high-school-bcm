@@ -4,7 +4,6 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { platform } from "os";
 import { supabase } from "@/lib/supabase";
-
 function resolvePythonCmd() {
   const isWindows = platform() === "win32";
   const candidates = isWindows
