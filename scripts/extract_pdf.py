@@ -203,9 +203,14 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
             
             if json_start >= 0 and json_end > json_start:
                 json_str = response_text[json_start:json_end]
-                # Sanitize invalid backslash escapes before JSON parsing
+                # Clean invalid JSON escape sequences before parsing
+                # Use a simple replace approach for common invalid escapes
+                json_str = json_str.replace('\\ ', '\\\\ ')  # fix "\ " (backslash space)
+                json_str = json_str.replace('\\+', '\\\\+')  # fix "\+"
+                json_str = json_str.replace('\\=', '\\\\=')  # fix "\="
+                # General: replace any lone backslash before non-JSON-special chars
                 import re
-                json_str = re.sub(r'\\(?![\"\\/bfnrtu])', r'\\\\', json_str)
+                json_str = re.sub(r'\\([^"\\/bfnrtu0-9])', r'\\\\\1', json_str)
                 result = json.loads(json_str)
 
                 # Handle both single-section and multi-section formats
@@ -372,7 +377,7 @@ class QuestionExtractor:
                             # Auto-detect type
                             q["type"] = self.detect_question_type(q.get("text", ""))
                         if "marks" not in q:
-                            q["marks"] = self.extract_marks(q.get("text", ""))
+                            q["marks"] = self.extract_marks(q.get("text", ""), q.get("section", ""))
                         if "options" not in q:
                             q["options"] = []
                         # Clean MCQ option prefixes like "A)", "B)", "C)", "D)"
@@ -472,15 +477,18 @@ class QuestionExtractor:
                 if no_options and (first_section2_idx is None or idx < first_section2_idx):
                     q["section"] = "SECTION-I"
         
-        # 3) Group MCQ 1-mark questions into PART-B
-        # Any question that is MCQ type OR has options AND has marks=1
-        # should always be assigned to PART-B, regardless of previous section.
+        # 3) Group MCQ 1-mark questions into PART-B ONLY if section is already PART-B
+        # Do NOT reassign questions from SECTION-I/II/III to PART-B based on marks alone
+        # Trust Claude's section assignment
         for q in questions:
+            sec = str(q.get("section") or "").strip().upper()
             marks = q.get("marks")
             options = q.get("options") or []
             qtype = q.get("type")
-            if (qtype == "MCQ" or options) and marks == 1:
+            # Only force PART-B if it's already labeled as such, or truly unknown with MCQ characteristics
+            if sec == "PART-B":
                 q["section"] = "PART-B"
+            # Don't touch SECTION-I, SECTION-II, SECTION-III
 
         # 4) Normalize question type labels (marks-based)
         for q in questions:
@@ -523,24 +531,32 @@ class QuestionExtractor:
         else:
             return "Short"
     
-    def extract_marks(self, text: str) -> int:
-        """Extract marks from question text"""
-        if not text:
+    def extract_marks(self, text: str, section: str = "") -> int:
+        """Extract marks from question text or infer from section"""
+        sec = section.strip().upper()
+        if not text and not sec:
             return 1
-        
         import re
         marks_patterns = [
             r'\((\d+)\s*marks?\)',
             r'\[(\d+)\s*marks?\]',
             r'(\d+)\s*marks?',
         ]
-        
-        for pattern in marks_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                return int(match.group(1))
-        
-        return 1  # Default marks
+        if text:
+            for pattern in marks_patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    return int(match.group(1))
+        # Infer from section name
+        if "SECTION-I" in sec and "SECTION-II" not in sec and "SECTION-III" not in sec:
+            return 2
+        if "SECTION-II" in sec and "SECTION-III" not in sec:
+            return 4
+        if "SECTION-III" in sec:
+            return 6
+        if "PART-B" in sec:
+            return 1
+        return 1
     
     def save_to_json(self, output_path: str):
         """Save extracted questions to JSON database"""
