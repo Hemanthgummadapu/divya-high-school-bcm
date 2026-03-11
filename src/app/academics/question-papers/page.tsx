@@ -8,6 +8,12 @@ import MathKeyboard from "@/components/MathKeyboard";
 import DiagramSketchTool from "@/components/DiagramSketchTool";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DM_Sans } from "next/font/google";
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
 
 interface Statistics {
   totalPapers: number;
@@ -1013,7 +1019,7 @@ export default function QuestionPapers() {
   };
   
   return (
-    <div className="min-h-screen bg-slate-50 py-8">
+    <div className={`min-h-screen bg-slate-50 py-8 ${dmSans.className}`}>
       <div className="container mx-auto px-4">
         <h1 className="text-4xl font-bold text-center mb-8 text-slate-900">
           Question Bank
@@ -1022,28 +1028,33 @@ export default function QuestionPapers() {
         {/* Statistics */}
         {statistics && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Total Papers</h3>
-              <p className="text-3xl font-bold text-slate-900">{statistics.totalPapers}</p>
+            <div className="relative bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-500 transition transform hover:-translate-y-0.5 hover:shadow-lg">
+              <h3 className="text-xs font-semibold tracking-wide text-gray-500 uppercase mb-1">Total Papers</h3>
+              <p className="text-3xl font-extrabold text-slate-900">{statistics.totalPapers}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Total Questions</h3>
-              <p className="text-3xl font-bold text-slate-900">{statistics.totalQuestions}</p>
+            <div className="relative bg-white rounded-xl shadow-md p-6 border-l-4 border-indigo-500 transition transform hover:-translate-y-0.5 hover:shadow-lg">
+              <h3 className="text-xs font-semibold tracking-wide text-gray-500 uppercase mb-1">Total Questions</h3>
+              <p className="text-3xl font-extrabold text-slate-900">{statistics.totalQuestions}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">MCQ Questions</h3>
-              <p className="text-3xl font-bold text-blue-600">{statistics.byType?.MCQ ?? 0}</p>
+            <div className="relative bg-white rounded-xl shadow-md p-6 border-l-4 border-purple-500 transition transform hover:-translate-y-0.5 hover:shadow-lg">
+              <h3 className="text-xs font-semibold tracking-wide text-gray-500 uppercase mb-1">MCQ Questions</h3>
+              <p className="text-3xl font-extrabold text-purple-700">{statistics.byType?.MCQ ?? 0}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Selected</h3>
-              <p className="text-3xl font-bold text-green-600">{selectedQuestions.size}</p>
+            <div className="relative bg-white rounded-xl shadow-md p-6 border-l-4 border-emerald-500 transition transform hover:-translate-y-0.5 hover:shadow-lg">
+              <h3 className="text-xs font-semibold tracking-wide text-gray-500 uppercase mb-1">Selected</h3>
+              <p className="text-3xl font-extrabold text-emerald-700">{selectedQuestions.size}</p>
             </div>
           </div>
         )}
         
         {/* Upload Section */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-          <h2 className="text-2xl font-semibold mb-4 text-slate-900">Upload PDF</h2>
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-100">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-semibold text-slate-900 flex items-center gap-2">
+              <span className="inline-block w-1 h-6 bg-blue-500 rounded-full mr-1" />
+              Upload PDF
+            </h2>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
@@ -1107,21 +1118,37 @@ export default function QuestionPapers() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               PDF File <span className="text-red-500">*</span>
             </label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-              <input
-                type="file"
-                accept=".pdf"
-                onChange={handleFileChange}
-                className="hidden"
-                id="pdf-upload"
-              />
-              <label
-                htmlFor="pdf-upload"
-                className="cursor-pointer text-blue-600 hover:text-blue-700"
-              >
-                {uploadForm.file ? uploadForm.file.name : "Click to select PDF file"}
-              </label>
-            </div>
+            <label htmlFor="pdf-upload">
+              <div className="relative flex flex-col items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/60 hover:border-blue-400 hover:bg-blue-50/40 transition-colors cursor-pointer">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 text-blue-600 mb-1">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.8}
+                      d="M3 15a4 4 0 014-4h1m4-7l3 3-3 3m3-3H9a4 4 0 00-4 4v7"
+                    />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-slate-900">
+                  {uploadForm.file ? uploadForm.file.name : "Click to upload or drag and drop"}
+                </p>
+                <p className="text-xs text-slate-500">PDF files only</p>
+              </div>
+            </label>
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+              id="pdf-upload"
+            />
           </div>
           
           {uploading && (
@@ -1152,8 +1179,28 @@ export default function QuestionPapers() {
         </div>
         
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-          <h2 className="text-2xl font-semibold mb-4 text-slate-900">Filters</h2>
+        <div className="bg-white rounded-2xl shadow-md p-6 mb-8 border border-slate-100">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M3 4h18M5 12h14M9 20h6"
+                />
+              </svg>
+            </div>
+            <h2 className="text-sm font-semibold text-slate-900 tracking-[0.18em] uppercase">
+              Filters
+            </h2>
+          </div>
           
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
@@ -1309,7 +1356,7 @@ export default function QuestionPapers() {
         
         {/* Section Tabs */}
         {allQuestions.length > 0 && (
-          <div className="bg-white rounded-lg shadow-lg p-4 mb-4">
+          <div className="bg-white rounded-2xl shadow-md p-4 mb-4 border border-slate-100">
             <div className="flex flex-wrap gap-2">
               {["All", "2 Marks", "4 Marks", "6 Marks", "MCQ"].map((tab) => (
                 <button
@@ -1317,8 +1364,8 @@ export default function QuestionPapers() {
                   onClick={() => setActiveSectionTab(tab)}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                     activeSectionTab === tab
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "border border-slate-300 text-gray-700 hover:bg-blue-50"
                   }`}
                 >
                   {tab} ({getSectionCount(tab)})
@@ -1329,8 +1376,8 @@ export default function QuestionPapers() {
         )}
         
         {/* Question Bank Table */}
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          <div className="p-6 border-b">
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100">
+          <div className="p-6 border-b bg-gradient-to-r from-slate-50 to-slate-100">
             <div className="flex justify-between items-center flex-wrap gap-4">
               <h2 className="text-2xl font-semibold text-slate-900">
                 Question Bank ({filteredQuestions.length} questions)
@@ -1338,21 +1385,21 @@ export default function QuestionPapers() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={selectAll}
-                  className="text-sm text-blue-600 hover:text-blue-700"
+                  className="text-sm text-blue-600 hover:text-blue-700 transition-colors"
                 >
                   {selectedQuestions.size === filteredQuestions.length ? "Deselect All" : "Select All"}
                 </button>
                 {selectedQuestions.size > 0 && (
                   <button
                     onClick={handleDeleteSelected}
-                    className="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
+                    className="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-transform transition-shadow font-medium shadow-sm hover:-translate-y-0.5 hover:shadow-md"
                   >
                     Delete Selected ({selectedQuestions.size})
                   </button>
                 )}
                 <button
                   onClick={handleClearAll}
-                  className="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  className="text-sm px-4 py-2 rounded-lg border border-red-500 text-red-600 hover:bg-red-50 transition-transform transition-shadow font-medium disabled:opacity-60 disabled:cursor-not-allowed hover:-translate-y-0.5 hover:shadow-sm"
                   disabled={allQuestions.length === 0}
                 >
                   Clear All Questions
@@ -1370,7 +1417,7 @@ export default function QuestionPapers() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                       Select
@@ -1396,7 +1443,7 @@ export default function QuestionPapers() {
                   {filteredQuestions.map((question, index) => (
                     <tr
                       key={question.id}
-                      className={`hover:bg-gray-50 ${
+                      className={`transition-colors hover:bg-blue-50/40 ${
                         selectedQuestions.has(question.id) ? "bg-blue-50" : ""
                       }`}
                     >
@@ -1411,7 +1458,7 @@ export default function QuestionPapers() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {index + 1}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700 max-w-2xl align-top">
+                      <td className={`px-4 py-3 text-sm text-gray-700 max-w-2xl align-top ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}>
                         <div className="question-text">{renderQuestionText(question.text)}</div>
                         {(question.diagram_url || (question.diagram && (question.diagram.startsWith("data:") || question.diagram.length > 200))) ? (
                           <div className="mt-2">
@@ -1454,25 +1501,27 @@ export default function QuestionPapers() {
                           </div>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={`px-4 py-3 ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}>
                         <span
-                          className={`px-2 py-1 text-xs font-medium rounded ${
+                          className={`px-3 py-1 text-xs font-semibold rounded-full border ${
                             question.type === "MCQ"
-                              ? "bg-blue-100 text-blue-800"
+                              ? "bg-purple-50 text-purple-700 border-purple-200"
                               : question.type === "Long"
-                              ? "bg-purple-100 text-purple-800"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                               : question.type === "Medium"
-                              ? "bg-orange-100 text-orange-800"
-                              : "bg-green-100 text-green-800"
+                              ? "bg-blue-50 text-blue-700 border-blue-200"
+                              : question.type === "Short"
+                              ? "bg-sky-50 text-sky-700 border-sky-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
                           }`}
                         >
                           {question.type}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
+                      <td className={`px-4 py-3 text-sm text-gray-700 ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}>
                         {question.section}
                       </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
+                      <td className={`px-4 py-3 text-sm font-medium text-gray-900 text-right ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}>
                         {question.marks}
                       </td>
                     </tr>
