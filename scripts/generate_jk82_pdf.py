@@ -59,6 +59,8 @@ FONT_FAMILY_BOLD = "Helvetica-Bold"
 NOTO_LOADED = False
 SYMBOL_FONT_FAMILY = "NotoSansSymbols2"
 SYMBOL_FONT_LOADED = False
+MATH_FONT_FAMILY = "NotoSansMath"
+MATH_FONT_LOADED = False
 
 
 def clean(s):
@@ -106,9 +108,15 @@ def clean_for_pdf(text):
 
 
 def choose_font_for_char(ch: str) -> str:
-    """Choose base font for a single character, using symbol font for geometric shapes if available."""
+    """Choose base font for a single character; math and symbol fonts as fallback when available."""
     code = ord(ch)
-    # Geometric Shapes block: use symbol font when loaded (covers △▲■□, etc.)
+    # Mathematical Operators (√∑∫∞∠ etc.) — use NotoSansMath
+    if MATH_FONT_LOADED and 0x2200 <= code <= 0x22FF:
+        return MATH_FONT_FAMILY
+    # Supplemental Math Operators
+    if MATH_FONT_LOADED and 0x2A00 <= code <= 0x2AFF:
+        return MATH_FONT_FAMILY
+    # Geometric Shapes (△▲■□) — use NotoSansSymbols2
     if SYMBOL_FONT_LOADED and 0x25A0 <= code <= 0x25FF:
         return SYMBOL_FONT_FAMILY
     return FONT_FAMILY
@@ -386,6 +394,19 @@ def draw_footer(c, page_num, total_pages, school_name, date_str, is_last):
         c.drawRightString(CONTENT_RIGHT, TURN_OVER_Y, "[ Turn Over ]")
 
 
+def draw_page_border(c, width, height):
+    # Outer border
+    c.setStrokeColorRGB(0, 0, 0)
+    c.setLineWidth(1.5)
+    margin = 0.8 * cm
+    c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
+    # Inner border
+    c.setLineWidth(0.5)
+    inner = margin + 0.3 * cm
+    c.rect(inner, inner, width - 2 * inner, height - 2 * inner)
+    c.setLineWidth(1)  # reset
+
+
 def draw_watermark(c, logo_path):
     base = os.getcwd()
     exam_path = os.path.join(base, "public", "images", "school-logo-exam.png")
@@ -422,7 +443,7 @@ def draw_watermark(c, logo_path):
 
 
 def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str):
-    """Draw logo 60x60 top-left and 4 lines centered to the right. Returns y position below header."""
+    """Draw logo 60x60 top-left and 4 header lines centered. Returns y position below header."""
     logo_size = 60
     y_top = PAGE_HEIGHT - MARGIN
     if logo_path and os.path.isfile(logo_path):
@@ -434,26 +455,28 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
     text_center_x = (CONTENT_LEFT + logo_size + CONTENT_RIGHT) / 2
     lead = 5 * mm
     y = y_top - 4
-    c.setFont(FONT_FAMILY_BOLD, 14)
-    c.drawCentredString(text_center_x, y, school_name or "DIVYA HIGH SCHOOL BCM")
+    # 1. School name — largest, bold, centered
+    c.setFont(FONT_FAMILY_BOLD, 20)
+    c.drawCentredString(text_center_x, y, school_name or "Divya High School BCM")
     y -= lead
+    # 2. Location — smaller, regular, centered
     c.setFont(FONT_FAMILY, 10)
     c.drawCentredString(text_center_x, y, location or "Bhadrachalam")
     y -= lead
-    c.setFont(FONT_FAMILY_BOLD, 11)
+    # 3. Exam title — medium, bold, centered
+    c.setFont(FONT_FAMILY_BOLD, 12)
     c.drawCentredString(text_center_x, y, exam_title or "PRE-FINAL EXAMINATIONS")
     y -= lead
+    # 4. Class | Max. Marks | Time — same line, regular, centered
     c.setFont(FONT_FAMILY, 10)
-    c.drawCentredString(text_center_x, y, subject or "MATHEMATICS (English Version)")
-    y -= 3 * mm
-    c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max.Marks: {max_marks}    Time: {time_str}")
+    c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}")
     y -= lead
     draw_line(c, y)
     return y - lead
 
 
 def main():
-    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED
+    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED, MATH_FONT_LOADED
     parser = argparse.ArgumentParser(description="JK-82 style exam paper PDF generator.")
     parser.add_argument("--output", dest="output", default=None, metavar="filepath", help="Write PDF to file instead of stdout")
     args = parser.parse_args()
@@ -485,9 +508,20 @@ def main():
                 SYMBOL_FONT_LOADED = False
         else:
             SYMBOL_FONT_LOADED = False
+        # Register NotoSansMath (math operators) if available
+        noto_math_path = os.path.join(base, "public", "fonts", "NotoSansMath-Regular.ttf")
+        if os.path.isfile(noto_math_path):
+            try:
+                pdfmetrics.registerFont(TTFont("NotoSansMath", noto_math_path))
+                MATH_FONT_LOADED = True
+            except Exception:
+                MATH_FONT_LOADED = False
+        else:
+            MATH_FONT_LOADED = False
     except Exception:
         NOTO_LOADED = False
         SYMBOL_FONT_LOADED = False
+        MATH_FONT_LOADED = False
 
     # If NotoSans not available, fall back to system Unicode fonts on Windows (Segoe UI / Arial), else core Helvetica.
     if not NOTO_LOADED:
@@ -515,7 +549,7 @@ def main():
                 pass
 
     print(
-        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, FONT_FAMILY_BOLD={FONT_FAMILY_BOLD}, NOTO_LOADED={NOTO_LOADED}, SYMBOL_FONT_LOADED={SYMBOL_FONT_LOADED}",
+        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, FONT_FAMILY_BOLD={FONT_FAMILY_BOLD}, NOTO_LOADED={NOTO_LOADED}, SYMBOL_FONT_LOADED={SYMBOL_FONT_LOADED}, MATH_FONT_LOADED={MATH_FONT_LOADED}",
         file=sys.stderr,
     )
 
@@ -556,25 +590,30 @@ def main():
         nonlocal y, total_pages
         c.showPage()
         total_pages += 1
+        draw_page_border(c, PAGE_WIDTH, PAGE_HEIGHT)
         draw_watermark(c, logo_path)
         y = PAGE_HEIGHT - MARGIN
 
     # ---------- PAGE 1: Watermark, then header (logo+text or text-only), then PART-A then PART-B ----------
+    draw_page_border(c, PAGE_WIDTH, PAGE_HEIGHT)
     draw_watermark(c, logo_path)
+    location = clean(header.get("location", "Bhadrachalam"))
     if logo_path:
-        location = clean(header.get("location", "Bhadrachalam"))
         y = draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str)
     else:
-        c.setFont(FONT_FAMILY, FONT_SMALL)
-        c.drawCentredString(PAGE_WIDTH / 2, y, exam_code)
+        # No logo: same 4-line header, centered on page
+        lead = 5 * mm
+        c.setFont(FONT_FAMILY_BOLD, 20)
+        c.drawCentredString(PAGE_WIDTH / 2, y, school_name or "Divya High School BCM")
         y -= lead
-        c.setFont(FONT_FAMILY, FONT_SUB)
-        c.drawCentredString(PAGE_WIDTH / 2, y, exam_title)
+        c.setFont(FONT_FAMILY, 10)
+        c.drawCentredString(PAGE_WIDTH / 2, y, location or "Bhadrachalam")
         y -= lead
-        c.drawCentredString(PAGE_WIDTH / 2, y, subject)
+        c.setFont(FONT_FAMILY_BOLD, 12)
+        c.drawCentredString(PAGE_WIDTH / 2, y, exam_title or "PRE-FINAL EXAMINATIONS")
         y -= lead
-        c.setFont(FONT_FAMILY, FONT_BODY)
-        c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max.Marks: {max_marks}    Time: {time_str}")
+        c.setFont(FONT_FAMILY, 10)
+        c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}")
         y -= lead
         draw_line(c, y)
         y -= lead

@@ -10,6 +10,10 @@ const fonts = [
   {
     url: 'https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf',
     dest: 'public/fonts/NotoSansSymbols2-Regular.ttf'
+  },
+  {
+    url: 'https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansMath/NotoSansMath-Regular.ttf',
+    dest: 'public/fonts/NotoSansMath-Regular.ttf'
   }
 ];
 
