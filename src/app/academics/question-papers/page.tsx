@@ -139,9 +139,6 @@ export default function QuestionPapers() {
     : [];
   const years = ALL_YEARS.map(String).sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
   
-  // Get unique sections for tabs
-  const sections = Array.from(new Set(allQuestions.map((q) => q.section))).sort();
-  
   // Fetch papers
   const fetchPapers = useCallback(async () => {
     try {
@@ -151,7 +148,7 @@ export default function QuestionPapers() {
       if (filters.grade) params.append("grade", filters.grade);
       if (filters.year) params.append("year", filters.year);
       if (filters.type) params.append("type", filters.type);
-      if (filters.section) params.append("section", filters.section);
+      // Section filter removed; keep other filters only
       
       const response = await fetch(`/api/question-papers?${params}`);
       const data = await response.json();
@@ -970,8 +967,11 @@ export default function QuestionPapers() {
   // Filtered questions
   const filteredQuestions = allQuestions
     .filter((q) => {
-      // Filter by active section tab
-      if (activeSectionTab !== "All" && q.section !== activeSectionTab) return false;
+      // Filter by active marks tab
+      if (activeSectionTab === "2 Marks" && q.marks !== 2) return false;
+      if (activeSectionTab === "4 Marks" && q.marks !== 4) return false;
+      if (activeSectionTab === "6 Marks" && q.marks !== 6) return false;
+      if (activeSectionTab === "MCQ" && !(q.type === "MCQ" || q.marks === 1)) return false;
       // Filter by type
       if (filters.type && q.type !== filters.type) return false;
       return true;
@@ -994,16 +994,19 @@ export default function QuestionPapers() {
       return String(a.number).localeCompare(String(b.number));
     });
   
-  // Get question counts per section for tabs
-  const getSectionCount = (section: string) => {
-    if (section === "All") {
+  // Get question counts per marks tab
+  const getSectionCount = (tab: string) => {
+    if (tab === "All") {
       return allQuestions.filter((q) => {
         if (filters.type && q.type !== filters.type) return false;
         return true;
       }).length;
     }
     return allQuestions.filter((q) => {
-      if (q.section !== section) return false;
+      if (tab === "2 Marks" && q.marks !== 2) return false;
+      if (tab === "4 Marks" && q.marks !== 4) return false;
+      if (tab === "6 Marks" && q.marks !== 6) return false;
+      if (tab === "MCQ" && !(q.type === "MCQ" || q.marks === 1)) return false;
       if (filters.type && q.type !== filters.type) return false;
       return true;
     }).length;
@@ -1224,18 +1227,6 @@ export default function QuestionPapers() {
               </select>
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Section
-              </label>
-              <input
-                type="text"
-                value={filters.section}
-                onChange={(e) => setFilters({ ...filters, section: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., SECTION-A"
-              />
-            </div>
           </div>
         </div>
         
@@ -1320,27 +1311,17 @@ export default function QuestionPapers() {
         {allQuestions.length > 0 && (
           <div className="bg-white rounded-lg shadow-lg p-4 mb-4">
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setActiveSectionTab("All")}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  activeSectionTab === "All"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                All ({getSectionCount("All")})
-              </button>
-              {sections.map((section) => (
+              {["All", "2 Marks", "4 Marks", "6 Marks", "MCQ"].map((tab) => (
                 <button
-                  key={section}
-                  onClick={() => setActiveSectionTab(section)}
+                  key={tab}
+                  onClick={() => setActiveSectionTab(tab)}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    activeSectionTab === section
+                    activeSectionTab === tab
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                   }`}
                 >
-                  {section} ({getSectionCount(section)})
+                  {tab} ({getSectionCount(tab)})
                 </button>
               ))}
             </div>
