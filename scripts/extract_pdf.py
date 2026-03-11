@@ -32,6 +32,9 @@ except ImportError as e:
     )
     sys.exit(1)
 
+# Disable PIL decompression bomb warnings for very large scanned PDFs
+Image.MAX_IMAGE_PIXELS = None
+
 # In production (Railway), env vars are set directly in the environment
 # In development, they come from .env.local
 print(
@@ -332,7 +335,7 @@ class QuestionExtractor:
                 # Convert batch to images (one convert_from_path per batch)
                 batch_images = convert_from_path(
                     self.pdf_path,
-                    dpi=300,
+                    dpi=150,  # reduced from 300 to avoid memory issues with large scans
                     first_page=batch_start,
                     last_page=batch_end
                 )
