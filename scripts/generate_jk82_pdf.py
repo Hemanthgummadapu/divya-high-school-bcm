@@ -61,6 +61,8 @@ SYMBOL_FONT_FAMILY = "NotoSansSymbols2"
 SYMBOL_FONT_LOADED = False
 MATH_FONT_FAMILY = "NotoSansMath"
 MATH_FONT_LOADED = False
+PLAYFAIR_FONT = "PlayfairDisplay-Bold"
+PLAYFAIR_LOADED = False
 
 
 def clean(s):
@@ -455,20 +457,20 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
     text_center_x = (CONTENT_LEFT + logo_size + CONTENT_RIGHT) / 2
     lead = 5 * mm
     y = y_top - 4
-    # 1. School name — largest, bold, centered
-    c.setFont(FONT_FAMILY_BOLD, 20)
-    c.drawCentredString(text_center_x, y, school_name or "Divya High School BCM")
+    # 1. School name — PlayfairDisplay-Bold or fallback, 32pt, centered
+    c.setFont(PLAYFAIR_FONT if PLAYFAIR_LOADED else FONT_FAMILY_BOLD, 32)
+    c.drawCentredString(text_center_x, y, school_name or "Divya High School")
     y -= lead
-    # 2. Location — smaller, regular, centered
-    c.setFont(FONT_FAMILY, 10)
+    # 2. Location — smaller, bold, centered
+    c.setFont(FONT_FAMILY_BOLD, 10)
     c.drawCentredString(text_center_x, y, location or "Bhadrachalam")
     y -= lead
     # 3. Exam title — medium, bold, centered
     c.setFont(FONT_FAMILY_BOLD, 12)
     c.drawCentredString(text_center_x, y, exam_title or "PRE-FINAL EXAMINATIONS")
     y -= lead
-    # 4. Class | Max. Marks | Time — same line, regular, centered
-    c.setFont(FONT_FAMILY, 10)
+    # 4. Class | Max. Marks | Time — same line, bold, centered
+    c.setFont(FONT_FAMILY_BOLD, 10)
     c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}")
     y -= lead
     draw_line(c, y)
@@ -476,7 +478,7 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
 
 
 def main():
-    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED, MATH_FONT_LOADED
+    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED, MATH_FONT_LOADED, PLAYFAIR_LOADED
     parser = argparse.ArgumentParser(description="JK-82 style exam paper PDF generator.")
     parser.add_argument("--output", dest="output", default=None, metavar="filepath", help="Write PDF to file instead of stdout")
     args = parser.parse_args()
@@ -518,10 +520,21 @@ def main():
                 MATH_FONT_LOADED = False
         else:
             MATH_FONT_LOADED = False
+        # Register PlayfairDisplay-Bold (school name header) if available
+        playfair_path = os.path.join(base, "public", "fonts", "PlayfairDisplay-Bold.ttf")
+        if os.path.isfile(playfair_path):
+            try:
+                pdfmetrics.registerFont(TTFont(PLAYFAIR_FONT, playfair_path))
+                PLAYFAIR_LOADED = True
+            except Exception:
+                PLAYFAIR_LOADED = False
+        else:
+            PLAYFAIR_LOADED = False
     except Exception:
         NOTO_LOADED = False
         SYMBOL_FONT_LOADED = False
         MATH_FONT_LOADED = False
+        PLAYFAIR_LOADED = False
 
     # If NotoSans not available, fall back to system Unicode fonts on Windows (Segoe UI / Arial), else core Helvetica.
     if not NOTO_LOADED:
@@ -549,7 +562,7 @@ def main():
                 pass
 
     print(
-        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, FONT_FAMILY_BOLD={FONT_FAMILY_BOLD}, NOTO_LOADED={NOTO_LOADED}, SYMBOL_FONT_LOADED={SYMBOL_FONT_LOADED}, MATH_FONT_LOADED={MATH_FONT_LOADED}",
+        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, FONT_FAMILY_BOLD={FONT_FAMILY_BOLD}, NOTO_LOADED={NOTO_LOADED}, SYMBOL_FONT_LOADED={SYMBOL_FONT_LOADED}, MATH_FONT_LOADED={MATH_FONT_LOADED}, PLAYFAIR_LOADED={PLAYFAIR_LOADED}",
         file=sys.stderr,
     )
 
@@ -603,16 +616,16 @@ def main():
     else:
         # No logo: same 4-line header, centered on page
         lead = 5 * mm
-        c.setFont(FONT_FAMILY_BOLD, 20)
-        c.drawCentredString(PAGE_WIDTH / 2, y, school_name or "Divya High School BCM")
+        c.setFont(PLAYFAIR_FONT if PLAYFAIR_LOADED else FONT_FAMILY_BOLD, 32)
+        c.drawCentredString(PAGE_WIDTH / 2, y, school_name or "Divya High School")
         y -= lead
-        c.setFont(FONT_FAMILY, 10)
+        c.setFont(FONT_FAMILY_BOLD, 10)
         c.drawCentredString(PAGE_WIDTH / 2, y, location or "Bhadrachalam")
         y -= lead
         c.setFont(FONT_FAMILY_BOLD, 12)
         c.drawCentredString(PAGE_WIDTH / 2, y, exam_title or "PRE-FINAL EXAMINATIONS")
         y -= lead
-        c.setFont(FONT_FAMILY, 10)
+        c.setFont(FONT_FAMILY_BOLD, 10)
         c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}")
         y -= lead
         draw_line(c, y)
@@ -625,7 +638,7 @@ def main():
         if y < PAGE_HEIGHT - 4 * MARGIN:
             new_page()
             y = PAGE_HEIGHT - MARGIN
-        c.setFont(FONT_FAMILY, FONT_SUB)
+        c.setFont(FONT_FAMILY_BOLD, FONT_SUB)
         part_a_marks = sum(int(q.get("marks", 0)) for q in part_a_questions)
         c.drawString(CONTENT_LEFT, y, f"PART - A    Time: 2.30 Hrs    Marks: {part_a_marks}")
         y -= lead
@@ -635,7 +648,7 @@ def main():
         q_global = 0
         # SECTION - I (2 marks)
         if sec_i:
-            c.setFont(FONT_FAMILY, FONT_SUB)
+            c.setFont(FONT_FAMILY_BOLD, FONT_SUB)
             sec_i_marks = sum(int(q.get("marks", 0)) for q in sec_i)
             n = len(sec_i)
             c.drawString(CONTENT_LEFT, y, f"SECTION - I  (2 marks)")
@@ -662,7 +675,7 @@ def main():
 
         # SECTION - II (4 marks)
         if sec_ii:
-            c.setFont(FONT_FAMILY, FONT_SUB)
+            c.setFont(FONT_FAMILY_BOLD, FONT_SUB)
             sec_ii_marks = sum(int(q.get("marks", 0)) for q in sec_ii)
             n = len(sec_ii)
             c.drawString(CONTENT_LEFT, y, f"SECTION - II  (4 marks)")
@@ -685,7 +698,7 @@ def main():
 
         # SECTION - III (6 marks)
         if sec_iii:
-            c.setFont(FONT_FAMILY, FONT_SUB)
+            c.setFont(FONT_FAMILY_BOLD, FONT_SUB)
             sec_iii_marks = sum(int(q.get("marks", 0)) for q in sec_iii)
             n = len(sec_iii)
             c.drawString(CONTENT_LEFT, y, f"SECTION - III  (6 marks)")
@@ -732,7 +745,7 @@ def main():
             new_page()
             y = PAGE_HEIGHT - MARGIN
         # PART-B block
-        c.setFont(FONT_FAMILY, FONT_SUB)
+        c.setFont(FONT_FAMILY_BOLD, FONT_SUB)
         c.drawString(CONTENT_LEFT, y, "PART - B    Objective Type    Marks: 20")
         y -= line_height
         c.setFont(FONT_FAMILY, FONT_BODY)

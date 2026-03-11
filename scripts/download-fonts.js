@@ -14,6 +14,10 @@ const fonts = [
   {
     url: 'https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansMath/NotoSansMath-Regular.ttf',
     dest: 'public/fonts/NotoSansMath-Regular.ttf'
+  },
+  {
+    url: 'https://github.com/google/fonts/raw/main/ofl/playfairdisplay/PlayfairDisplay-Bold.ttf',
+    dest: 'public/fonts/PlayfairDisplay-Bold.ttf'
   }
 ];
 
