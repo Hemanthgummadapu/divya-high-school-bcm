@@ -16,6 +16,8 @@ interface Statistics {
   byType: Record<string, number>;
 }
 
+const QUESTION_PAGE_SIZE = 20;
+
 export default function QuestionPapers() {
   const [papers, setPapers] = useState<QuestionPaper[]>([]);
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
@@ -43,6 +45,8 @@ export default function QuestionPapers() {
     correctAnswer: "",
   });
   const [activeSectionTab, setActiveSectionTab] = useState<string>("All");
+  const [questionSearchQuery, setQuestionSearchQuery] = useState("");
+  const [currentQuestionPage, setCurrentQuestionPage] = useState(1);
   const [editPreviewMode, setEditPreviewMode] = useState(false);
   const [editableQuestions, setEditableQuestions] = useState<Question[]>([]);
   const [editableSections, setEditableSections] = useState<Record<string, string>>({});
@@ -65,6 +69,7 @@ export default function QuestionPapers() {
     year: "",
     type: "",
     section: "",
+    marks: "",
   });
   
   // Upload form: default year to current year
@@ -141,6 +146,10 @@ export default function QuestionPapers() {
   
   // Get unique sections for tabs
   const sections = Array.from(new Set(allQuestions.map((q) => q.section))).sort();
+  // Unique marks for filter dropdown (sorted numerically)
+  const uniqueMarks = Array.from(new Set(allQuestions.map((q) => q.marks ?? 0)))
+    .filter((m) => m != null && !Number.isNaN(Number(m)))
+    .sort((a, b) => Number(a) - Number(b));
   
   // Fetch papers
   const fetchPapers = useCallback(async () => {
@@ -974,6 +983,14 @@ export default function QuestionPapers() {
       if (activeSectionTab !== "All" && q.section !== activeSectionTab) return false;
       // Filter by type
       if (filters.type && q.type !== filters.type) return false;
+      // Filter by marks
+      if (filters.marks !== "" && String(q.marks) !== filters.marks) return false;
+      // Filter by search (question text)
+      const searchTrim = questionSearchQuery.trim();
+      if (searchTrim) {
+        const text = (q.text || "").toLowerCase();
+        if (!text.includes(searchTrim.toLowerCase())) return false;
+      }
       return true;
     })
     .sort((a, b) => {
@@ -994,17 +1011,32 @@ export default function QuestionPapers() {
       return String(a.number).localeCompare(String(b.number));
     });
   
+  // Pagination: slice filtered list and reset page when filters change
+  const totalFiltered = filteredQuestions.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / QUESTION_PAGE_SIZE));
+  const pageToUse = Math.max(1, Math.min(currentQuestionPage, totalPages));
+  const paginatedQuestions = filteredQuestions.slice(
+    (pageToUse - 1) * QUESTION_PAGE_SIZE,
+    pageToUse * QUESTION_PAGE_SIZE
+  );
+  
+  useEffect(() => {
+    setCurrentQuestionPage(1);
+  }, [questionSearchQuery, activeSectionTab, filters.type, filters.marks]);
+  
   // Get question counts per section for tabs
   const getSectionCount = (section: string) => {
     if (section === "All") {
       return allQuestions.filter((q) => {
         if (filters.type && q.type !== filters.type) return false;
+        if (filters.marks !== "" && String(q.marks) !== filters.marks) return false;
         return true;
       }).length;
     }
     return allQuestions.filter((q) => {
       if (q.section !== section) return false;
       if (filters.type && q.type !== filters.type) return false;
+      if (filters.marks !== "" && String(q.marks) !== filters.marks) return false;
       return true;
     }).length;
   };
@@ -1349,7 +1381,101 @@ export default function QuestionPapers() {
         
         {/* Question Bank Table */}
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          <div className="p-6 border-b">
+          <div className="p-6 border-b space-y-4">
+            {/* Filter toolbar: search + dropdowns + reset in one row */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[180px] max-w-sm">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </span>
+                <input
+                  type="text"
+                  value={questionSearchQuery}
+                  onChange={(e) => setQuestionSearchQuery(e.target.value)}
+                  placeholder="Search questions..."
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
+                  aria-label="Search questions"
+                />
+              </div>
+              <select
+                value={filters.type}
+                onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
+                className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white min-w-[120px]"
+                aria-label="Filter by question type"
+              >
+                <option value="">Question Type: All</option>
+                <option value="MCQ">MCQ</option>
+                <option value="Short">Short</option>
+                <option value="Medium">Medium</option>
+                <option value="Long">Long</option>
+              </select>
+              <select
+                value={activeSectionTab}
+                onChange={(e) => setActiveSectionTab(e.target.value)}
+                className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white min-w-[140px]"
+                aria-label="Filter by section"
+              >
+                <option value="All">Section: All</option>
+                {sections.map((sec) => (
+                  <option key={sec} value={sec}>
+                    {sec}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filters.marks}
+                onChange={(e) => setFilters((f) => ({ ...f, marks: e.target.value }))}
+                className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white min-w-[100px]"
+                aria-label="Filter by marks"
+              >
+                <option value="">Marks: All</option>
+                {uniqueMarks.map((m) => (
+                  <option key={m} value={String(m)}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuestionSearchQuery("");
+                  setFilters((f) => ({ ...f, type: "", marks: "" }));
+                  setActiveSectionTab("All");
+                }}
+                className="px-4 py-2.5 border border-gray-300 rounded-lg bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
+                aria-label="Reset all filters"
+              >
+                Reset Filters
+              </button>
+            </div>
+            {/* Selected questions counter and actions */}
+            <div className="flex flex-wrap items-center justify-between gap-4 py-3 border-b border-gray-200">
+              <p className="text-sm font-medium text-gray-700">
+                Selected Questions: <span className="text-blue-600 font-semibold">{selectedQuestions.size}</span>
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleGeneratePaper}
+                  disabled={selectedQuestions.size === 0}
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Generate question paper from selected questions"
+                >
+                  Generate Question Paper
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedQuestions(new Set())}
+                  disabled={selectedQuestions.size === 0}
+                  className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Clear selection"
+                >
+                  Clear Selection
+                </button>
+              </div>
+            </div>
             <div className="flex justify-between items-center flex-wrap gap-4">
               <h2 className="text-2xl font-semibold text-slate-900">
                 Question Bank ({filteredQuestions.length} questions)
@@ -1387,6 +1513,7 @@ export default function QuestionPapers() {
               No questions found. Upload a PDF to get started.
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
@@ -1412,7 +1539,9 @@ export default function QuestionPapers() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredQuestions.map((question, index) => (
+                  {paginatedQuestions.map((question, index) => {
+                    const rowNum = (pageToUse - 1) * QUESTION_PAGE_SIZE + index + 1;
+                    return (
                     <tr
                       key={question.id}
                       className={`hover:bg-gray-50 ${
@@ -1428,7 +1557,7 @@ export default function QuestionPapers() {
                         />
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                        {index + 1}
+                        {rowNum}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 max-w-2xl align-top">
                         <div className="question-text">{renderQuestionText(question.text)}</div>
@@ -1495,10 +1624,68 @@ export default function QuestionPapers() {
                         {question.marks}
                       </td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>
+            {totalFiltered > 0 && (
+              <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <p className="text-sm text-gray-600">
+                  Showing {(pageToUse - 1) * QUESTION_PAGE_SIZE + 1}–{Math.min(pageToUse * QUESTION_PAGE_SIZE, totalFiltered)} of {totalFiltered} questions
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentQuestionPage((p) => Math.max(1, p - 1))}
+                    disabled={pageToUse <= 1}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => {
+                        if (totalPages <= 7) return true;
+                        if (p === 1 || p === totalPages) return true;
+                        if (Math.abs(p - pageToUse) <= 1) return true;
+                        return false;
+                      })
+                      .reduce<number[]>((acc, p, i, arr) => {
+                        if (i > 0 && p - (arr[i - 1] ?? 0) > 1) acc.push(-1);
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((p, idx) =>
+                        p === -1 ? (
+                          <span key={`ellipsis-${idx}`} className="px-2 text-gray-400">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCurrentQuestionPage(p)}
+                            className={`min-w-[2rem] px-2 py-1.5 text-sm font-medium rounded-lg ${
+                              p === pageToUse
+                                ? "bg-blue-600 text-white"
+                                : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        )
+                      )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentQuestionPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={pageToUse >= totalPages}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
           )}
         </div>
         
