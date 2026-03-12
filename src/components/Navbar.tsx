@@ -60,7 +60,7 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="sticky top-0 z-50 relative bg-[#0B2A59] h-14 md:h-16 shadow-[0_2px_12px_rgba(0,0,0,0.15)]">
+    <nav className="sticky top-0 z-50 relative bg-navbar-gradient h-14 md:h-16 shadow-navbar">
       <div className="container mx-auto px-3 md:px-4 h-full">
         <div className="flex justify-between items-center h-full gap-2">
           <Link href="/" className="flex items-center gap-2.5 font-heading text-lg md:text-xl font-bold transition-colors duration-200 whitespace-nowrap">
@@ -326,7 +326,7 @@ export default function Navbar() {
 
       {/* Mobile menu panel */}
       <div
-        className={`fixed top-0 right-0 bottom-0 z-50 w-full max-w-[300px] bg-[#0B2A59] shadow-xl md:hidden transform transition-transform duration-300 ease-out ${
+        className={`fixed top-0 right-0 bottom-0 z-50 w-full max-w-[300px] bg-navbar-gradient shadow-xl md:hidden transform transition-transform duration-300 ease-out ${
           mobileMenuOpen ? "translate-x-0" : "translate-x-full"
         }`}
         aria-hidden={!mobileMenuOpen}

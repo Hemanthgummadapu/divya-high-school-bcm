@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
 import "@/styles/globals.css";
-import TopBar from "@/components/TopBar";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { AuthProvider } from "./providers";
+import LayoutSwitcher from "./LayoutSwitcher";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,12 +30,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${poppins.variable}`}>
       <body className="font-sans bg-[#F8FAFC] text-[#334155] antialiased">
         <AuthProvider>
-          <header className="sticky top-0 z-50">
-            <TopBar />
-            <Navbar />
-          </header>
-          <main className="min-h-screen">{children}</main>
-          <Footer />
+          <LayoutSwitcher>{children}</LayoutSwitcher>
         </AuthProvider>
       </body>
     </html>
