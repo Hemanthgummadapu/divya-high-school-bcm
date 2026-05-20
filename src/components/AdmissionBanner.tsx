@@ -6,7 +6,7 @@ import Image from "next/image";
 
 const STORAGE_KEY = "admissionBannerClosed";
 const DELAY_MS = 3000;
-const APPLY_ROUTE = "/admissions/apply-online";
+const APPLY_ROUTE = "/admissions";
 
 const WHATSAPP_URL =
   "https://wa.me/919100569269?text=Hello%20I%20want%20admission%20details";

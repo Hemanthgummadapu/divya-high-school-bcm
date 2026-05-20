@@ -8,6 +8,15 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      keyframes: {
+        "ken-burns": {
+          "0%": { transform: "scale(1) translate(0, 0)" },
+          "100%": { transform: "scale(1.08) translate(-1%, -1%)" },
+        },
+      },
+      animation: {
+        "ken-burns": "ken-burns 12s ease-in-out infinite alternate",
+      },
       fontFamily: {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
         heading: ["var(--font-poppins)", "system-ui", "sans-serif"],

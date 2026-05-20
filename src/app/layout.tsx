@@ -32,7 +32,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${poppins.variable}`}>
       <body className="font-sans bg-[#F8FAFC] text-[#334155] antialiased">
         <AuthProvider>
-          <header className="sticky top-0 z-50">
+          <header className="sticky top-0 z-50 w-full">
             <TopBar />
             <Navbar />
           </header>

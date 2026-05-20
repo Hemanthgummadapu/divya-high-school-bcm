@@ -300,10 +300,20 @@ export async function POST(request: NextRequest) {
     const hasSupabase =
       process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      // Gemini: prefer GEMINI_API_KEY; many projects only have GOOGLE_API_KEY (AI Studio)
+      GEMINI_API_KEY:
+        process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+      GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+    };
+
     try {
       const { stdout, stderr } = await execFileAsync(pythonCmd, args, {
         cwd: process.cwd(),
         maxBuffer: 10 * 1024 * 1024,
+        env: childEnv,
       });
 
       console.log("OCR Output (stdout):", stdout);

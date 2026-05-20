@@ -1,31 +1,76 @@
 "use client";
 
 import Link from "next/link";
-import { FaYoutube, FaInstagram, FaWhatsapp } from "react-icons/fa";
+import { Mail, Phone } from "lucide-react";
+import { FaInstagram, FaWhatsapp, FaYoutube } from "react-icons/fa";
 
 const iconSize = "w-3.5 h-3.5 flex-shrink-0";
-const socialIconWrap =
-  "follow-icon w-7 h-7 text-sm flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 text-white transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_4px_8px_rgba(0,0,0,0.25)]";
 
 export default function TopBar() {
   return (
-    <div
-      className="w-full min-h-[38px] flex items-center text-white font-medium tracking-[0.3px]"
-      style={{
-        background: "#0f172a",
-        boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
-      }}
-    >
-      <div className="container mx-auto px-4 py-2 flex flex-wrap items-center justify-center sm:justify-between gap-3 sm:gap-[12px] text-[14px]">
-        {/* Follow us + social icons */}
-        <div className="flex items-center gap-[12px] flex-shrink-0">
-          <span className="whitespace-nowrap">Follow us:</span>
-          <div className="follow-icons flex items-center gap-2">
+    <div className="bg-slate-900 text-white border-b border-white/10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-10 flex items-center justify-between text-xs">
+        {/* Desktop */}
+        <div className="hidden md:flex items-center justify-between w-full gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-slate-300 whitespace-nowrap">Follow us:</span>
+            <div className="flex items-center gap-2">
+              <Link
+                href="https://www.youtube.com/@divyahighschoolbhadrachalam"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
+                aria-label="YouTube"
+              >
+                <FaYoutube className={iconSize} aria-hidden />
+              </Link>
+              <Link
+                href="https://www.instagram.com/divyahighschool?igsh=bW93dHdtcWhrcHZj"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
+                aria-label="Instagram"
+              >
+                <FaInstagram className={iconSize} aria-hidden />
+              </Link>
+              <Link
+                href="https://wa.me/919100569269?text=Hello%20I%20want%20admission%20details"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
+                aria-label="WhatsApp"
+              >
+                <FaWhatsapp className={iconSize} aria-hidden />
+              </Link>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 min-w-0">
+            <a
+              href="mailto:info@divyahighschool.co.in"
+              className="flex items-center gap-1.5 hover:text-blue-300 transition-colors min-w-0"
+            >
+              <Mail className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+              <span className="truncate">info@divyahighschool.co.in</span>
+            </a>
+            <a
+              href="tel:+919100569269"
+              className="flex items-center gap-1.5 hover:text-blue-300 transition-colors whitespace-nowrap flex-shrink-0"
+            >
+              <Phone className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+              <span>+91 9100569269</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Mobile: icons only (no labels) */}
+        <div className="md:hidden flex items-center justify-between w-full gap-3">
+          <div className="flex items-center gap-2">
             <Link
               href="https://www.youtube.com/@divyahighschoolbhadrachalam"
               target="_blank"
               rel="noopener noreferrer"
-              className={`${socialIconWrap} bg-[#FF0000]`}
+              className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
               aria-label="YouTube"
             >
               <FaYoutube className={iconSize} aria-hidden />
@@ -34,7 +79,7 @@ export default function TopBar() {
               href="https://www.instagram.com/divyahighschool?igsh=bW93dHdtcWhrcHZj"
               target="_blank"
               rel="noopener noreferrer"
-              className={`${socialIconWrap} bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7]`}
+              className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
               aria-label="Instagram"
             >
               <FaInstagram className={iconSize} aria-hidden />
@@ -43,35 +88,29 @@ export default function TopBar() {
               href="https://wa.me/919100569269?text=Hello%20I%20want%20admission%20details"
               target="_blank"
               rel="noopener noreferrer"
-              className={`${socialIconWrap} bg-[#25D366]`}
+              className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
               aria-label="WhatsApp"
             >
               <FaWhatsapp className={iconSize} aria-hidden />
             </Link>
           </div>
-        </div>
 
-        {/* Email + Phone */}
-        <div className="flex items-center gap-[12px] flex-shrink-0 min-w-0">
-          <a
-            href="mailto:info@divyahighschool.co.in"
-            className="flex items-center gap-1.5 hover:opacity-90 transition-opacity whitespace-nowrap min-w-0 text-white"
-          >
-            <svg className={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-              <polyline points="22,6 12,13 2,6" />
-            </svg>
-            <span className="truncate">info@divyahighschool.co.in</span>
-          </a>
-          <a
-            href="tel:9100569269"
-            className="flex items-center gap-1.5 hover:opacity-90 transition-opacity whitespace-nowrap flex-shrink-0 text-white"
-          >
-            <svg className={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-            </svg>
-            <span>+91 9100569269</span>
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="mailto:info@divyahighschool.co.in"
+              className="w-9 h-9 rounded-lg flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
+              aria-label="Email"
+            >
+              <Mail className="w-4 h-4" aria-hidden="true" />
+            </a>
+            <a
+              href="tel:+919100569269"
+              className="w-9 h-9 rounded-lg flex items-center justify-center bg-white/10 hover:bg-white/15 transition-colors"
+              aria-label="Phone"
+            >
+              <Phone className="w-4 h-4" aria-hidden="true" />
+            </a>
+          </div>
         </div>
       </div>
     </div>

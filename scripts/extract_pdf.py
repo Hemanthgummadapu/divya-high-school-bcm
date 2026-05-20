@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
 PDF Question Bank Extractor
-Extracts questions from scanned PDF images using Claude API Vision
+Extracts questions from scanned PDF images using Gemini or Claude API Vision
 Optimized for large PDFs with batching and caching
 """
 
 import argparse
 import json
 import os
+import re
 import sys
 import base64
 import time
+import tempfile
 import difflib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -48,6 +50,24 @@ load_dotenv(
     override=False,
 )
 
+
+def effective_gemini_api_key() -> str | None:
+    """API key for Gemini: GEMINI_API_KEY, or GOOGLE_API_KEY (common AI Studio pattern)."""
+    for key in (os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY")):
+        if key and str(key).strip() and str(key).strip() != "your_key_here":
+            return str(key).strip()
+    return None
+
+
+USE_GEMINI = True  # Set False to fall back to Claude Haiku
+EXTRACT_DPI = 250  # PDF page render DPI (was 150; higher helps Telugu glyphs)
+
+print(
+    f"DEBUG: GEMINI_API_KEY set: {bool(os.getenv('GEMINI_API_KEY'))} | "
+    f"GOOGLE_API_KEY set: {bool(os.getenv('GOOGLE_API_KEY'))} | "
+    f"effective Gemini key: {bool(effective_gemini_api_key())}",
+    file=sys.stderr,
+)
 
 def check_poppler_available(pdf_path: str) -> None:
     """Verify pdf2image can use poppler (required for PDF -> images). Exits with clear error if not."""
@@ -131,10 +151,113 @@ Rules:
 - Return ONLY valid JSON, nothing else."""
 
 
+def extract_page_with_gemini(image_path: str) -> str:
+    import google.generativeai as genai
+
+    api_key = effective_gemini_api_key()
+    if not api_key:
+        raise ValueError(
+            "Set GEMINI_API_KEY or GOOGLE_API_KEY (e.g. in .env.local on its own line)."
+        )
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.5-flash")
+
+    with open(image_path, "rb") as f:
+        image_data = f.read()
+
+    image_b64 = base64.b64encode(image_data).decode()
+
+    TELUGU_PROMPT = CLAUDE_PROMPT + """
+
+CRITICAL TELUGU LANGUAGE INSTRUCTIONS:
+- This paper may contain Telugu script (తెలుగు), English, or both mixed together.
+- You MUST preserve ALL Telugu characters EXACTLY as they appear in the image.
+- Do NOT transliterate, romanize, translate, or replace Telugu with English under any circumstance.
+- Copy Telugu Unicode text character-for-character as it appears.
+- If a question is bilingual (Telugu + English), include both parts exactly as written.
+"""
+
+    try:
+        response = model.generate_content(
+            [
+                {"mime_type": "image/png", "data": image_b64},
+                TELUGU_PROMPT,
+            ]
+        )
+    except (TypeError, ValueError):
+        response = model.generate_content(
+            [
+                {"mime_type": "image/png", "data": image_data},
+                TELUGU_PROMPT,
+            ]
+        )
+
+    try:
+        text = (response.text or "").strip()
+    except (ValueError, AttributeError):
+        text = ""
+        if response.candidates:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "text") and part.text:
+                    text += part.text
+        text = text.strip()
+
+    return text
+
+
+def parse_model_json_response(response_text: str, page_num: int, provider: str) -> Dict[str, Any]:
+    """Parse JSON object from model output (Claude or Gemini)."""
+    response_text = (response_text or "").strip()
+    print(f"=== PAGE {page_num} RAW RESPONSE ({provider}) ===")
+    print(response_text)
+
+    json_start = response_text.find("{")
+    json_end = response_text.rfind("}") + 1
+
+    if json_start >= 0 and json_end > json_start:
+        json_str = response_text[json_start:json_end]
+        json_str = json_str.replace("\\ ", "\\\\ ")
+        json_str = json_str.replace("\\+", "\\\\+")
+        json_str = json_str.replace("\\=", "\\\\=")
+        json_str = re.sub(r'\\([^"\\/bfnrtu0-9])', r"\\\\\1", json_str)
+        try:
+            result = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON from {provider} for page {page_num}: {e}")
+            print(f"Response was: {response_text[:200]}...")
+            return {"section": "SECTION-A", "questions": []}
+
+        if isinstance(result, dict) and "sections" in result and isinstance(result["sections"], list):
+            all_questions: List[Dict[str, Any]] = []
+            first_section_name: str | None = None
+            for sec_obj in result["sections"]:
+                if not isinstance(sec_obj, dict):
+                    continue
+                sec_name = sec_obj.get("section")
+                if first_section_name is None and isinstance(sec_name, str):
+                    first_section_name = sec_name
+                sec_questions = sec_obj.get("questions") or []
+                if isinstance(sec_questions, list):
+                    for q in sec_questions:
+                        if isinstance(q, dict) and sec_name and "section" not in q:
+                            q["section"] = sec_name
+                    all_questions.extend([q for q in sec_questions if isinstance(q, dict)])
+            return {
+                "section": first_section_name or "SECTION-A",
+                "questions": all_questions,
+            }
+
+        return result
+
+    print(f"Warning: No valid JSON found in {provider} response for page {page_num}")
+    return {"section": "SECTION-A", "questions": []}
+
+
 def get_page_hash(pdf_path: str, page_num: int) -> str:
     """Generate hash for a specific page of a PDF"""
     stat = os.stat(pdf_path)
-    content = f"{pdf_path}:{page_num}:{stat.st_mtime}"
+    content = f"{pdf_path}:{page_num}:{stat.st_mtime}:{EXTRACT_DPI}"
     return hashlib.md5(content.encode()).hexdigest()
 
 
@@ -194,65 +317,10 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
                     }
                 ],
             )
-            
-            # Extract JSON from response
             response_text = message.content[0].text.strip()
-            print(f"=== PAGE {page_num} RAW RESPONSE ===")
-            print(response_text)
-            
-            # Try to find JSON in the response (in case there's extra text)
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                # Clean invalid JSON escape sequences before parsing
-                # Use a simple replace approach for common invalid escapes
-                json_str = json_str.replace('\\ ', '\\\\ ')  # fix "\ " (backslash space)
-                json_str = json_str.replace('\\+', '\\\\+')  # fix "\+"
-                json_str = json_str.replace('\\=', '\\\\=')  # fix "\="
-                # General: replace any lone backslash before non-JSON-special chars
-                import re
-                json_str = re.sub(r'\\([^"\\/bfnrtu0-9])', r'\\\\\1', json_str)
-                result = json.loads(json_str)
-
-                # Handle both single-section and multi-section formats
-                # Format 1: { "section": "...", "questions": [...] }
-                # Format 2: { "sections": [ { "section": "...", "questions": [...] }, ... ] }
-                if isinstance(result, dict) and "sections" in result and isinstance(result["sections"], list):
-                    all_questions: List[Dict[str, Any]] = []
-                    first_section_name: str | None = None
-                    for sec_obj in result["sections"]:
-                        if not isinstance(sec_obj, dict):
-                            continue
-                        sec_name = sec_obj.get("section")
-                        if first_section_name is None and isinstance(sec_name, str):
-                            first_section_name = sec_name
-                        sec_questions = sec_obj.get("questions") or []
-                        if isinstance(sec_questions, list):
-                            for q in sec_questions:
-                                if isinstance(q, dict) and sec_name and "section" not in q:
-                                    q["section"] = sec_name
-                            all_questions.extend(
-                                [q for q in sec_questions if isinstance(q, dict)]
-                            )
-                    return {
-                        "section": first_section_name or "SECTION-A",
-                        "questions": all_questions,
-                    }
-
-                return result
-            else:
-                print(f"Warning: No valid JSON found in Claude response for page {page_num}")
-                return {"section": "SECTION-A", "questions": []}
-                
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON from Claude for page {page_num}: {e}")
-            print(f"Response was: {response_text[:200]}...")
-            return {"section": "SECTION-A", "questions": []}
+            return parse_model_json_response(response_text, page_num, "Claude")
         except Exception as e:
             msg = str(e)
-            # Retry on 529 / overloaded responses
             if ("529" in msg or "overloaded" in msg.lower()) and attempt < max_attempts:
                 print(f"Claude API overloaded for page {page_num}, retrying in 5 seconds (attempt {attempt}/{max_attempts})...")
                 time.sleep(5)
@@ -263,17 +331,36 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
 
 def process_one_page(
     pdf_path: str,
-    client: Anthropic,
+    client: Anthropic | None,
     image: Image.Image,
     page_num: int,
 ) -> Tuple[int, List[Dict[str, Any]], str, bool]:
-    """Process a single page: cache lookup or Claude extraction. Returns (page_num, questions, section, was_cached)."""
+    """Process a single page: cache lookup or vision extraction. Returns (page_num, questions, section, was_cached)."""
     page_hash = get_page_hash(pdf_path, page_num)
     cached = get_cached_result(page_hash)
     if cached:
         return (page_num, cached.get("questions", []), cached.get("section", "SECTION-A"), True)
-    image_base64 = image_to_base64(image)
-    result = extract_with_claude(client, image_base64, page_num)
+    if USE_GEMINI:
+        tmp_path: str | None = None
+        result: Dict[str, Any] = {"section": "SECTION-A", "questions": []}
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=".png")
+            os.close(fd)
+            image.save(tmp_path, format="PNG")
+            raw_text = extract_page_with_gemini(tmp_path)
+            result = parse_model_json_response(raw_text, page_num, "Gemini")
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+    else:
+        if client is None:
+            print(f"Error: Claude client missing for page {page_num}")
+            return (page_num, [], "SECTION-A", False)
+        image_base64 = image_to_base64(image)
+        result = extract_with_claude(client, image_base64, page_num)
     save_cached_result(page_hash, result)
     return (page_num, result.get("questions", []), result.get("section", "SECTION-A"), False)
 
@@ -285,15 +372,20 @@ class QuestionExtractor:
         self.grade = grade
         self.year = year
         self.questions = []
-        
-        # Initialize Claude client
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            # In production this should be set via environment variables.
-            # Raise a clear exception instead of exiting the interpreter so callers can handle it.
-            raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
 
-        self.claude_client = Anthropic(api_key=api_key)
+        if USE_GEMINI:
+            if not effective_gemini_api_key():
+                raise ValueError(
+                    "GEMINI_API_KEY or GOOGLE_API_KEY environment variable is not set "
+                    "(use a real key from https://aistudio.google.com/app/apikey; "
+                    "each variable must be on its own line in .env.local)."
+                )
+            self.claude_client = None
+        else:
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+            self.claude_client = Anthropic(api_key=api_key)
         
     def _get_total_pages(self) -> int:
         """Get total number of pages in PDF using pypdf (reliable, no image conversion)."""
@@ -305,7 +397,7 @@ class QuestionExtractor:
             return 0
     
     def extract_questions_from_pdf(self) -> List[Dict[str, Any]]:
-        """Convert PDF pages to images and extract questions using Claude API"""
+        """Convert PDF pages to images and extract questions using Gemini or Claude vision."""
         print(f"Converting PDF to images: {self.pdf_path}")
         
         try:
@@ -316,7 +408,10 @@ class QuestionExtractor:
             
             self._page_count = total_pages
             print(f"Total pages: {total_pages}")
-            print("Using Claude API Vision for extraction...")
+            if USE_GEMINI:
+                print("Using Gemini 2.5 Flash for extraction...")
+            else:
+                print("Using Claude API Vision for extraction...")
             
             all_questions = []
             processed_count = 0
@@ -335,7 +430,7 @@ class QuestionExtractor:
                 # Convert batch to images (one convert_from_path per batch)
                 batch_images = convert_from_path(
                     self.pdf_path,
-                    dpi=150,  # reduced from 300 to avoid memory issues with large scans
+                    dpi=EXTRACT_DPI,
                     first_page=batch_start,
                     last_page=batch_end
                 )
@@ -638,7 +733,7 @@ def count_duplicates(new_questions: List[Dict], existing_texts: List[str], thres
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Extract questions from PDF using Claude API Vision')
+    parser = argparse.ArgumentParser(description='Extract questions from PDF using Gemini or Claude vision')
     parser.add_argument('--pdf', required=True, help='Path to PDF file')
     parser.add_argument('--subject', required=True, help='Subject name')
     parser.add_argument('--grade', required=True, help='Grade/Class')

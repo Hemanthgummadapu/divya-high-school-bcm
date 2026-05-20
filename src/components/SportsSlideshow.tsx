@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { SLIDESHOW1_IMAGE, SLIDESHOW2_IMAGE } from "@/lib/public-assets";
 
 const SLIDE_DURATION = 3500;
 const TOTAL_SLIDES = 2;
@@ -54,14 +55,14 @@ export default function SportsSlideshow() {
 
       {/* Slide 1: Sports / group photo - link to Results */}
       <Link
-        href="/academics/results"
+        href="/academics#results"
         className={`absolute inset-0 block transition-opacity duration-700 ease-in-out ${
           currentSlide === 0 ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"
         }`}
       >
         <div className="relative w-full h-full min-h-full">
           <Image
-            src="/slideshow1.png"
+            src={SLIDESHOW1_IMAGE}
             alt="Divya High School - Sports and achievements"
             fill
             className="object-cover"
@@ -83,7 +84,7 @@ export default function SportsSlideshow() {
       >
         <div className="relative w-full h-full min-h-full">
           <Image
-            src="/slideshow2.png"
+            src={SLIDESHOW2_IMAGE}
             alt="Divya High School - Campus and student life"
             fill
             className="object-cover"
