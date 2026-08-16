@@ -27,6 +27,7 @@ expected_routines(routine_name) AS (
     ('question_bank_normalize_mcq_options'),
     ('question_bank_mcq_options_are_valid'),
     ('question_bank_mcq_options_are_valid_normalized'),
+    ('question_bank_page_numbers_are_valid'),
     ('question_bank_protect_question_immutables'),
     ('question_bank_reject_final_paper_mutation')
 ),
@@ -195,7 +196,7 @@ checks AS (
       FROM routines
     ) AS functions_have_fixed_search_path,
     (
-      SELECT count(*) = 9 FROM routines WHERE routines.owner IS NOT NULL
+      SELECT count(*) = 10 FROM routines WHERE routines.owner IS NOT NULL
     ) AS expected_functions_exist,
     (
       SELECT bool_and(b.public = false)

@@ -49,6 +49,7 @@ test("Phase 2B migration is additive and does not touch legacy tables", () => {
 test("Phase 2B migration contains required constraints, indexes, RLS, and RPCs", () => {
   assert.match(migration, /question_sources_content_sha256_key/);
   assert.match(migration, /question_sources_completed_has_no_failed_pages/);
+  assert.match(migration, /question_bank_page_numbers_are_valid/);
   assert.match(migration, /question_bank_questions_source_page_required/);
   assert.match(migration, /question_bank_questions_mcq_options/);
   assert.match(migration, /saved_question_paper_items_order_key/);

@@ -104,6 +104,26 @@ AS $$
   );
 $$;
 
+CREATE OR REPLACE FUNCTION public.question_bank_page_numbers_are_valid(
+  p_pages integer[],
+  p_page_count integer
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  SELECT
+    p_pages IS NOT NULL
+    AND p_page_count IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM unnest(p_pages) AS page_number
+      WHERE page_number < 1 OR page_number > p_page_count
+    );
+$$;
+
 CREATE TABLE public.question_sources (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   original_filename text NOT NULL
@@ -158,13 +178,7 @@ CREATE TABLE public.question_sources (
   CONSTRAINT question_sources_processed_pages_bound
     CHECK (processed_page_count <= page_count),
   CONSTRAINT question_sources_failed_pages_bound
-    CHECK (
-      NOT EXISTS (
-        SELECT 1
-        FROM unnest(failed_page_numbers) AS page_number
-        WHERE page_number < 1 OR page_number > page_count
-      )
-    ),
+    CHECK (public.question_bank_page_numbers_are_valid(failed_page_numbers, page_count)),
   CONSTRAINT question_sources_completed_has_no_failed_pages
     CHECK (
       extraction_status <> 'completed'
@@ -1126,6 +1140,7 @@ BEGIN
         'question_bank_normalize_mcq_options',
         'question_bank_mcq_options_are_valid',
         'question_bank_mcq_options_are_valid_normalized',
+        'question_bank_page_numbers_are_valid',
         'question_bank_protect_question_immutables',
         'question_bank_reject_final_paper_mutation',
         'persist_extracted_questions',

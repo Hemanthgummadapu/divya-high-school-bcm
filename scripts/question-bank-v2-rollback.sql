@@ -43,6 +43,7 @@ DROP FUNCTION IF EXISTS public.question_bank_reject_final_paper_mutation();
 DROP FUNCTION IF EXISTS public.question_bank_protect_question_immutables();
 DROP FUNCTION IF EXISTS public.question_bank_mcq_options_are_valid(jsonb);
 DROP FUNCTION IF EXISTS public.question_bank_mcq_options_are_valid_normalized(jsonb);
+DROP FUNCTION IF EXISTS public.question_bank_page_numbers_are_valid(integer[], integer);
 DROP FUNCTION IF EXISTS public.question_bank_normalize_mcq_options(jsonb);
 DROP FUNCTION IF EXISTS public.question_bank_set_updated_at();
 
