@@ -409,13 +409,13 @@ test("UI uses V2 views and does not present local-only or hard-delete success", 
   assert.match(pageSource, /Save for review/);
   assert.match(pageSource, /Save and approve/);
   assert.match(pageSource, /selectedIds/);
-  assert.match(pageSource, /Generate paper \(coming next\)/);
+  assert.match(pageSource, /Generate paper/);
   assert.match(pageSource, /No questions are waiting for review/);
   assert.match(pageSource, /No approved questions match these filters/);
   assert.match(pageSource, /No uploaded PDFs yet/);
   assert.doesNotMatch(pageSource, /Clear All Questions/);
   assert.doesNotMatch(pageSource, /method:\s*["']DELETE["']/);
-  assert.doesNotMatch(pageSource, /\/api\/question-papers\/generate/);
+  assert.doesNotMatch(pageSource, /\/api\/question-papers\/generate-pdf/);
   assert.doesNotMatch(pageSource, /\/api\/questions\/generate/);
   assert.doesNotMatch(pageSource, /data\.paper\.questions/);
   assert.match(pageSource, /if \(!response\.ok \|\| !data\.success\)/);

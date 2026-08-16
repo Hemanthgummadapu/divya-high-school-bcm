@@ -29,6 +29,10 @@ const dangerousMarkers = [
   "getV2Question(",
   "updateV2Question(",
   "createManualV2Question(",
+  "listSavedPapers(",
+  "getSavedPaperDetail(",
+  "saveFinalPaper(",
+  "generateAndStorePaperPdf(",
   "spawn(",
   "execFileAsync(",
 ];
@@ -301,24 +305,37 @@ assert.match(
 );
 assert.match(authConfiguration, /QUESTION_PAPER_ALLOWED_EMAILS/);
 
-const generatedPdfRoute = await readFile(
-  join(repositoryRoot, "src/app/api/questions/generate/route.ts"),
+const retiredGenerateRoutes = [
+  "src/app/api/questions/generate/route.ts",
+  "src/app/api/question-papers/generate-pdf/route.ts",
+];
+for (const route of retiredGenerateRoutes) {
+  const source = await readFile(join(repositoryRoot, route), "utf8");
+  const handler = handlerSegments(source).find(({ method }) => method === "POST");
+  assert.ok(handler, `${route} POST is missing`);
+  assert.match(handler.source, /status: 410/);
+  assert.doesNotMatch(handler.source, /getSupabase\(\)/);
+  assert.doesNotMatch(handler.source, /spawn\(/);
+  assert.doesNotMatch(handler.source, /generated_pdfs/);
+}
+
+const canonicalGenerate = await readFile(
+  join(repositoryRoot, "src/app/api/question-papers/generate/route.ts"),
   "utf8",
 );
-const generatedPdfHandler = handlerSegments(generatedPdfRoute).find(
+const canonicalHandler = handlerSegments(canonicalGenerate).find(
   ({ method }) => method === "POST",
 );
-assert.ok(generatedPdfHandler, "Primary PDF generation handler is missing");
+assert.ok(canonicalHandler, "Canonical V2 generate handler is missing");
 assert.ok(
-  generatedPdfHandler.source.indexOf("const path = getQuestionDiagramPath") <
-    generatedPdfHandler.source.indexOf("spawn(pythonCmd, [scriptPath]"),
-  "Stored diagrams are not resolved before PDF generation",
+  canonicalHandler.source.indexOf("requireQuestionPaperApiAccess") <
+    canonicalHandler.source.indexOf("request.json("),
 );
-assert.match(
-  generatedPdfRoute,
-  /storage\.from\(QUESTION_DIAGRAM_BUCKET\)\s*\.download\(path\)/s,
-  "PDF generation does not load private diagrams by stable object path",
-);
+assert.match(canonicalGenerate, /saveFinalPaper/);
+assert.match(canonicalGenerate, /generateAndStorePaperPdf/);
+assert.match(canonicalGenerate, /loadSavedPaperItems/);
+assert.doesNotMatch(canonicalGenerate, /generated_pdfs/);
+assert.doesNotMatch(canonicalGenerate, /\.from\(\s*["']questions["']\)/);
 
 const serverOnlyGuard = await readFile(
   join(repositoryRoot, "src/lib/assert-server-only.ts"),

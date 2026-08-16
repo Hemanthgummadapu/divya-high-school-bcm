@@ -12,6 +12,7 @@
     "test:schema": "node --test scripts/question-bank-v2-schema.test.mjs",
     "test:extract": "node --test scripts/question-bank-v2-extract.test.mjs && sh scripts/run-extract-python-tests.sh",
     "test:review": "node --test scripts/question-bank-v2-review.test.mjs",
+    "test:paper": "node --test scripts/question-bank-v2-paper.test.mjs && ./venv/bin/python3 scripts/question-bank-v2-paper-pdf-fixtures.py",
     "postinstall": "node scripts/download-fonts.js"
   },
   "dependencies": {
