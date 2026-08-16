@@ -423,6 +423,7 @@ test("upload response helpers stay user-safe and honest", () => {
 });
 
 test("UI uses V2 views and does not present local-only or hard-delete success", () => {
+  assert.match(pageSource, /PortalLogoutButton/);
   assert.match(pageSource, /view === "review"/);
   assert.match(pageSource, /view === "bank"/);
   assert.match(pageSource, /view === "sources"/);

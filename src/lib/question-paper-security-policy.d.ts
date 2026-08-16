@@ -16,6 +16,8 @@ export interface QuestionPaperPolicyResult {
     | "authorized";
 }
 
+export const QUESTION_PAPER_AUTHORIZED_EMAIL: "info@divyahighschool.co.in";
+
 export function normalizeEmail(value: unknown): string;
 export function isSafeQuestionPaperResourceId(value: unknown): boolean;
 export function isVerifiedGoogleIdentity(input: {

@@ -29,6 +29,8 @@ function isValidAllowlistEmail(email) {
   );
 }
 
+export const QUESTION_PAPER_AUTHORIZED_EMAIL = "info@divyahighschool.co.in";
+
 export function normalizeEmail(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -92,7 +94,10 @@ export function evaluateQuestionPaperIdentity({
     return { allowed: false, status: 403, reason: "verified_email_required" };
   }
 
-  if (!allowedEmails.emails.has(normalizedEmail)) {
+  if (
+    normalizedEmail !== QUESTION_PAPER_AUTHORIZED_EMAIL ||
+    !allowedEmails.emails.has(normalizedEmail)
+  ) {
     return { allowed: false, status: 403, reason: "account_not_allowed" };
   }
 

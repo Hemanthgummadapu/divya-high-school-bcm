@@ -11,6 +11,7 @@ import {
   isSafeQuestionPaperResourceId,
   normalizeEmail,
   parseAllowedEmails,
+  QUESTION_PAPER_AUTHORIZED_EMAIL,
 } from "../src/lib/question-paper-security-policy.mjs";
 import {
   DEFAULT_MAX_PDF_PAGES,
@@ -64,21 +65,41 @@ test("non-allowlisted authenticated identities receive 403", () => {
 test("allowlisted verified identities are authorized after normalization", () => {
   const result = evaluateQuestionPaperIdentity({
     sessionPresent: true,
-    email: " Teacher@Example.com ",
+    email: " Info@DivyaHighSchool.co.in ",
     emailVerified: true,
-    allowedEmailsValue: "teacher@example.com",
+    allowedEmailsValue: QUESTION_PAPER_AUTHORIZED_EMAIL,
   });
   assert.equal(result.allowed, true);
   assert.equal(result.status, 200);
   assert.equal(
     evaluateQuestionPaperIdentity({
       sessionPresent: true,
-      email: "teacher@example.com",
+      email: QUESTION_PAPER_AUTHORIZED_EMAIL,
       emailVerified: true,
-      allowedEmailsValue: "teacher@example.com,teacher@example.com",
+      allowedEmailsValue: `${QUESTION_PAPER_AUTHORIZED_EMAIL},${QUESTION_PAPER_AUTHORIZED_EMAIL}`,
     }).allowed,
     true,
   );
+});
+
+test("other emails cannot use question papers even if listed in the env allowlist", () => {
+  assert.equal(QUESTION_PAPER_AUTHORIZED_EMAIL, "info@divyahighschool.co.in");
+  for (const email of [
+    "teacher@example.com",
+    "saihemanth.gummadapu@gmail.com",
+    "teacher1@gmail.com",
+    "student1@gmail.com",
+  ]) {
+    assert.equal(
+      evaluateQuestionPaperIdentity({
+        sessionPresent: true,
+        email,
+        emailVerified: true,
+        allowedEmailsValue: `${email},${QUESTION_PAPER_AUTHORIZED_EMAIL}`,
+      }).allowed,
+      false,
+    );
+  }
 });
 
 test("unverified allowlisted identities receive 403", () => {

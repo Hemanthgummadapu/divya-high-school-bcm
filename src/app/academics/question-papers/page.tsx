@@ -10,6 +10,7 @@ import {
   romanClass,
 } from "@/lib/question-bank-v2-paper-ui.mjs";
 import DiagramSketchTool from "@/components/DiagramSketchTool";
+import PortalLogoutButton from "@/components/PortalLogoutButton";
 import MathKeyboard from "@/components/MathKeyboard";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -735,9 +736,12 @@ export default function QuestionPapers() {
   return (
     <div className={`min-h-screen bg-slate-50 py-8 ${dmSans.className}`}>
       <div className="container mx-auto px-4">
-        <h1 className="text-4xl font-bold text-center mb-8 text-slate-900">
-          Question Bank
-        </h1>
+        <div className="mb-8 flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <h1 className="text-4xl font-bold text-slate-900 text-center sm:text-left">
+            Question Bank
+          </h1>
+          <PortalLogoutButton />
+        </div>
 
         <section className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-100">
           <h2 className="text-2xl font-semibold text-slate-900 flex items-center gap-2 mb-4">

@@ -318,6 +318,16 @@ assert.match(
 );
 assert.match(authConfiguration, /QUESTION_PAPER_ALLOWED_EMAILS/);
 
+const securityPolicy = await readFile(
+  join(repositoryRoot, "src/lib/question-paper-security-policy.mjs"),
+  "utf8",
+);
+assert.match(
+  securityPolicy,
+  /QUESTION_PAPER_AUTHORIZED_EMAIL = "info@divyahighschool\.co\.in"/,
+);
+assert.match(securityPolicy, /normalizedEmail !== QUESTION_PAPER_AUTHORIZED_EMAIL/);
+
 const retiredGenerateRoutes = [
   "src/app/api/questions/generate/route.ts",
   "src/app/api/question-papers/generate-pdf/route.ts",
