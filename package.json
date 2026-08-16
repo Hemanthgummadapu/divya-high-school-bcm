@@ -11,6 +11,7 @@
     "test:security": "node --test scripts/question-paper-security.test.mjs && node scripts/check-question-paper-security.mjs",
     "test:schema": "node --test scripts/question-bank-v2-schema.test.mjs",
     "test:extract": "node --test scripts/question-bank-v2-extract.test.mjs && sh scripts/run-extract-python-tests.sh",
+    "test:review": "node --test scripts/question-bank-v2-review.test.mjs",
     "postinstall": "node scripts/download-fonts.js"
   },
   "dependencies": {
