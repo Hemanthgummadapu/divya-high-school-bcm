@@ -192,16 +192,13 @@ Generate a paper from selected questions:
 
 ## Phase 2B additive schema (do not auto-apply)
 
-`supabase/migrations/20260816010000_question_bank_v2.sql` is a manual, unapplied foundation. It adds four empty tables (`question_sources`, `question_bank_questions`, `saved_question_papers`, `saved_question_paper_items`), private `source-pdfs` and `generated-papers` buckets, and `SECURITY INVOKER` RPCs (`persist_extracted_questions`, `save_question_paper`, `record_final_paper_pdf`). Final papers keep content and items immutable; the only allowed later write is one fill-in of empty `pdf_*` metadata through `record_final_paper_pdf`. It does not change routes, the UI, or legacy `questions` / `question_papers` / `generated_pdfs` rows.
+`supabase/migrations/20260816010000_question_bank_v2.sql` was applied to production project `tzcydxkidvzpijlozmmv` on 2026-08-16 and is recorded in `supabase_migrations.schema_migrations`. Do not apply it again.
 
-Before applying it:
+It adds four empty tables (`question_sources`, `question_bank_questions`, `saved_question_papers`, `saved_question_paper_items`), private `source-pdfs` and `generated-papers` buckets, and `SECURITY INVOKER` RPCs (`persist_extracted_questions`, `save_question_paper`, `record_final_paper_pdf`). Final papers keep content and items immutable; the only allowed later write is one fill-in of empty `pdf_*` metadata through `record_final_paper_pdf`. It does not change routes, the UI, or legacy `questions` / `question_papers` / `generated_pdfs` rows.
 
-1. Confirm Phase 1 containment is already applied on production.
-2. Apply only during a reviewed window.
-3. Run `scripts/question-bank-v2-verify.sql` and require `phase_2b_passed = true`.
-4. Keep `scripts/question-bank-v2-rollback.sql` available. It drops only empty Phase 2B objects.
+Keep `scripts/question-bank-v2-rollback.sql` available. It drops only empty Phase 2B objects.
 
-Do not apply it automatically during application deployment.
+Do not apply further schema changes automatically during application deployment.
 
 ## Phase 1 deployment blockers and containment notes
 

@@ -109,5 +109,5 @@ test("setup documentation describes the unapplied Phase 2B foundation", () => {
   assert.match(setup, /question_bank_questions/);
   assert.match(setup, /saved_question_papers/);
   assert.match(setup, /saved_question_paper_items/);
-  assert.match(setup, /Do not apply it automatically/);
+  assert.match(setup, /Do not apply it again|Do not apply further schema changes automatically/);
 });
