@@ -58,6 +58,8 @@ def require_anthropic_api_key() -> str:
     return api_key
 
 
+# Pinned to src/lib/question-paper-provider-policy.mjs. Not overridable.
+QUESTION_PAPER_PARSER_MODEL = "claude-sonnet-4-6"
 EXTRACT_DPI = 250  # PDF page render DPI (was 150; higher helps Telugu glyphs)
 
 
@@ -261,7 +263,7 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
     for attempt in range(1, max_attempts + 1):
         try:
             message = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=QUESTION_PAPER_PARSER_MODEL,
                 max_tokens=4096,
                 messages=[
                     {

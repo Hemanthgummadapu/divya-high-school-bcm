@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { QUESTION_PAPER_PARSER_MODEL } from "../src/lib/question-paper-provider-policy.mjs";
 
 const repositoryRoot = join(fileURLToPath(new URL("..", import.meta.url)));
 const sensitiveRoutes = [
@@ -165,10 +166,25 @@ assert.match(
   /validated_page_count = validate_pdf_page_count\(args\.pdf\)/,
   "OCR worker does not enforce the authoritative page limit",
 );
+assert.equal(
+  QUESTION_PAPER_PARSER_MODEL,
+  "claude-sonnet-4-6",
+  "Canonical parser model is not pinned to Sonnet 4.6",
+);
 assert.match(
   extractionScript,
-  /model="claude-haiku-4-5-20251001"/,
-  "OCR worker does not use the canonical Anthropic model",
+  new RegExp(`QUESTION_PAPER_PARSER_MODEL = "${QUESTION_PAPER_PARSER_MODEL}"`),
+  "OCR worker is not pinned to the canonical Sonnet model",
+);
+assert.match(
+  extractionScript,
+  /model=QUESTION_PAPER_PARSER_MODEL/,
+  "OCR worker does not use the canonical Anthropic model constant",
+);
+assert.doesNotMatch(
+  extractionScript,
+  /haiku|claude-haiku/i,
+  "OCR worker still references Haiku",
 );
 assert.match(
   extractionScript,

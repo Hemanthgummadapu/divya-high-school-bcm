@@ -425,17 +425,27 @@ test("diagram uploads require bounded PNG content", () => {
 
 test("question-paper extraction is Anthropic-only and ignores untrusted provider fields", () => {
   assert.equal(QUESTION_PAPER_PARSER_PROVIDER, "anthropic");
-  assert.equal(QUESTION_PAPER_PARSER_MODEL, "claude-haiku-4-5-20251001");
+  assert.equal(QUESTION_PAPER_PARSER_MODEL, "claude-sonnet-4-6");
   assert.equal(QUESTION_PAPER_PARSER_ENV, "ANTHROPIC_API_KEY");
   assert.equal(isAnthropicConfigured(undefined), false);
   assert.equal(isAnthropicConfigured(""), false);
   assert.equal(isAnthropicConfigured("   "), false);
   assert.equal(isAnthropicConfigured("your_key_here"), false);
   assert.equal(isAnthropicConfigured(" sk-ant-test-key "), true);
-  for (const untrusted of [undefined, null, "gemini", "google", "openai", "sonnet"]) {
+  for (const untrusted of [
+    undefined,
+    null,
+    "gemini",
+    "google",
+    "openai",
+    "haiku",
+    "opus",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-6",
+  ]) {
     assert.deepEqual(resolveQuestionPaperParser(untrusted), {
       provider: "anthropic",
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-4-6",
       envName: "ANTHROPIC_API_KEY",
     });
   }
@@ -451,19 +461,30 @@ test("question-paper extraction is Anthropic-only and ignores untrusted provider
     "utf8",
   );
   assert.match(extractionScript, /from anthropic import Anthropic/);
-  assert.match(extractionScript, /model="claude-haiku-4-5-20251001"/);
+  assert.match(
+    extractionScript,
+    new RegExp(
+      `QUESTION_PAPER_PARSER_MODEL = "${QUESTION_PAPER_PARSER_MODEL}"`,
+    ),
+  );
+  assert.match(extractionScript, /model=QUESTION_PAPER_PARSER_MODEL/);
   assert.match(extractionScript, /require_anthropic_api_key\(\)/);
   assert.doesNotMatch(
     extractionScript,
-    /USE_GEMINI|google\.generativeai|GEMINI_API_KEY|gemini-2\.5|google-genai/,
+    /USE_GEMINI|google\.generativeai|GEMINI_API_KEY|gemini-2\.5|google-genai|haiku|opus/i,
   );
-  assert.doesNotMatch(uploadRoute, /formData\.get\(\s*["']provider["']/);
+  assert.doesNotMatch(
+    extractionScript,
+    /add_argument\([^)]*model|os\.getenv\(\s*["'][^"']*MODEL/,
+  );
+  assert.doesNotMatch(uploadRoute, /formData\.get\(\s*["'](?:provider|model)["']/);
+  assert.doesNotMatch(uploadRoute, /searchParams\.get\(\s*["'](?:provider|model)["']/);
   assert.match(uploadRoute, /isAnthropicConfigured\(process\.env\.ANTHROPIC_API_KEY\)/);
   assert.match(uploadPage, /formData\.append\("file"/);
   assert.match(uploadPage, /formData\.append\("subject"/);
   assert.match(uploadPage, /formData\.append\("grade"/);
   assert.match(uploadPage, /formData\.append\("year"/);
-  assert.doesNotMatch(uploadPage, /formData\.append\("provider"/);
+  assert.doesNotMatch(uploadPage, /formData\.append\("(?:provider|model)"/);
   assert.doesNotMatch(uploadPage, /NEXT_PUBLIC_ANTHROPIC|NEXT_PUBLIC_GEMINI|GEMINI_API_KEY/);
 });
 

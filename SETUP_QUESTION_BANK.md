@@ -194,7 +194,7 @@ Generate a paper from selected questions:
 
 ### Extraction provider
 
-Question-paper PDF extraction uses Anthropic Claude only (`ANTHROPIC_API_KEY`, server-side). There is no Gemini path and no request-selectable provider. The Railway `Dockerfile` installs `requirements.txt`, which includes `anthropic`, `pypdf`, `pdf2image`, `Pillow`, `reportlab`, and `python-dotenv`. Importing those modules does not require an API key.
+Question-paper PDF extraction uses Anthropic only, pinned to `claude-sonnet-4-6` (`ANTHROPIC_API_KEY`, server-side). There is no Gemini, Haiku, Opus, fallback, or request-selectable provider or model. The Railway `Dockerfile` installs `requirements.txt`, which includes `anthropic`, `pypdf`, `pdf2image`, `Pillow`, `reportlab`, and `python-dotenv`. Importing those modules does not require an API key.
 
 ### Containment migration (do not auto-apply)
 
