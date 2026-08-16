@@ -6,6 +6,8 @@ import {
   isCanonicalSourceStoragePath,
   normalizeMcqOptions,
 } from "./question-bank-v2-extract.mjs";
+import { isSupportedSubject, isValidSubjectForGrade } from "./subjects.mjs";
+import { canShowRetryExtraction } from "./question-bank-v2-retry.mjs";
 import {
   PROCESSING_STALE_MS,
   formatFailedPages,
@@ -110,6 +112,16 @@ export function parseListQuery(searchParams) {
     return { ok: false, status: 400, error: "Invalid grade" };
   }
 
+  const subjectFilter = String(searchParams.get("subject") || "").trim();
+  if (subjectFilter) {
+    if (!isSupportedSubject(subjectFilter)) {
+      return { ok: false, status: 400, error: "Invalid subject" };
+    }
+    if (grade != null && !isValidSubjectForGrade(subjectFilter, grade)) {
+      return { ok: false, status: 400, error: "Invalid subject for the selected grade" };
+    }
+  }
+
   const year = parsePositiveInt(searchParams.get("year"), null);
   if (
     searchParams.get("year") &&
@@ -157,7 +169,7 @@ export function parseListQuery(searchParams) {
       search,
       grade,
       year,
-      subject: String(searchParams.get("subject") || "").trim(),
+      subject: subjectFilter,
       type,
       status,
       sourceId,
@@ -275,8 +287,8 @@ export function validateQuestionFields(input, { requireClassification = false } 
     if (grade == null || grade < 1 || grade > 10) {
       return { ok: false, error: "Invalid grade" };
     }
-    if (!subject || subject.length > 100) {
-      return { ok: false, error: "Invalid subject" };
+    if (!subject || subject.length > 100 || !isValidSubjectForGrade(subject, grade)) {
+      return { ok: false, error: "Invalid subject for the selected grade" };
     }
     if (academicYear == null || academicYear < 2000 || academicYear > 2100) {
       return { ok: false, error: "Invalid academic year" };
@@ -351,5 +363,6 @@ export function publicSource(row) {
     possiblyInterrupted:
       row.extraction_status === "processing" &&
       isProcessingStale(row.created_at),
+    retryEligible: canShowRetryExtraction(row),
   };
 }

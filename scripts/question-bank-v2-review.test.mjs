@@ -44,6 +44,10 @@ const questionCreateRoute = readFileSync(
   join(root, "src/app/api/questions/route.ts"),
   "utf8",
 );
+const retryRoute = readFileSync(
+  join(root, "src/app/api/question-papers/[id]/retry/route.ts"),
+  "utf8",
+);
 const reviewApi = readFileSync(
   join(root, "src/lib/question-bank-v2-review-api.ts"),
   "utf8",
@@ -76,6 +80,7 @@ test("anonymous and unauthorized requests are rejected before database access", 
     [sourceRoute, "DELETE"],
     [questionPatchRoute, "PATCH"],
     [questionCreateRoute, "POST"],
+    [retryRoute, "POST"],
   ]) {
     const body = handler(source, method);
     const authIndex = body.indexOf("requireQuestionPaperApiAccess");
@@ -188,7 +193,23 @@ test("search escaping and deterministic public payloads omit private paths", () 
   });
   assert.equal(source.statusLabel, "Partially extracted");
   assert.deepEqual(source.failedPages, [4]);
+  assert.equal(source.retryEligible, false);
   assert.equal("storage_path" in source, false);
+
+  const failed = publicSource({
+    id: SOURCE_ID,
+    original_filename: "exam.pdf",
+    grade: 10,
+    subject: "Mathematics",
+    academic_year: 2026,
+    page_count: 6,
+    extraction_status: "failed",
+    processed_page_count: 0,
+    failed_page_numbers: [],
+    extracted_question_count: 0,
+    created_at: new Date().toISOString(),
+  });
+  assert.equal(failed.retryEligible, true);
 });
 
 test("signed PDF and diagram helpers reject arbitrary or mismatched paths", () => {

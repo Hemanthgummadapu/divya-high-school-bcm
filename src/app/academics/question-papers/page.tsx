@@ -79,6 +79,7 @@ type BankSource = {
   savedQuestionCount: number;
   createdAt: string;
   possiblyInterrupted: boolean;
+  retryEligible: boolean;
 };
 
 type QuestionDraft = {
@@ -228,6 +229,7 @@ export default function QuestionPapers() {
     year: String(new Date().getFullYear()),
   });
   const [uploading, setUploading] = useState(false);
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<UploadNotice | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<QuestionDraft>(EMPTY_DRAFT);
@@ -414,6 +416,34 @@ export default function QuestionPapers() {
       });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleRetryExtraction = async (sourceId: string) => {
+    setRetryingSourceId(sourceId);
+    setUploadNotice(null);
+    try {
+      const response = await fetch(`/api/question-papers/${sourceId}/retry`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      const notice = uploadResultMessage(data) as UploadNotice;
+      setUploadNotice(notice);
+      setView("sources");
+      setPage(1);
+      await fetchList();
+      if (notice.kind === "completed" || notice.kind === "partial") {
+        setSourceFilter(notice.sourceId || sourceId);
+        setView("review");
+      }
+    } catch {
+      setUploadNotice({
+        kind: "failed",
+        text: "The extraction could not be retried.",
+        sourceId,
+      });
+    } finally {
+      setRetryingSourceId(null);
     }
   };
 
@@ -1338,6 +1368,18 @@ export default function QuestionPapers() {
                       >
                         Review questions
                       </button>
+                      {source.retryEligible && (
+                        <button
+                          type="button"
+                          disabled={retryingSourceId === source.id}
+                          className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                          onClick={() => handleRetryExtraction(source.id)}
+                        >
+                          {retryingSourceId === source.id
+                            ? "Retrying…"
+                            : "Retry Extraction"}
+                        </button>
+                      )}
                     </div>
                   </li>
                 ))}

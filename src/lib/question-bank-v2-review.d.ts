@@ -68,6 +68,7 @@ export interface PublicSource {
   savedQuestionCount: number;
   createdAt: string;
   possiblyInterrupted: boolean;
+  retryEligible: boolean;
 }
 
 export function parsePositiveInt(value: unknown, fallback?: number | null): number | null;
