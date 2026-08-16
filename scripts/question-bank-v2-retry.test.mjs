@@ -108,7 +108,9 @@ test("concurrent retry claim is a 409 and does not spawn Anthropic", () => {
 test("retry reuses the same source and does not create a new row or object", () => {
   assert.doesNotMatch(retryRoute, /createProcessingSource|uploadSourcePdf|createSourceId/);
   assert.match(retryRoute, /downloadSourcePdfBytes/);
-  assert.match(retryRoute, /runExtractAndPersist/);
+  assert.match(retryRoute, /await runExtractAndPersist/);
+  assert.doesNotMatch(retryRoute, /return runExtractAndPersist\(/);
+  assert.ok(retryRoute.indexOf("await runExtractAndPersist") < retryRoute.lastIndexOf("rm(workDir"));
   assert.match(persistSource, /persist_idempotency_key:\s*null/);
   assert.match(persistSource, /extraction_status:\s*"processing"/);
   assert.match(persistSource, /\.eq\("extraction_status", "failed"\)/);
@@ -141,6 +143,9 @@ test("sanitized diagnostics omit secrets, paths, and content", () => {
     errorCategory: "internal",
     providerHttpStatusClass: 503,
     elapsedMs: 25000,
+    classification: "python_exit_nonzero",
+    exitCode: 1,
+    signalName: "SIGKILL",
     questionText: "should not appear",
     apiKey: "sk-ant-secret",
   });
@@ -149,6 +154,9 @@ test("sanitized diagnostics omit secrets, paths, and content", () => {
   assert.equal(diagnostic.stage, "persistence_rpc");
   assert.equal(diagnostic.providerHttpStatusClass, "5xx");
   assert.equal(diagnostic.elapsedMs, 25000);
+  assert.equal(diagnostic.classification, "python_exit_nonzero");
+  assert.equal(diagnostic.exitCode, 1);
+  assert.equal(diagnostic.signalName, "SIGKILL");
   assert.equal("questionText" in diagnostic, false);
   assert.equal(containsForbiddenLogText(serialized), false);
   assert.doesNotMatch(serialized, /sk-ant|questionText|source-pdfs\//);

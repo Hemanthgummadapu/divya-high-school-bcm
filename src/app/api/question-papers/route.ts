@@ -385,7 +385,7 @@ export async function POST(request: NextRequest) {
       return questionPaperServerError(requestId);
     }
 
-    return runExtractAndPersist({
+    return await runExtractAndPersist({
       sourceId,
       pdfPath: filepath,
       workDir,

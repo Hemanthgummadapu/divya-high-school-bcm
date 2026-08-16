@@ -6,6 +6,9 @@ export interface ExtractionDiagnostic {
   stage: string;
   pageNumber: number | null;
   errorCategory: string | null;
+  classification: string | null;
+  exitCode: number | null;
+  signalName: string | null;
   providerHttpStatusClass: string | null;
   elapsedMs: number | null;
 }

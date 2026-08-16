@@ -216,7 +216,7 @@ export async function POST(
       );
     }
 
-    return runExtractAndPersist({
+    return await runExtractAndPersist({
       sourceId,
       pdfPath: filepath,
       workDir,

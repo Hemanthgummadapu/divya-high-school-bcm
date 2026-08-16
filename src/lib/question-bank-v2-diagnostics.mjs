@@ -1,4 +1,9 @@
 import { ALLOWED_ERROR_CATEGORIES } from "./question-bank-v2-extract.mjs";
+import {
+  sanitizeExitCode,
+  sanitizePythonClassification,
+  sanitizeSignalName,
+} from "./question-bank-v2-python-child.mjs";
 
 export const EXTRACTION_STAGES = Object.freeze([
   "authorization",
@@ -104,6 +109,9 @@ export function buildExtractionDiagnostic(input = {}) {
     stage: sanitizeStage(input.stage),
     pageNumber: sanitizePageNumber(input.pageNumber),
     errorCategory: sanitizeErrorCategory(input.errorCategory),
+    classification: sanitizePythonClassification(input.classification),
+    exitCode: sanitizeExitCode(input.exitCode),
+    signalName: sanitizeSignalName(input.signalName),
     providerHttpStatusClass: sanitizeHttpStatusClass(input.providerHttpStatusClass),
     elapsedMs: sanitizeElapsedMs(input.elapsedMs),
   };

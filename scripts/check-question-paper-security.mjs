@@ -133,7 +133,7 @@ assert.match(
 );
 assert.match(
   uploadAndExtract,
-  /timeout:\s*.*ocrTimeoutMs/,
+  /timeoutMs:\s*.*ocrTimeoutMs/,
   "OCR subprocess does not have a bounded timeout",
 );
 assert.match(

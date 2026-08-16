@@ -1,9 +1,5 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { readFile } from "fs/promises";
-import { existsSync } from "fs";
 import { join } from "path";
-import { platform } from "os";
 import { NextResponse } from "next/server";
 import { questionPaperServerError } from "@/lib/question-paper-auth";
 import {
@@ -14,6 +10,10 @@ import {
 } from "@/lib/question-bank-v2-extract.mjs";
 import { logExtractionStage } from "@/lib/question-bank-v2-diagnostics.mjs";
 import {
+  resolveExtractPython,
+  spawnExtractChild,
+} from "@/lib/question-bank-v2-python-child.mjs";
+import {
   PersistRpcError,
   attachQuestionDiagrams,
   deleteCreatedStorageObjects,
@@ -22,16 +22,7 @@ import {
   type CreatedStorageObject,
 } from "@/lib/question-bank-v2-persist";
 
-const execFileAsync = promisify(execFile);
-
-export function resolveExtractPython(cwd = process.cwd()) {
-  const isWindows = platform() === "win32";
-  const venvPython = isWindows
-    ? join(cwd, "venv", "Scripts", "python.exe")
-    : join(cwd, "venv", "bin", "python3");
-  const systemPython = isWindows ? "python" : "python3";
-  return existsSync(venvPython) ? venvPython : systemPython;
-}
+export { resolveExtractPython } from "@/lib/question-bank-v2-python-child.mjs";
 
 export async function runExtractAndPersist(input: {
   sourceId: string;
@@ -83,28 +74,37 @@ export async function runExtractAndPersist(input: {
     elapsedMs: Date.now() - input.startedAt,
   });
 
-  try {
-    await execFileAsync(pythonCmd, args, {
-      cwd: process.cwd(),
-      maxBuffer: 10 * 1024 * 1024,
-      env: childEnv,
-      timeout: input.limits.ocrTimeoutMs,
-      killSignal: "SIGKILL",
-    });
-  } catch {
+  const spawned = await spawnExtractChild({
+    pythonCmd,
+    scriptPath,
+    args,
+    cwd: process.cwd(),
+    env: childEnv,
+    timeoutMs: input.limits.ocrTimeoutMs,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  if (!spawned.ok) {
+    const errorCategory =
+      spawned.classification === "python_timeout" ? "timeout" : "internal";
     logExtractionStage({
       requestId: input.requestId,
       sourceId: input.sourceId,
       stage: "python_spawn",
-      errorCategory: "internal",
+      errorCategory,
+      classification: spawned.classification,
+      exitCode: spawned.exitCode,
+      signalName: spawned.signal,
       elapsedMs: Date.now() - input.startedAt,
     });
-    await markSourceFailed(input.sourceId, "internal");
+    await markSourceFailed(input.sourceId, errorCategory);
     logExtractionStage({
       requestId: input.requestId,
       sourceId: input.sourceId,
       stage: "failed_source_update",
-      errorCategory: "internal",
+      errorCategory,
+      classification: spawned.classification,
+      exitCode: spawned.exitCode,
+      signalName: spawned.signal,
       elapsedMs: Date.now() - input.startedAt,
     });
     return NextResponse.json(
@@ -130,6 +130,7 @@ export async function runExtractAndPersist(input: {
       sourceId: input.sourceId,
       stage: "json_parsing",
       errorCategory: "validation",
+      classification: "python_output_missing",
       elapsedMs: Date.now() - input.startedAt,
     });
     await markSourceFailed(input.sourceId, "validation");
@@ -154,6 +155,7 @@ export async function runExtractAndPersist(input: {
       sourceId: input.sourceId,
       stage: "json_parsing",
       errorCategory: "parse",
+      classification: "python_output_invalid",
       elapsedMs: Date.now() - input.startedAt,
     });
     await markSourceFailed(input.sourceId, "parse");
@@ -213,13 +215,6 @@ export async function runExtractAndPersist(input: {
     );
   }
 
-  logExtractionStage({
-    requestId: input.requestId,
-    sourceId: input.sourceId,
-    stage: "node_normalization",
-    elapsedMs: Date.now() - input.startedAt,
-  });
-
   const persistableQuestions = plan.questions.filter(
     (question): question is NonNullable<typeof question> => Boolean(question),
   );
@@ -235,6 +230,14 @@ export async function runExtractAndPersist(input: {
   };
 
   if (plan.status === "failed") {
+    logExtractionStage({
+      requestId: input.requestId,
+      sourceId: input.sourceId,
+      stage: "node_normalization",
+      errorCategory: plan.errorCategory || "provider",
+      classification: "provider_all_pages_failed",
+      elapsedMs: Date.now() - input.startedAt,
+    });
     try {
       await persistExtractedQuestions(persistInput);
     } catch (error) {
@@ -261,6 +264,13 @@ export async function runExtractAndPersist(input: {
       { status: 422 },
     );
   }
+
+  logExtractionStage({
+    requestId: input.requestId,
+    sourceId: input.sourceId,
+    stage: "node_normalization",
+    elapsedMs: Date.now() - input.startedAt,
+  });
 
   let persisted: {
     extracted_question_count?: number;

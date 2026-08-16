@@ -446,7 +446,10 @@ test("source PDF is retained after extraction failure and diagrams are compensat
   assert.match(post, /deleteCreatedStorageObjects\(createdObjects\)/);
   assert.match(post, /deleteCreatedStorageObjects\(diagramObjects\)/);
   assert.match(post, /sourceRowCreated/);
-  assert.match(extractRunSource, /await markSourceFailed\(input\.sourceId, "internal"\)/);
+  assert.match(extractRunSource, /await markSourceFailed\(input\.sourceId, errorCategory\)/);
+  assert.match(postHandler(), /await runExtractAndPersist/);
+  assert.doesNotMatch(postHandler(), /return runExtractAndPersist/);
+  assert.match(extractRunSource, /spawnExtractChild/);
 });
 
 test("diagnosed persist failure is logged without payload or secrets", () => {
@@ -461,7 +464,7 @@ test("diagnosed persist failure is logged without payload or secrets", () => {
 });
 
 test("six-page OCR timeout is long enough for render before provider work", () => {
-  assert.match(extractRunSource, /timeout:\s*input\.limits\.ocrTimeoutMs/);
+  assert.match(extractRunSource, /timeoutMs:\s*input\.limits\.ocrTimeoutMs/);
   assert.equal(DEFAULT_OCR_TIMEOUT_MS >= 180_000, true);
 });
 
