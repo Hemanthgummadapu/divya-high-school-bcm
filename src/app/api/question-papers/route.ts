@@ -41,6 +41,7 @@ import {
   listV2Questions,
   listV2Sources,
 } from "@/lib/question-bank-v2-review-api";
+import { listSavedPapers } from "@/lib/question-bank-v2-paper-api";
 
 const execFileAsync = promisify(execFile);
 export const dynamic = "force-dynamic";
@@ -68,6 +69,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Invalid filters", requestId },
         { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (query.view === "saved") {
+      const result = await listSavedPapers(query as Parameters<typeof listSavedPapers>[0]);
+      return NextResponse.json(
+        {
+          success: true,
+          view: "saved",
+          papers: result.papers,
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          requestId,
+        },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 

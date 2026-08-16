@@ -11,6 +11,7 @@ import {
   parsePositiveInt,
 } from "@/lib/question-bank-v2-review.mjs";
 import { getV2SourceDetail } from "@/lib/question-bank-v2-review-api";
+import { getSavedPaperDetail } from "@/lib/question-bank-v2-paper-api";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,25 @@ export async function GET(
       return NextResponse.json(
         { success: false, error: "Invalid page size", requestId },
         { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (request.nextUrl.searchParams.get("resource") === "paper") {
+      const detail = await getSavedPaperDetail(params.id);
+      if (!detail) {
+        return NextResponse.json(
+          { success: false, error: "Paper not found", requestId },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          paper: detail.paper,
+          pdfUrl: detail.pdfUrl,
+          requestId,
+        },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 

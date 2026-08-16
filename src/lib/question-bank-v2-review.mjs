@@ -84,7 +84,7 @@ export function parsePositiveInt(value, fallback = null) {
 
 export function parseListQuery(searchParams) {
   const view = String(searchParams.get("view") || "bank");
-  if (!["bank", "review", "sources"].includes(view)) {
+  if (!["bank", "review", "sources", "saved"].includes(view)) {
     return { ok: false, status: 400, error: "Invalid view" };
   }
 
@@ -126,6 +126,13 @@ export function parseListQuery(searchParams) {
   const requestedStatus = searchParams.get("status") || "";
   if (view === "sources") {
     if (requestedStatus && !ALLOWED_SOURCE_STATUSES.includes(requestedStatus)) {
+      return { ok: false, status: 400, error: "Invalid status" };
+    }
+  } else if (view === "saved") {
+    if (
+      requestedStatus &&
+      !["draft", "final", "archived"].includes(requestedStatus)
+    ) {
       return { ok: false, status: 400, error: "Invalid status" };
     }
   } else if (requestedStatus && !ALLOWED_REVIEW_STATUSES.includes(requestedStatus)) {
