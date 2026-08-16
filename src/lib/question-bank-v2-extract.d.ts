@@ -54,6 +54,16 @@ export function sourceObjectKey(sourceId: string): string;
 export function sourceStoragePath(sourceId: string): string;
 export function diagramObjectKey(questionId: string, assetId: string): string;
 export function diagramStoragePath(questionId: string, assetId: string): string;
+export function isCanonicalSourceStoragePath(
+  sourceId: string,
+  storedPath: unknown,
+): boolean;
+export function isCanonicalDiagramStoragePath(
+  questionId: string,
+  storedPath: unknown,
+): boolean;
+export function sourceSignedObjectKey(sourceId: string): string;
+export function diagramSignedObjectKey(storedPath: string): string | null;
 export function sanitizeOriginalFilename(name: string): string;
 export function detectLanguage(text: string): QuestionLanguage;
 export function normalizeMcqOptions(

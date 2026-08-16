@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getStatistics,
-  type QuestionPaper,
-  type Question,
-  type FilterOptions,
-} from "@/lib/questionPapers";
 import { isValidSubjectForGrade } from "@/lib/subjects";
-import { getSupabase } from "@/lib/supabase-server";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
@@ -23,7 +16,6 @@ import {
   validateUploadContentLength,
 } from "@/lib/question-paper-upload-policy.mjs";
 import { isAnthropicConfigured } from "@/lib/question-paper-provider-policy.mjs";
-import { createSignedQuestionDiagramUrls } from "@/lib/question-diagrams";
 import {
   MAX_EXTRACT_RESULT_BYTES,
   buildPersistencePlan,
@@ -44,14 +36,18 @@ import {
   uploadSourcePdf,
   type CreatedStorageObject,
 } from "@/lib/question-bank-v2-persist";
+import { parseListQuery } from "@/lib/question-bank-v2-review.mjs";
+import {
+  listV2Questions,
+  listV2Sources,
+} from "@/lib/question-bank-v2-review-api";
 
 const execFileAsync = promisify(execFile);
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/question-papers
- * Get all question papers with optional filters.
- * Always reads from Supabase; returns empty array if no data or Supabase unavailable.
+ * Paginated V2 Question Bank, Review, or Sources listing.
  */
 export async function GET(request: NextRequest) {
   const authorization = await requireQuestionPaperApiAccess(request);
@@ -59,151 +55,55 @@ export async function GET(request: NextRequest) {
   const { requestId } = authorization;
 
   try {
-    const { searchParams } = new URL(request.url);
-
-    const filters: FilterOptions = {
-      subject: searchParams.get("subject") || undefined,
-      grade: searchParams.get("grade") || undefined,
-      year: searchParams.get("year") || undefined,
-      type: (searchParams.get("type") as Question["type"]) || undefined,
-      section: searchParams.get("section") || undefined,
-    };
-
-    const hasSupabase =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!hasSupabase) {
-      return questionPaperServerError(requestId);
+    const parsed = parseListQuery(request.nextUrl.searchParams);
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { success: false, error: parsed.error, requestId },
+        { status: parsed.status, headers: { "Cache-Control": "no-store" } },
+      );
     }
 
-    try {
-      let query = getSupabase().from("questions").select("*");
-      if (filters.subject) query = query.eq("subject", filters.subject);
-      if (filters.grade) {
-        const gradeNum = parseInt(filters.grade, 10);
-        if (!Number.isNaN(gradeNum)) query = query.eq("grade", gradeNum);
-      }
-      if (filters.year) {
-        const yearNum = parseInt(filters.year, 10);
-        if (!Number.isNaN(yearNum)) query = query.eq("year", yearNum);
-      }
-      if (filters.type) query = query.eq("type", filters.type);
-      if (filters.section) query = query.eq("section", filters.section);
-
-      const { data: questionRows, error: questionsError } = await query;
-
-      if (questionsError) {
-        console.warn("[question-paper-api]", {
-          requestId,
-          operation: "list_questions",
-          outcome: "database_error",
-        });
-        return questionPaperServerError(requestId);
-      }
-
-      if (!questionRows || questionRows.length === 0) {
-        return NextResponse.json({
-          success: true,
-          papers: [],
-          statistics: { totalPapers: 0, totalQuestions: 0, bySubject: {}, byType: {} },
-          count: 0,
-        });
-      }
-
-      const signedDiagramUrls = await createSignedQuestionDiagramUrls(
-        questionRows as Array<{
-          id: string;
-          diagram_url?: string | null;
-        }>,
+    const query = parsed.query;
+    if (!query) {
+      return NextResponse.json(
+        { success: false, error: "Invalid filters", requestId },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
       );
-      const paperIds = [...new Set(questionRows.map((r: { paper_id: string }) => r.paper_id))];
-      const { data: paperRows, error: papersError } = await getSupabase()
-        .from("question_papers")
-        .select("*")
-        .in("id", paperIds);
+    }
 
-      if (papersError) {
-        console.warn("[question-paper-api]", {
-          requestId,
-          operation: "list_papers",
-          outcome: "database_error",
-        });
-        return questionPaperServerError(requestId);
-      }
-      if (!paperRows || paperRows.length === 0) {
-        return NextResponse.json({
+    if (query.view === "sources") {
+      const result = await listV2Sources(query as Parameters<typeof listV2Sources>[0]);
+      return NextResponse.json(
+        {
           success: true,
-          papers: [],
-          statistics: { totalPapers: 0, totalQuestions: 0, bySubject: {}, byType: {} },
-          count: 0,
-        });
-      }
-
-      const papers: QuestionPaper[] = paperRows.map(
-        (p: {
-          id: string;
-          file_name: string;
-          subject: string;
-          grade: number | string;
-          year: number | string;
-          total_questions?: number;
-        }) => {
-          const paperQuestions = questionRows
-            .filter((q: { paper_id: string }) => q.paper_id === p.id)
-            .map(
-              (q: {
-                id: string;
-                number: string;
-                text: string;
-                options?: string[];
-                section: string;
-                type: string;
-                marks: number;
-                diagram?: string;
-                diagram_url?: string;
-              }): Question => ({
-                id: q.id,
-                number: String(q.number ?? ""),
-                text: q.text ?? "",
-                options: Array.isArray(q.options) ? q.options : [],
-                section: q.section ?? "",
-                type: (q.type as Question["type"]) || "Short",
-                marks: Number(q.marks) ?? 0,
-                diagram: (q as { diagram?: string }).diagram ?? undefined,
-                diagram_url: signedDiagramUrls.get(q.id),
-              })
-            );
-          return {
-            id: p.id,
-            filename: p.file_name,
-            subject: String(p.subject ?? ""),
-            grade: String(p.grade ?? ""),
-            year: String(p.year ?? ""),
-            uploadedAt: new Date().toISOString(),
-            totalPages: 0,
-            questions: paperQuestions,
-          };
-        }
+          view: "sources",
+          sources: result.sources,
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          requestId,
+        },
+        { headers: { "Cache-Control": "no-store" } },
       );
-      const stats = getStatistics(papers);
-      return NextResponse.json({
+    }
+
+    const result = await listV2Questions(query as Parameters<typeof listV2Questions>[0]);
+    return NextResponse.json(
+      {
         success: true,
-        papers,
-        statistics: stats,
-        count: papers.length,
-      });
-    } catch {
-      console.warn("[question-paper-api]", {
+        view: query.view,
+        questions: result.questions,
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
         requestId,
-        operation: "list",
-        outcome: "database_exception",
-      });
-      return questionPaperServerError(requestId);
-    }
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch {
     console.warn("[question-paper-api]", {
       requestId,
-      operation: "list",
+      operation: "list_v2",
       outcome: "request_error",
     });
     return questionPaperServerError(requestId);
@@ -682,84 +582,20 @@ export async function POST(request: NextRequest) {
 
 /**
  * DELETE /api/question-papers
- * Delete questions by IDs or clear all (Supabase only).
+ * Hard-delete is not part of the V2 Question Bank.
  */
 export async function DELETE(request: NextRequest) {
   const authorization = await requireQuestionPaperApiAccess(request, {
     mutation: true,
   });
   if (!authorization.ok) return authorization.response;
-  const { requestId } = authorization;
-
-  try {
-    let body: any = {};
-    try {
-      body = await request.json();
-    } catch {
-      body = {};
-    }
-
-    const { questionIds } = body;
-    const hasSupabase =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!hasSupabase) {
-      return questionPaperServerError(requestId);
-    }
-
-    if (!questionIds || questionIds.length === 0) {
-      const { data: allQuestions, error: listQuestionsError } =
-        await getSupabase().from("questions").select("id");
-      if (listQuestionsError) return questionPaperServerError(requestId);
-      const ids = (allQuestions ?? []).map((r: { id: string }) => r.id);
-      const deletedCount = ids.length;
-      if (ids.length > 0) {
-        const { error: deleteQuestionsError } = await getSupabase()
-          .from("questions")
-          .delete()
-          .in("id", ids);
-        if (deleteQuestionsError) return questionPaperServerError(requestId);
-      }
-      const { data: allPapers, error: listPapersError } = await getSupabase()
-        .from("question_papers")
-        .select("id");
-      if (listPapersError) return questionPaperServerError(requestId);
-      const paperIds = (allPapers ?? []).map((r: { id: string }) => r.id);
-      if (paperIds.length > 0) {
-        const { error: deletePapersError } = await getSupabase()
-          .from("question_papers")
-          .delete()
-          .in("id", paperIds);
-        if (deletePapersError) return questionPaperServerError(requestId);
-      }
-      return NextResponse.json({
-        success: true,
-        message: "All questions cleared",
-        deletedCount,
-      });
-    }
-
-    const { error } = await getSupabase().from("questions").delete().in("id", questionIds);
-    if (error) {
-      console.warn("[question-paper-api]", {
-        requestId,
-        operation: "delete_questions",
-        outcome: "database_error",
-      });
-      return questionPaperServerError(requestId);
-    }
-    return NextResponse.json({
-      success: true,
-      message: `Deleted ${questionIds.length} question(s)`,
-      deletedCount: questionIds.length,
-    });
-  } catch {
-    console.warn("[question-paper-api]", {
-      requestId,
-      operation: "delete_questions",
-      outcome: "request_error",
-    });
-    return questionPaperServerError(requestId);
-  }
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Questions cannot be bulk-deleted",
+      requestId: authorization.requestId,
+    },
+    { status: 405, headers: { "Cache-Control": "no-store" } },
+  );
 }
 

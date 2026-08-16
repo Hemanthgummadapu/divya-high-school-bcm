@@ -12,6 +12,7 @@ const sensitiveRoutes = [
   "src/app/api/question-papers/generate-pdf/route.ts",
   "src/app/api/questions/[id]/route.ts",
   "src/app/api/questions/generate/route.ts",
+  "src/app/api/questions/route.ts",
 ];
 const mutationMethods = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 const protectedHandlerMarker =
@@ -22,6 +23,12 @@ const dangerousMarkers = [
   "getSupabase()",
   "createSignedQuestionDiagramUrl(",
   "createSignedQuestionDiagramUrls(",
+  "listV2Questions(",
+  "listV2Sources(",
+  "getV2SourceDetail(",
+  "getV2Question(",
+  "updateV2Question(",
+  "createManualV2Question(",
   "spawn(",
   "execFileAsync(",
 ];
@@ -258,7 +265,6 @@ for (const marker of uploadOrder) {
 }
 
 for (const [route, method] of [
-  ["src/app/api/question-papers/[id]/route.ts", "POST"],
   ["src/app/api/questions/[id]/route.ts", "PATCH"],
 ]) {
   const source = await readFile(join(repositoryRoot, route), "utf8");
@@ -266,9 +272,12 @@ for (const [route, method] of [
     (candidate) => candidate.method === method,
   );
   assert.ok(handler, `${route} ${method} is missing`);
+  const dbAccess = ["getSupabase()", "getV2Question(", "updateV2Question("]
+    .map((marker) => handler.source.indexOf(marker))
+    .filter((index) => index >= 0);
+  assert.ok(dbAccess.length > 0, `${route} ${method} has no database access`);
   assert.ok(
-    handler.source.indexOf("validatePngDiagram") <
-      handler.source.indexOf("getSupabase()"),
+    handler.source.indexOf("validatePngDiagram") < Math.min(...dbAccess),
     `${route} ${method} accesses the database before diagram validation`,
   );
 }

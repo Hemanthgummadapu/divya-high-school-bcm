@@ -61,6 +61,29 @@ export function diagramStoragePath(questionId, assetId) {
   return path;
 }
 
+export function isCanonicalSourceStoragePath(sourceId, storedPath) {
+  return storedPath === sourceStoragePath(sourceId);
+}
+
+export function isCanonicalDiagramStoragePath(questionId, storedPath) {
+  return (
+    typeof storedPath === "string" &&
+    DIAGRAM_PATH_RE.test(storedPath) &&
+    storedPath.startsWith(`${DIAGRAM_BUCKET}/${questionId}/`)
+  );
+}
+
+export function sourceSignedObjectKey(sourceId) {
+  return sourceObjectKey(sourceId);
+}
+
+export function diagramSignedObjectKey(storedPath) {
+  if (typeof storedPath !== "string" || !DIAGRAM_PATH_RE.test(storedPath)) {
+    return null;
+  }
+  return storedPath.slice(`${DIAGRAM_BUCKET}/`.length);
+}
+
 export function sanitizeOriginalFilename(name) {
   const base = String(name ?? "")
     .replace(/\\/g, "/")

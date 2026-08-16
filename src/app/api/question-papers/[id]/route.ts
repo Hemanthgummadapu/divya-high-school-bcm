@@ -1,126 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabase } from "@/lib/supabase-server";
-import type { QuestionPaper, Question } from "@/lib/questionPapers";
 import {
   questionPaperServerError,
   requireQuestionPaperApiAccess,
 } from "@/lib/question-paper-auth";
-import {
-  createSignedQuestionDiagramUrl,
-  createSignedQuestionDiagramUrls,
-  QUESTION_DIAGRAM_BUCKET,
-} from "@/lib/question-diagrams";
-import {
-  getUploadLimits,
-  validatePngDiagram,
-  validateUploadContentLength,
-} from "@/lib/question-paper-upload-policy.mjs";
 import { isSafeQuestionPaperResourceId } from "@/lib/question-paper-security-policy.mjs";
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  isUuid,
+  parsePositiveInt,
+} from "@/lib/question-bank-v2-review.mjs";
+import { getV2SourceDetail } from "@/lib/question-bank-v2-review-api";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/question-papers/[id]
- * Get a single question paper by ID from Supabase
+ * V2 source details, questions, and a short-lived signed source-PDF URL.
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const authorization = await requireQuestionPaperApiAccess(request);
   if (!authorization.ok) return authorization.response;
   const { requestId } = authorization;
-  if (!isSafeQuestionPaperResourceId(params.id)) {
+  if (!isSafeQuestionPaperResourceId(params.id) || !isUuid(params.id)) {
     return NextResponse.json(
       { success: false, error: "Invalid resource identifier", requestId },
-      { status: 422 },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
     );
   }
 
   try {
-    const hasSupabase =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!hasSupabase) {
-      return questionPaperServerError(requestId);
-    }
-
-    const { data: paperRow, error: paperError } = await getSupabase()
-      .from("question_papers")
-      .select("*")
-      .eq("id", params.id)
-      .single();
-
-    if (paperError || !paperRow) {
+    const page = parsePositiveInt(request.nextUrl.searchParams.get("page")) ?? 1;
+    const pageSize =
+      parsePositiveInt(request.nextUrl.searchParams.get("pageSize")) ??
+      DEFAULT_PAGE_SIZE;
+    if (page == null || page < 1) {
       return NextResponse.json(
-        { success: false, error: "Paper not found" },
-        { status: 404 }
+        { success: false, error: "Invalid page", requestId },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (pageSize == null || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+      return NextResponse.json(
+        { success: false, error: "Invalid page size", requestId },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }
 
-    const { data: questionRows, error: questionsError } = await getSupabase()
-      .from("questions")
-      .select("*")
-      .eq("paper_id", params.id);
-
-    if (questionsError) {
-      return questionPaperServerError(requestId);
-    }
-    const signedDiagramUrls = await createSignedQuestionDiagramUrls(
-      (questionRows ?? []) as Array<{
-        id: string;
-        diagram_url?: string | null;
-      }>,
-    );
-
-    const p = paperRow as {
-      id: string;
-      file_name: string;
-      subject: string;
-      grade: number | string;
-      year: number | string;
-      total_questions?: number;
-    };
-    const paper: QuestionPaper = {
-      id: p.id,
-      filename: p.file_name,
-      subject: String(p.subject ?? ""),
-      grade: String(p.grade ?? ""),
-      year: String(p.year ?? ""),
-      uploadedAt: new Date().toISOString(),
-      totalPages: 0,
-      questions: (questionRows ?? []).map(
-        (q: {
-          id: string;
-          number: string;
-          text: string;
-          options?: string[];
-          section: string;
-          type: string;
-          marks: number;
-          diagram?: string;
-          diagram_url?: string;
-        }): Question => ({
-          id: q.id,
-          number: String(q.number ?? ""),
-          text: q.text ?? "",
-          options: Array.isArray(q.options) ? q.options : [],
-          section: q.section ?? "",
-          type: (q.type as Question["type"]) || "Short",
-          marks: Number(q.marks) ?? 0,
-          diagram: q.diagram ?? undefined,
-          diagram_url: signedDiagramUrls.get(q.id),
-        })
-      ),
-    };
-
-    return NextResponse.json({
-      success: true,
-      paper,
+    const status = request.nextUrl.searchParams.get("status") || "";
+    const result = await getV2SourceDetail({
+      sourceId: params.id,
+      page,
+      pageSize,
+      status: status || undefined,
     });
+    if (!result) {
+      return NextResponse.json(
+        { success: false, error: "Source not found", requestId },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        source: result.source,
+        pdfUrl: result.pdfUrl,
+        questions: result.questions,
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        requestId,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch {
     console.warn("[question-paper-api]", {
       requestId,
-      operation: "get_paper",
+      operation: "get_source",
       outcome: "request_error",
     });
     return questionPaperServerError(requestId);
@@ -129,245 +89,64 @@ export async function GET(
 
 /**
  * POST /api/question-papers/[id]
- * Add a new question to an existing paper (Supabase)
+ * Legacy paper-attached create is retired. Use POST /api/questions.
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const authorization = await requireQuestionPaperApiAccess(request, {
     mutation: true,
   });
   if (!authorization.ok) return authorization.response;
-  const { requestId } = authorization;
   if (!isSafeQuestionPaperResourceId(params.id)) {
     return NextResponse.json(
-      { success: false, error: "Invalid resource identifier", requestId },
-      { status: 422 },
+      {
+        success: false,
+        error: "Invalid resource identifier",
+        requestId: authorization.requestId,
+      },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
     );
   }
-  const uploadLimits = getUploadLimits();
-  const contentLengthError = validateUploadContentLength(
-    request.headers.get("content-length"),
-    Math.ceil((uploadLimits.maxDiagramBytes * 4) / 3),
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Use POST /api/questions to add a question",
+      requestId: authorization.requestId,
+    },
+    { status: 410, headers: { "Cache-Control": "no-store" } },
   );
-  if (contentLengthError) {
-    return NextResponse.json(
-      { success: false, error: contentLengthError.error, requestId },
-      { status: contentLengthError.status },
-    );
-  }
-
-  try {
-    const body = await request.json();
-    const { text, type, options, marks, correctAnswer, diagram } = body;
-    let validatedDiagramBytes: Buffer | undefined;
-
-    if (!text || !type) {
-      return NextResponse.json(
-        { success: false, error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
-    if (typeof diagram === "string" && diagram.trim().length > 0) {
-      const diagramValidation = validatePngDiagram(
-        diagram,
-        uploadLimits.maxDiagramBytes,
-      );
-      if (diagramValidation.status !== 200) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: diagramValidation.error,
-            requestId,
-          },
-          { status: diagramValidation.status },
-        );
-      }
-      if (!diagramValidation.bytes) return questionPaperServerError(requestId);
-      validatedDiagramBytes = diagramValidation.bytes;
-    }
-
-    const hasSupabase =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!hasSupabase) {
-      return questionPaperServerError(requestId);
-    }
-
-    const { data: paperRow, error: paperError } = await getSupabase()
-      .from("question_papers")
-      .select("id, grade, subject, year")
-      .eq("id", params.id)
-      .single();
-
-    if (paperError || !paperRow) {
-      return NextResponse.json(
-        { success: false, error: "Paper not found" },
-        { status: 404 }
-      );
-    }
-
-    const { count, error: countError } = await getSupabase()
-      .from("questions")
-      .select("*", { count: "exact", head: true })
-      .eq("paper_id", params.id);
-    if (countError) return questionPaperServerError(requestId);
-    const nextNumber = String((count ?? 0) + 1);
-    const newQuestionId = `q_manual_${Date.now().toString(36)}_${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-
-    const safeType: Question["type"] =
-      type === "MCQ" || type === "Short" || type === "Medium" || type === "Long"
-        ? type
-        : "Short";
-
-    const normalizedOptions =
-      safeType === "MCQ" && Array.isArray(options)
-        ? (options as any[])
-            .map((o) => (typeof o === "string" ? o.trim() : ""))
-            .filter((o) => o.length > 0)
-        : [];
-
-    const row = paperRow as { id: string; grade: number; subject: string; year: number };
-    const { error: insertError } = await getSupabase().from("questions").insert({
-      id: newQuestionId,
-      paper_id: params.id,
-      grade: row.grade,
-      subject: row.subject,
-      year: row.year,
-      number: nextNumber,
-      text,
-      marks: typeof marks === "number" && marks > 0 ? marks : 1,
-      type: safeType,
-      section: "SECTION-A",
-      options: normalizedOptions,
-    });
-
-    if (insertError) {
-      return questionPaperServerError(requestId);
-    }
-
-    let diagramUrl: string | undefined;
-    if (validatedDiagramBytes) {
-      const bucket = QUESTION_DIAGRAM_BUCKET;
-      const path = `${newQuestionId}.png`;
-      try {
-        const supabase = getSupabase();
-        const { error: bucketError } = await supabase.storage.from(bucket).upload(path, validatedDiagramBytes, {
-          contentType: "image/png",
-          upsert: true,
-        });
-        if (bucketError) {
-          await getSupabase().from("questions").delete().eq("id", newQuestionId);
-          return questionPaperServerError(requestId);
-        }
-        const { error: diagramUpdateError } = await getSupabase()
-          .from("questions")
-          .update({ diagram_url: path })
-          .eq("id", newQuestionId);
-        if (diagramUpdateError) {
-          await getSupabase().from("questions").delete().eq("id", newQuestionId);
-          await supabase.storage.from(bucket).remove([path]);
-          return questionPaperServerError(requestId);
-        }
-      } catch {
-        await getSupabase().from("questions").delete().eq("id", newQuestionId);
-        await getSupabase().storage.from(bucket).remove([path]);
-        return questionPaperServerError(requestId);
-      }
-      try {
-        diagramUrl = await createSignedQuestionDiagramUrl(
-          newQuestionId,
-          path,
-        );
-      } catch {
-        diagramUrl = undefined;
-      }
-    }
-
-    const question: Question = {
-      id: newQuestionId,
-      number: nextNumber,
-      text,
-      options: normalizedOptions,
-      section: "SECTION-A",
-      type: safeType,
-      marks: typeof marks === "number" && marks > 0 ? marks : 1,
-      correctAnswer:
-        typeof correctAnswer === "string" && correctAnswer.trim().length > 0
-          ? correctAnswer.trim()
-          : undefined,
-      diagram_url: diagramUrl,
-    };
-
-    return NextResponse.json({
-      success: true,
-      question,
-      paperId: params.id,
-      diagram_url: diagramUrl,
-    });
-  } catch {
-    console.warn("[question-paper-api]", {
-      requestId,
-      operation: "add_question",
-      outcome: "request_error",
-    });
-    return questionPaperServerError(requestId);
-  }
 }
 
 /**
  * DELETE /api/question-papers/[id]
- * Delete a question paper and its questions from Supabase
+ * Hard-delete is not part of the V2 Question Bank.
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const authorization = await requireQuestionPaperApiAccess(request, {
     mutation: true,
   });
   if (!authorization.ok) return authorization.response;
-  const { requestId } = authorization;
   if (!isSafeQuestionPaperResourceId(params.id)) {
     return NextResponse.json(
-      { success: false, error: "Invalid resource identifier", requestId },
-      { status: 422 },
+      {
+        success: false,
+        error: "Invalid resource identifier",
+        requestId: authorization.requestId,
+      },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
     );
   }
-
-  try {
-    const hasSupabase =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!hasSupabase) {
-      return questionPaperServerError(requestId);
-    }
-
-    const { error: questionsDeleteError } = await getSupabase()
-      .from("questions")
-      .delete()
-      .eq("paper_id", params.id);
-    if (questionsDeleteError) return questionPaperServerError(requestId);
-    const { error } = await getSupabase()
-      .from("question_papers")
-      .delete()
-      .eq("id", params.id);
-
-    if (error) {
-      return questionPaperServerError(requestId);
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Paper deleted successfully",
-    });
-  } catch {
-    console.warn("[question-paper-api]", {
-      requestId,
-      operation: "delete_paper",
-      outcome: "request_error",
-    });
-    return questionPaperServerError(requestId);
-  }
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Sources cannot be deleted from this screen",
+      requestId: authorization.requestId,
+    },
+    { status: 405, headers: { "Cache-Control": "no-store" } },
+  );
 }
