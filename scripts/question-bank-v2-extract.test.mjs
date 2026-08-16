@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MAX_PDF_PAGES,
   DEFAULT_MAX_UPLOAD_BYTES,
+  DEFAULT_OCR_TIMEOUT_MS,
   validatePdfUpload,
   validateUploadContentLength,
 } from "../src/lib/question-paper-upload-policy.mjs";
@@ -39,6 +40,10 @@ const routeSource = readFileSync(
 );
 const persistSource = readFileSync(
   join(root, "src/lib/question-bank-v2-persist.ts"),
+  "utf8",
+);
+const extractRunSource = readFileSync(
+  join(root, "src/lib/question-bank-v2-extract-run.ts"),
   "utf8",
 );
 const extractPy = readFileSync(join(root, "scripts/extract_pdf.py"), "utf8");
@@ -90,7 +95,7 @@ test("invalid upload never reaches storage or parser", () => {
 });
 
 test("missing Anthropic key fails closed before parser spawn", () => {
-  const post = postHandler();
+  const post = `${postHandler()}\n${extractRunSource}`;
   assert.ok(
     post.indexOf("isAnthropicConfigured") < post.indexOf("extract_pdf.py"),
   );
@@ -425,7 +430,7 @@ test("error classification and user-safe messages hide internals", () => {
 });
 
 test("legacy tables are not written by V2 persist or upload POST", () => {
-  const post = postHandler();
+  const post = `${postHandler()}\n${extractRunSource}`;
   assert.doesNotMatch(post, /\.from\(\s*["']questions["']\)/);
   assert.doesNotMatch(post, /\.from\(\s*["']question_papers["']\)/);
   assert.doesNotMatch(post, /\.from\(\s*["']generated_pdfs["']\)/);
@@ -436,15 +441,81 @@ test("legacy tables are not written by V2 persist or upload POST", () => {
 });
 
 test("source PDF is retained after extraction failure and diagrams are compensated", () => {
-  const post = postHandler();
+  const post = `${postHandler()}\n${extractRunSource}`;
   assert.match(post, /markSourceFailed/);
   assert.match(post, /deleteCreatedStorageObjects\(createdObjects\)/);
   assert.match(post, /deleteCreatedStorageObjects\(diagramObjects\)/);
   assert.match(post, /sourceRowCreated/);
-  assert.match(
-    post,
-    /outcome: "processing_error",\s*\}\);\s*await markSourceFailed\(sourceId, "internal"\)/,
+  assert.match(extractRunSource, /await markSourceFailed\(input\.sourceId, "internal"\)/);
+});
+
+test("diagnosed persist failure is logged without payload or secrets", () => {
+  assert.match(extractRunSource, /PersistRpcError/);
+  assert.match(extractRunSource, /stage: "persistence_rpc"/);
+  assert.match(extractRunSource, /errorCategory: persistError\.sanitizedCategory/);
+  assert.match(extractRunSource, /stage: "persistence_rpc"/);
+  assert.doesNotMatch(extractRunSource, /error\.message|error\.details|error\.hint/);
+  assert.doesNotMatch(extractRunSource, /sk-ant-|ANTHROPIC_API_KEY present/);
+  assert.match(persistSource, /class PersistRpcError/);
+  assert.match(persistSource, /sanitizeRpcErrorCategory/);
+});
+
+test("six-page OCR timeout is long enough for render before provider work", () => {
+  assert.match(extractRunSource, /timeout:\s*input\.limits\.ocrTimeoutMs/);
+  assert.equal(DEFAULT_OCR_TIMEOUT_MS >= 180_000, true);
+});
+
+test("six-page mocked fixtures form valid Node and RPC contracts", () => {
+  const failedPages = [1, 2, 3, 4, 5, 6].map((pageNumber) =>
+    failedPage(pageNumber, "provider"),
   );
+  const failed = buildPersistencePlan(failedPages);
+  assert.equal(failed.ok, true);
+  assert.equal(failed.status, "failed");
+  assert.deepEqual(failed.failedPageNumbers, [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(toRpcQuestions(failed.questions), []);
+
+  const completedPages = [1, 2, 3, 4, 5, 6].map((pageNumber) =>
+    succeededPage(pageNumber, [
+      {
+        text: `Fixture question ${pageNumber}`,
+        type: "Short",
+        marks: 2,
+        section: "SECTION-A",
+      },
+    ]),
+  );
+  const completed = buildPersistencePlan(completedPages);
+  assert.equal(completed.ok, true);
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.questions.length, 6);
+  const rpc = toRpcQuestions(completed.questions);
+  assert.equal(rpc.length, 6);
+  assert.equal("diagram_path" in rpc[0], false);
+
+  const partialPages = [
+    failedPage(1, "timeout"),
+    ...[2, 3, 4, 5, 6].map((pageNumber) =>
+      succeededPage(pageNumber, [
+        {
+          text: `Fixture question ${pageNumber}`,
+          type: "Short",
+          marks: 2,
+          section: "SECTION-A",
+        },
+      ]),
+    ),
+  ];
+  const partial = buildPersistencePlan(partialPages);
+  assert.equal(partial.ok, true);
+  assert.equal(partial.status, "partial");
+  assert.deepEqual(partial.failedPageNumbers, [1]);
+});
+
+test("production extract path never enables the mock provider", () => {
+  assert.doesNotMatch(extractRunSource, /QUESTION_PAPER_EXTRACT_MOCK/);
+  assert.doesNotMatch(postHandler(), /QUESTION_PAPER_EXTRACT_MOCK/);
+  assert.match(extractPy, /QUESTION_PAPER_EXTRACT_MOCK/);
 });
 
 test("Python page contract does not log secrets or question text", () => {

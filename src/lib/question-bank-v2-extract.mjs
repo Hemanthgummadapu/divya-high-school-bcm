@@ -419,6 +419,8 @@ export function userSafeUploadError(kind) {
 export function containsForbiddenLogText(value, secrets = []) {
   const text = String(value ?? "");
   if (/sk-ant-|ANTHROPIC_API_KEY\s*[:=]/i.test(text)) return true;
+  if (/source-pdfs\/[0-9a-f-]{36}\/original\.pdf/i.test(text)) return true;
+  if (/https?:\/\/\S+\?(?:\S*token|\S*signature)/i.test(text)) return true;
   for (const secret of secrets) {
     if (secret && text.includes(secret)) return true;
   }

@@ -284,9 +284,38 @@ def image_to_base64(image: Image.Image) -> str:
     return img_str
 
 
+def apply_extract_mock(mock: str, page_num: int) -> Dict[str, Any]:
+    """Deterministic fixture used only by offline tests. Never contains real paper text."""
+    if mock == "all_failed":
+        return {"ok": False, "error_category": "provider"}
+    if mock == "partial" and page_num == 1:
+        return {"ok": False, "error_category": "timeout"}
+    if mock in ("completed", "partial"):
+        return {
+            "ok": True,
+            "section": "SECTION-A",
+            "questions": [
+                {
+                    "text": f"Fixture question {page_num}",
+                    "type": "Short",
+                    "marks": 2,
+                }
+            ],
+        }
+    return {"ok": False, "error_category": "internal"}
+
+
 def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> Dict[str, Any]:
     """Extract questions from a page image using Claude API, with basic retry on overload."""
+    mock = (os.getenv("QUESTION_PAPER_EXTRACT_MOCK") or "").strip()
+    if mock:
+        print(
+            f"request stage=anthropic_request page={page_num} outcome=mock elapsed_ms=0",
+            file=sys.stderr,
+        )
+        return apply_extract_mock(mock, page_num)
     max_attempts = 3
+    started = time.monotonic()
     for attempt in range(1, max_attempts + 1):
         try:
             message = client.messages.create(
@@ -313,6 +342,11 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
                 ],
             )
             response_text = message.content[0].text.strip()
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            print(
+                f"request stage=provider_response page={page_num} outcome=ok elapsed_ms={elapsed_ms}",
+                file=sys.stderr,
+            )
             return parse_model_json_response(response_text, page_num)
         except Exception as e:
             msg = str(e)
@@ -323,7 +357,15 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
                 )
                 time.sleep(5)
                 continue
-            return {"ok": False, "error_category": classify_provider_error(e)}
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            category = classify_provider_error(e)
+            status_class = "5xx" if "529" in str(e) else None
+            extra = f" provider_http_status_class={status_class}" if status_class else ""
+            print(
+                f"request stage=provider_response page={page_num} outcome={category} elapsed_ms={elapsed_ms}{extra}",
+                file=sys.stderr,
+            )
+            return {"ok": False, "error_category": category}
     return {"ok": False, "error_category": "provider"}
 
 
@@ -440,8 +482,10 @@ class QuestionExtractor:
         self.work_dir = work_dir
         self.page_results: List[Dict[str, Any]] = []
         self._validated_page_count = validated_page_count
-
-        self.claude_client = Anthropic(api_key=require_anthropic_api_key())
+        self._extract_mock = (os.getenv("QUESTION_PAPER_EXTRACT_MOCK") or "").strip()
+        self.claude_client = (
+            None if self._extract_mock else Anthropic(api_key=require_anthropic_api_key())
+        )
         
     def _get_total_pages(self) -> int:
         """Return the page count validated before provider initialization."""
@@ -468,13 +512,23 @@ class QuestionExtractor:
                     file=sys.stderr,
                 )
                 try:
+                    render_started = time.monotonic()
                     batch_images = convert_from_path(
                         self.pdf_path,
                         dpi=EXTRACT_DPI,
                         first_page=batch_start,
                         last_page=batch_end,
                     )
+                    render_ms = int((time.monotonic() - render_started) * 1000)
+                    print(
+                        f"request stage=pdf_rendering pages={batch_start}-{batch_end} outcome=ok elapsed_ms={render_ms}",
+                        file=sys.stderr,
+                    )
                 except Exception:
+                    print(
+                        f"request stage=pdf_rendering pages={batch_start}-{batch_end} outcome=internal",
+                        file=sys.stderr,
+                    )
                     for page_num in range(batch_start, batch_end + 1):
                         page_results.append(failed_page(page_num, "internal"))
                     continue
@@ -753,8 +807,10 @@ def main():
             work_dir,
         )
     except ValueError:
-        print("Error: extraction is not configured", file=sys.stderr)
-        sys.exit(1)
+        if not (os.getenv("QUESTION_PAPER_EXTRACT_MOCK") or "").strip():
+            print("Error: extraction is not configured", file=sys.stderr)
+            sys.exit(1)
+        raise
     pages = extractor.extract_page_results()
     try:
         extractor.save_document_result(args.output, pages)

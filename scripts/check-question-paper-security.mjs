@@ -13,6 +13,7 @@ const sensitiveRoutes = [
   "src/app/api/questions/[id]/route.ts",
   "src/app/api/questions/generate/route.ts",
   "src/app/api/questions/route.ts",
+  "src/app/api/question-papers/[id]/retry/route.ts",
 ];
 const mutationMethods = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 const protectedHandlerMarker =
@@ -35,6 +36,10 @@ const dangerousMarkers = [
   "generateAndStorePaperPdf(",
   "spawn(",
   "execFileAsync(",
+  "runExtractAndPersist(",
+  "claimFailedSourceForRetry(",
+  "inspectRetryEligibility(",
+  "downloadSourcePdfBytes(",
 ];
 
 async function collectSourceFiles(directory) {
@@ -112,18 +117,23 @@ const uploadRoute = await readFile(
   join(repositoryRoot, "src/app/api/question-papers/route.ts"),
   "utf8",
 );
+const extractRunSource = await readFile(
+  join(repositoryRoot, "src/lib/question-bank-v2-extract-run.ts"),
+  "utf8",
+);
 const uploadHandler = handlerSegments(uploadRoute).find(
   ({ method }) => method === "POST",
 );
 assert.ok(uploadHandler, "PDF upload handler is missing");
+const uploadAndExtract = `${uploadHandler.source}\n${extractRunSource}`;
 assert.match(
-  uploadHandler.source,
-  /QUESTION_PAPER_MAX_PDF_PAGES:\s*String\(limits\.maxPages\)/,
+  uploadAndExtract,
+  /QUESTION_PAPER_MAX_PDF_PAGES:\s*String\(.*maxPages\)/,
   "OCR worker does not receive the bounded PDF page limit",
 );
 assert.match(
-  uploadHandler.source,
-  /timeout:\s*limits\.ocrTimeoutMs/,
+  uploadAndExtract,
+  /timeout:\s*.*ocrTimeoutMs/,
   "OCR subprocess does not have a bounded timeout",
 );
 assert.match(
@@ -132,8 +142,8 @@ assert.match(
   "Upload handler does not run authoritative pypdf validation before OCR",
 );
 assert.ok(
-  uploadHandler.source.indexOf("validate_pdf_pages.py") <
-    uploadHandler.source.indexOf("extract_pdf.py"),
+  uploadAndExtract.indexOf("validate_pdf_pages.py") <
+    uploadAndExtract.indexOf("extract_pdf.py"),
   "Authoritative PDF validation does not run before OCR",
 );
 assert.match(
@@ -142,10 +152,10 @@ assert.match(
   "Upload handler does not fail closed when Anthropic is unconfigured",
 );
 assert.ok(
-  uploadHandler.source.indexOf("isAnthropicConfigured") >
-    uploadHandler.source.indexOf("validate_pdf_pages.py") &&
-    uploadHandler.source.indexOf("isAnthropicConfigured") <
-      uploadHandler.source.indexOf("extract_pdf.py"),
+  uploadAndExtract.indexOf("isAnthropicConfigured") >
+    uploadAndExtract.indexOf("validate_pdf_pages.py") &&
+    uploadAndExtract.indexOf("isAnthropicConfigured") <
+      uploadAndExtract.indexOf("extract_pdf.py"),
   "Anthropic configuration is not checked after PDF validation and before OCR",
 );
 assert.ok(
@@ -154,32 +164,32 @@ assert.ok(
   "Duplicate checksum lookup does not run before source storage",
 );
 assert.ok(
-  uploadHandler.source.indexOf("isAnthropicConfigured") <
-    uploadHandler.source.indexOf("extract_pdf.py"),
+  uploadAndExtract.indexOf("isAnthropicConfigured") <
+    uploadAndExtract.indexOf("extract_pdf.py"),
   "Anthropic configuration is not checked before parser spawn",
 );
 assert.doesNotMatch(
-  uploadHandler.source,
+  uploadAndExtract,
   /\.from\(\s*["']questions["']\)/,
   "Upload handler still writes legacy questions",
 );
 assert.doesNotMatch(
-  uploadHandler.source,
+  uploadAndExtract,
   /\.from\(\s*["']question_papers["']\)/,
   "Upload handler still writes legacy question_papers",
 );
 assert.doesNotMatch(
-  uploadHandler.source,
+  uploadAndExtract,
   /\.from\(\s*["']generated_pdfs["']\)/,
   "Upload handler still writes legacy generated_pdfs",
 );
 assert.match(
-  uploadHandler.source,
+  uploadAndExtract,
   /delete childEnv\.GEMINI_API_KEY/,
   "OCR worker environment still forwards GEMINI_API_KEY",
 );
 assert.match(
-  uploadHandler.source,
+  uploadAndExtract,
   /delete childEnv\.GOOGLE_API_KEY/,
   "OCR worker environment still forwards GOOGLE_API_KEY",
 );
@@ -189,7 +199,7 @@ assert.doesNotMatch(
   "Upload handler reads an untrusted provider field",
 );
 assert.doesNotMatch(
-  uploadHandler.source,
+  uploadAndExtract,
   /GEMINI_API_KEY:\s/,
   "Upload handler still assigns a Gemini API key for OCR",
 );
@@ -259,7 +269,10 @@ const uploadOrder = [
 ];
 let previousIndex = -1;
 for (const marker of uploadOrder) {
-  const markerIndex = uploadHandler.source.indexOf(marker);
+  const markerIndex =
+    marker === "extract_pdf.py" || marker === "persistExtractedQuestions"
+      ? uploadAndExtract.lastIndexOf(marker)
+      : uploadAndExtract.indexOf(marker);
   assert.ok(markerIndex >= 0, `Upload handler is missing ${marker}`);
   assert.ok(
     markerIndex > previousIndex,

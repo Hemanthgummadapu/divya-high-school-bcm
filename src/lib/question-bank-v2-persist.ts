@@ -13,6 +13,8 @@ import {
   sourceStoragePath,
   toRpcQuestions,
 } from "@/lib/question-bank-v2-extract.mjs";
+import { sanitizeRpcErrorCategory } from "@/lib/question-bank-v2-diagnostics.mjs";
+import { evaluateRetryClaim } from "@/lib/question-bank-v2-retry.mjs";
 
 type NormalizedQuestion = {
   source_page_number: number;
@@ -118,6 +120,22 @@ export async function markSourceFailed(
     .eq("extraction_status", "processing");
 }
 
+export class PersistRpcError extends Error {
+  sanitizedCategory: string;
+  httpStatusClass: string | null;
+
+  constructor(error: unknown) {
+    super("persist_rpc_failed");
+    this.name = "PersistRpcError";
+    this.sanitizedCategory = sanitizeRpcErrorCategory(error);
+    const status = Number((error as { status?: number } | null)?.status);
+    this.httpStatusClass =
+      Number.isSafeInteger(status) && status >= 100 && status <= 599
+        ? `${Math.floor(status / 100)}xx`
+        : null;
+  }
+}
+
 export async function persistExtractedQuestions(input: {
   sourceId: string;
   plan: PersistencePlan;
@@ -126,8 +144,10 @@ export async function persistExtractedQuestions(input: {
     p_source_id: input.sourceId,
     p_idempotency_key: createPersistIdempotencyKey(input.sourceId),
     p_processed_page_count: input.plan.processedPageCount,
-    p_failed_page_numbers: input.plan.failedPageNumbers,
-    p_error_category: input.plan.errorCategory,
+    p_failed_page_numbers: Array.isArray(input.plan.failedPageNumbers)
+      ? input.plan.failedPageNumbers
+      : [],
+    p_error_category: input.plan.errorCategory ?? null,
     p_error_message:
       input.plan.status === "completed"
         ? null
@@ -136,7 +156,7 @@ export async function persistExtractedQuestions(input: {
           : "No questions could be saved from this PDF",
     p_questions: toRpcQuestions(input.plan.questions),
   });
-  if (error) throw new Error("persist_rpc_failed");
+  if (error) throw new PersistRpcError(error);
   return data as {
     ok?: boolean;
     idempotent?: boolean;
@@ -144,6 +164,86 @@ export async function persistExtractedQuestions(input: {
     extraction_status?: string;
     extracted_question_count?: number;
   };
+}
+
+export async function countQuestionsForSource(sourceId: string) {
+  const { count, error } = await getSupabase()
+    .from("question_bank_questions")
+    .select("id", { count: "exact", head: true })
+    .eq("source_id", sourceId);
+  if (error) throw new Error("source_question_count_failed");
+  return count ?? 0;
+}
+
+export async function getSourceForRetry(sourceId: string) {
+  const { data, error } = await getSupabase()
+    .from("question_sources")
+    .select(
+      "id, extraction_status, extracted_question_count, page_count, content_sha256, byte_size, grade, subject, academic_year, storage_path",
+    )
+    .eq("id", sourceId)
+    .maybeSingle();
+  if (error) throw new Error("source_lookup_failed");
+  return data;
+}
+
+export async function downloadSourcePdfBytes(sourceId: string) {
+  const { data, error } = await getSupabase()
+    .storage
+    .from(SOURCE_PDF_BUCKET)
+    .download(sourceObjectKey(sourceId));
+  if (error || !data) throw new Error("source_download_failed");
+  return Buffer.from(await data.arrayBuffer());
+}
+
+export async function inspectRetryEligibility(sourceId: string) {
+  const source = await getSourceForRetry(sourceId);
+  if (!source) {
+    return { ok: false as const, status: 404, reason: "not_found" };
+  }
+  const linkedQuestionCount = await countQuestionsForSource(sourceId);
+  const eligibility = evaluateRetryClaim({
+    sourceStatus: source.extraction_status,
+    extractedCount: source.extracted_question_count,
+    linkedQuestionCount,
+    objectPresent: true,
+    checksumMatch: true,
+    pageCountMatch: true,
+    updatedRows: 1,
+  });
+  if (!eligibility.ok) {
+    return {
+      ok: false as const,
+      status: eligibility.status,
+      reason: eligibility.reason,
+      source,
+    };
+  }
+  return { ok: true as const, source, linkedQuestionCount };
+}
+
+export async function claimFailedSourceForRetry(sourceId: string) {
+  const { data: claimed, error } = await getSupabase()
+    .from("question_sources")
+    .update({
+      extraction_status: "processing",
+      persist_idempotency_key: null,
+      persist_payload: null,
+      error_category: null,
+      error_message: null,
+      processed_page_count: 0,
+      failed_page_numbers: [],
+    })
+    .eq("id", sourceId)
+    .eq("extraction_status", "failed")
+    .eq("extracted_question_count", 0)
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error("retry_claim_failed");
+  if (!claimed) {
+    return { ok: false as const, status: 409, reason: "conflict" };
+  }
+  return { ok: true as const };
 }
 
 export async function attachQuestionDiagrams(input: {

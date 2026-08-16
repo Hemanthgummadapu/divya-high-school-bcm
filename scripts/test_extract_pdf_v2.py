@@ -2,6 +2,8 @@
 """Unit tests for the Phase 2C page-result contract. No Anthropic calls."""
 
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -92,6 +94,100 @@ class ExtractPdfV2Tests(unittest.TestCase):
     def test_provider_error_classification(self):
         self.assertEqual(extract.classify_provider_error(TimeoutError("timed out")), "timeout")
         self.assertEqual(extract.classify_provider_error(RuntimeError("529 overloaded")), "provider")
+
+    def test_mock_fixtures_are_synthetic(self):
+        failed = extract.apply_extract_mock("all_failed", 1)
+        self.assertFalse(failed["ok"])
+        completed = extract.apply_extract_mock("completed", 3)
+        self.assertTrue(completed["ok"])
+        self.assertEqual(completed["questions"][0]["text"], "Fixture question 3")
+        partial_fail = extract.apply_extract_mock("partial", 1)
+        self.assertFalse(partial_fail["ok"])
+        partial_ok = extract.apply_extract_mock("partial", 2)
+        self.assertTrue(partial_ok["ok"])
+
+    def test_six_page_document_contract(self):
+        pages = extract.build_document_pages(
+            [extract.failed_page(n, "provider") for n in range(1, 7)],
+            6,
+        )
+        self.assertEqual(len(pages), 6)
+        self.assertEqual([page["pageNumber"] for page in pages], [1, 2, 3, 4, 5, 6])
+        self.assertTrue(all(page["status"] == "failed" for page in pages))
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "result.json"
+            extract.write_document_result(str(output), 6, pages)
+            encoded = output.read_bytes()
+            self.assertLess(len(encoded), extract.MAX_RESULT_BYTES)
+            document = json.loads(encoded)
+            self.assertEqual(document["pageCount"], 6)
+
+    def _write_blank_pdf(self, path: Path, pages: int) -> None:
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        for _ in range(pages):
+            writer.add_blank_page(width=612, height=792)
+        with path.open("wb") as handle:
+            writer.write(handle)
+
+    def test_mocked_six_page_extract_subprocess(self):
+        with tempfile.TemporaryDirectory(prefix="qb-mock-") as tmp:
+            work = Path(tmp)
+            pdf = work / "original.pdf"
+            output = work / "extract.json"
+            self._write_blank_pdf(pdf, 6)
+            env = os.environ.copy()
+            env["QUESTION_PAPER_EXTRACT_MOCK"] = "all_failed"
+            env.pop("ANTHROPIC_API_KEY", None)
+            env.pop("GEMINI_API_KEY", None)
+            env.pop("GOOGLE_API_KEY", None)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "extract_pdf.py"),
+                    "--pdf",
+                    str(pdf),
+                    "--subject",
+                    "Mathematics",
+                    "--grade",
+                    "10",
+                    "--year",
+                    "2026",
+                    "--output",
+                    str(output),
+                    "--work-dir",
+                    str(work),
+                ],
+                cwd=str(ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            document = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(document["pageCount"], 6)
+            self.assertEqual(len(document["pages"]), 6)
+            self.assertEqual(
+                [page["pageNumber"] for page in document["pages"]],
+                [1, 2, 3, 4, 5, 6],
+            )
+            self.assertLess(output.stat().st_size, extract.MAX_RESULT_BYTES)
+            self.assertNotIn("sk-ant-", result.stderr)
+            self.assertNotIn("ANTHROPIC_API_KEY", result.stderr)
+            self.assertIn("stage=pdf_rendering", result.stderr)
+            self.assertIn("stage=anthropic_request", result.stderr)
+            leftover = [path for path in work.iterdir() if path.suffix == ".json" and path.name != "extract.json"]
+            # request-scoped cache files may exist during the run; the work dir is owned by the caller
+            self.assertTrue(output.exists())
+
+    def test_mock_skips_provider_and_live_path_still_requires_key(self):
+        self.assertEqual(extract.apply_extract_mock("completed", 1)["ok"], True)
+        with self.assertRaises(ValueError):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            os.environ.pop("QUESTION_PAPER_EXTRACT_MOCK", None)
+            extract.require_anthropic_api_key()
 
 
 if __name__ == "__main__":
