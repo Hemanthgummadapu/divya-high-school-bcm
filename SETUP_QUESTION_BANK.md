@@ -190,6 +190,19 @@ Generate a paper from selected questions:
 - Question patterns are detected automatically
 - Manual review recommended for extracted questions
 
+## Phase 2B additive schema (do not auto-apply)
+
+`supabase/migrations/20260816010000_question_bank_v2.sql` is a manual, unapplied foundation. It adds four empty tables (`question_sources`, `question_bank_questions`, `saved_question_papers`, `saved_question_paper_items`), private `source-pdfs` and `generated-papers` buckets, and `SECURITY INVOKER` RPCs (`persist_extracted_questions`, `save_question_paper`, `record_final_paper_pdf`). Final papers keep content and items immutable; the only allowed later write is one fill-in of empty `pdf_*` metadata through `record_final_paper_pdf`. It does not change routes, the UI, or legacy `questions` / `question_papers` / `generated_pdfs` rows.
+
+Before applying it:
+
+1. Confirm Phase 1 containment is already applied on production.
+2. Apply only during a reviewed window.
+3. Run `scripts/question-bank-v2-verify.sql` and require `phase_2b_passed = true`.
+4. Keep `scripts/question-bank-v2-rollback.sql` available. It drops only empty Phase 2B objects.
+
+Do not apply it automatically during application deployment.
+
 ## Phase 1 deployment blockers and containment notes
 
 ### Extraction provider
@@ -198,12 +211,7 @@ Question-paper PDF extraction uses Anthropic only, pinned to `claude-sonnet-4-6`
 
 ### Containment migration (do not auto-apply)
 
-`supabase/migrations/20260816000000_question_paper_phase_1_containment.sql` is a manual, unapplied artifact. Do not apply it automatically during application deployment.
+`supabase/migrations/20260816000000_question_paper_phase_1_containment.sql` was applied to production project `tzcydxkidvzpijlozmmv` on 2026-08-16 and is recorded in `supabase_migrations.schema_migrations`. Do not apply it again.
 
-Before applying it:
-
-1. Deploy the Phase 1 application code first. The `diagrams` bucket must stay readable by the old public-URL path until the new signed-URL code is live.
-2. Require authorized users to sign out and sign in again so sessions include the Google `emailVerified` claim.
-3. Capture current table, sequence, routine, RLS, `storage.objects` policies, `diagrams` bucket public flag, existing `diagram_url` values, and an exact rollback script.
-4. Apply the SQL only during a reviewed maintenance window, then run the verification queries in the migration file.
+It revokes direct `PUBLIC` / `anon` / `authenticated` access to `questions`, `question_papers`, and `generated_pdfs`, enables RLS without public policies, and sets the `diagrams` bucket to private. Application access remains server-side after NextAuth allowlist checks.
 
