@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 PDF Question Bank Extractor
-Extracts questions from scanned PDF images using Gemini or Claude API Vision
-Optimized for large PDFs with batching and caching
+Extracts questions from scanned PDF images using Anthropic Claude vision.
+Optimized for large PDFs with batching and caching.
 """
 
 import argparse
@@ -12,7 +12,6 @@ import re
 import sys
 import base64
 import time
-import tempfile
 import difflib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -51,15 +50,14 @@ load_dotenv(
 )
 
 
-def effective_gemini_api_key() -> str | None:
-    """API key for Gemini: GEMINI_API_KEY, or GOOGLE_API_KEY (common AI Studio pattern)."""
-    for key in (os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY")):
-        if key and str(key).strip() and str(key).strip() != "your_key_here":
-            return str(key).strip()
-    return None
+def require_anthropic_api_key() -> str:
+    """Return the server-side Anthropic key, or fail closed if it is missing."""
+    api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+    if not api_key or api_key == "your_key_here":
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+    return api_key
 
 
-USE_GEMINI = True  # Set False to fall back to Claude Haiku
 EXTRACT_DPI = 250  # PDF page render DPI (was 150; higher helps Telugu glyphs)
 
 
@@ -90,12 +88,6 @@ def validate_pdf_page_count(pdf_path: str) -> int:
         sys.exit(1)
     return total_pages
 
-print(
-    f"DEBUG: GEMINI_API_KEY set: {bool(os.getenv('GEMINI_API_KEY'))} | "
-    f"GOOGLE_API_KEY set: {bool(os.getenv('GOOGLE_API_KEY'))} | "
-    f"effective Gemini key: {bool(effective_gemini_api_key())}",
-    file=sys.stderr,
-)
 
 def check_poppler_available(pdf_path: str) -> None:
     """Verify pdf2image can use poppler (required for PDF -> images). Exits with clear error if not."""
@@ -179,63 +171,8 @@ Rules:
 - Return ONLY valid JSON, nothing else."""
 
 
-def extract_page_with_gemini(image_path: str) -> str:
-    import google.generativeai as genai
-
-    api_key = effective_gemini_api_key()
-    if not api_key:
-        raise ValueError(
-            "Set GEMINI_API_KEY or GOOGLE_API_KEY (e.g. in .env.local on its own line)."
-        )
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-
-    with open(image_path, "rb") as f:
-        image_data = f.read()
-
-    image_b64 = base64.b64encode(image_data).decode()
-
-    TELUGU_PROMPT = CLAUDE_PROMPT + """
-
-CRITICAL TELUGU LANGUAGE INSTRUCTIONS:
-- This paper may contain Telugu script (తెలుగు), English, or both mixed together.
-- You MUST preserve ALL Telugu characters EXACTLY as they appear in the image.
-- Do NOT transliterate, romanize, translate, or replace Telugu with English under any circumstance.
-- Copy Telugu Unicode text character-for-character as it appears.
-- If a question is bilingual (Telugu + English), include both parts exactly as written.
-"""
-
-    try:
-        response = model.generate_content(
-            [
-                {"mime_type": "image/png", "data": image_b64},
-                TELUGU_PROMPT,
-            ]
-        )
-    except (TypeError, ValueError):
-        response = model.generate_content(
-            [
-                {"mime_type": "image/png", "data": image_data},
-                TELUGU_PROMPT,
-            ]
-        )
-
-    try:
-        text = (response.text or "").strip()
-    except (ValueError, AttributeError):
-        text = ""
-        if response.candidates:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "text") and part.text:
-                    text += part.text
-        text = text.strip()
-
-    return text
-
-
 def parse_model_json_response(response_text: str, page_num: int, provider: str) -> Dict[str, Any]:
-    """Parse JSON object from model output (Claude or Gemini)."""
+    """Parse JSON object from Anthropic model output."""
     response_text = (response_text or "").strip()
     print(
         f"Page {page_num}: {provider} response received "
@@ -360,36 +297,17 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
 
 def process_one_page(
     pdf_path: str,
-    client: Anthropic | None,
+    client: Anthropic,
     image: Image.Image,
     page_num: int,
 ) -> Tuple[int, List[Dict[str, Any]], str, bool]:
-    """Process a single page: cache lookup or vision extraction. Returns (page_num, questions, section, was_cached)."""
+    """Process a single page: cache lookup or Anthropic extraction. Returns (page_num, questions, section, was_cached)."""
     page_hash = get_page_hash(pdf_path, page_num)
     cached = get_cached_result(page_hash)
     if cached:
         return (page_num, cached.get("questions", []), cached.get("section", "SECTION-A"), True)
-    if USE_GEMINI:
-        tmp_path: str | None = None
-        result: Dict[str, Any] = {"section": "SECTION-A", "questions": []}
-        try:
-            fd, tmp_path = tempfile.mkstemp(suffix=".png")
-            os.close(fd)
-            image.save(tmp_path, format="PNG")
-            raw_text = extract_page_with_gemini(tmp_path)
-            result = parse_model_json_response(raw_text, page_num, "Gemini")
-        finally:
-            if tmp_path:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-    else:
-        if client is None:
-            print(f"Error: Claude client missing for page {page_num}")
-            return (page_num, [], "SECTION-A", False)
-        image_base64 = image_to_base64(image)
-        result = extract_with_claude(client, image_base64, page_num)
+    image_base64 = image_to_base64(image)
+    result = extract_with_claude(client, image_base64, page_num)
     save_cached_result(page_hash, result)
     return (page_num, result.get("questions", []), result.get("section", "SECTION-A"), False)
 
@@ -410,26 +328,14 @@ class QuestionExtractor:
         self.questions = []
         self._validated_page_count = validated_page_count
 
-        if USE_GEMINI:
-            if not effective_gemini_api_key():
-                raise ValueError(
-                    "GEMINI_API_KEY or GOOGLE_API_KEY environment variable is not set "
-                    "(use a real key from https://aistudio.google.com/app/apikey; "
-                    "each variable must be on its own line in .env.local)."
-                )
-            self.claude_client = None
-        else:
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
-            self.claude_client = Anthropic(api_key=api_key)
+        self.claude_client = Anthropic(api_key=require_anthropic_api_key())
         
     def _get_total_pages(self) -> int:
         """Return the page count validated before provider initialization."""
         return self._validated_page_count
     
     def extract_questions_from_pdf(self) -> List[Dict[str, Any]]:
-        """Convert PDF pages to images and extract questions using Gemini or Claude vision."""
+        """Convert PDF pages to images and extract questions using Anthropic Claude vision."""
         print(f"Converting PDF to images: {self.pdf_path}")
         
         try:
@@ -440,10 +346,7 @@ class QuestionExtractor:
 
             self._page_count = total_pages
             print(f"Total pages: {total_pages}")
-            if USE_GEMINI:
-                print("Using Gemini 2.5 Flash for extraction...")
-            else:
-                print("Using Claude API Vision for extraction...")
+            print("Using Claude API Vision for extraction...")
             
             all_questions = []
             processed_count = 0
@@ -765,7 +668,7 @@ def count_duplicates(new_questions: List[Dict], existing_texts: List[str], thres
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Extract questions from PDF using Gemini or Claude vision')
+    parser = argparse.ArgumentParser(description='Extract questions from PDF using Anthropic Claude vision')
     parser.add_argument('--pdf', required=True, help='Path to PDF file')
     parser.add_argument('--subject', required=True, help='Subject name')
     parser.add_argument('--grade', required=True, help='Grade/Class')
@@ -786,14 +689,17 @@ def main():
     # Create output directory if it doesn't exist
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     
-    # Extract questions
-    extractor = QuestionExtractor(
-        args.pdf,
-        args.subject,
-        args.grade,
-        args.year,
-        validated_page_count,
-    )
+    try:
+        extractor = QuestionExtractor(
+            args.pdf,
+            args.subject,
+            args.grade,
+            args.year,
+            validated_page_count,
+        )
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
     extractor.questions = extractor.extract_questions_from_pdf()
     
     # Duplicate detection: skip questions >85% similar to existing for same subject+grade

@@ -23,6 +23,7 @@ import {
   validatePdfUpload,
   validateUploadContentLength,
 } from "@/lib/question-paper-upload-policy.mjs";
+import { isAnthropicConfigured } from "@/lib/question-paper-provider-policy.mjs";
 import { createSignedQuestionDiagramUrls } from "@/lib/question-diagrams";
 
 const execFileAsync = promisify(execFile);
@@ -383,6 +384,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!isAnthropicConfigured(process.env.ANTHROPIC_API_KEY)) {
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "extract_pdf",
+        outcome: "provider_not_configured",
+      });
+      return questionPaperServerError(requestId);
+    }
+
     const scriptPath = join(process.cwd(), "scripts", "extract_pdf.py");
     const args = [
       scriptPath,
@@ -396,12 +406,10 @@ export async function POST(request: NextRequest) {
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-      // Gemini: prefer GEMINI_API_KEY; many projects only have GOOGLE_API_KEY (AI Studio)
-      GEMINI_API_KEY:
-        process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
-      GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
       QUESTION_PAPER_MAX_PDF_PAGES: String(limits.maxPages),
     };
+    delete childEnv.GEMINI_API_KEY;
+    delete childEnv.GOOGLE_API_KEY;
 
     try {
       await execFileAsync(pythonCmd, args, {

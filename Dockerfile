@@ -4,6 +4,9 @@ RUN apt-get update && apt-get install -y python3 python3-pip curl poppler-utils 
 
 WORKDIR /app
 
+COPY requirements.txt ./
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt
+
 COPY package*.json ./
 COPY scripts/ ./scripts/
 COPY public/ ./public/
@@ -11,8 +14,6 @@ COPY public/ ./public/
 RUN npm ci
 
 COPY . .
-
-RUN pip3 install reportlab pillow requests pypdf pdf2image anthropic python-dotenv --break-system-packages
 
 RUN mkdir -p public/fonts && \
     curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf" -o public/fonts/NotoSans-Regular.ttf || true && \

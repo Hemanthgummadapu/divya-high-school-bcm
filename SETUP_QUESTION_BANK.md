@@ -192,13 +192,9 @@ Generate a paper from selected questions:
 
 ## Phase 1 deployment blockers and containment notes
 
-### Gemini production dependency (extraction blocker)
+### Extraction provider
 
-`scripts/extract_pdf.py` defaults to Gemini (`USE_GEMINI = True`) and imports `google.generativeai`. That package is listed in `requirements.txt`, but the Railway `Dockerfile` installs only:
-
-`reportlab pillow requests pypdf pdf2image anthropic python-dotenv`
-
-`pypdf` is present in the production image. `google-generativeai` is not. Until the image is updated, default PDF extraction will fail in production. This is a known deployment/feature blocker and was not changed in Phase 1.
+Question-paper PDF extraction uses Anthropic Claude only (`ANTHROPIC_API_KEY`, server-side). There is no Gemini path and no request-selectable provider. The Railway `Dockerfile` installs `requirements.txt`, which includes `anthropic`, `pypdf`, `pdf2image`, `Pillow`, `reportlab`, and `python-dotenv`. Importing those modules does not require an API key.
 
 ### Containment migration (do not auto-apply)
 

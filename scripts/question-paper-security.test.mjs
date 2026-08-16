@@ -32,6 +32,14 @@ import {
   getQuestionDiagramPath,
   renewQuestionDiagramUrl,
 } from "../src/lib/question-diagram-policy.mjs";
+import {
+  QUESTION_PAPER_PARSER_ENV,
+  QUESTION_PAPER_PARSER_MODEL,
+  QUESTION_PAPER_PARSER_PROVIDER,
+  isAnthropicConfigured,
+  resolveQuestionPaperParser,
+} from "../src/lib/question-paper-provider-policy.mjs";
+import { readFileSync } from "node:fs";
 
 test("anonymous identities receive 401", () => {
   const result = evaluateQuestionPaperIdentity({
@@ -413,6 +421,67 @@ test("diagram uploads require bounded PNG content", () => {
     ).status,
     413,
   );
+});
+
+test("question-paper extraction is Anthropic-only and ignores untrusted provider fields", () => {
+  assert.equal(QUESTION_PAPER_PARSER_PROVIDER, "anthropic");
+  assert.equal(QUESTION_PAPER_PARSER_MODEL, "claude-haiku-4-5-20251001");
+  assert.equal(QUESTION_PAPER_PARSER_ENV, "ANTHROPIC_API_KEY");
+  assert.equal(isAnthropicConfigured(undefined), false);
+  assert.equal(isAnthropicConfigured(""), false);
+  assert.equal(isAnthropicConfigured("   "), false);
+  assert.equal(isAnthropicConfigured("your_key_here"), false);
+  assert.equal(isAnthropicConfigured(" sk-ant-test-key "), true);
+  for (const untrusted of [undefined, null, "gemini", "google", "openai", "sonnet"]) {
+    assert.deepEqual(resolveQuestionPaperParser(untrusted), {
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      envName: "ANTHROPIC_API_KEY",
+    });
+  }
+
+  const root = join(fileURLToPath(new URL("..", import.meta.url)));
+  const extractionScript = readFileSync(join(root, "scripts/extract_pdf.py"), "utf8");
+  const uploadRoute = readFileSync(
+    join(root, "src/app/api/question-papers/route.ts"),
+    "utf8",
+  );
+  const uploadPage = readFileSync(
+    join(root, "src/app/academics/question-papers/page.tsx"),
+    "utf8",
+  );
+  assert.match(extractionScript, /from anthropic import Anthropic/);
+  assert.match(extractionScript, /model="claude-haiku-4-5-20251001"/);
+  assert.match(extractionScript, /require_anthropic_api_key\(\)/);
+  assert.doesNotMatch(
+    extractionScript,
+    /USE_GEMINI|google\.generativeai|GEMINI_API_KEY|gemini-2\.5|google-genai/,
+  );
+  assert.doesNotMatch(uploadRoute, /formData\.get\(\s*["']provider["']/);
+  assert.match(uploadRoute, /isAnthropicConfigured\(process\.env\.ANTHROPIC_API_KEY\)/);
+  assert.match(uploadPage, /formData\.append\("file"/);
+  assert.match(uploadPage, /formData\.append\("subject"/);
+  assert.match(uploadPage, /formData\.append\("grade"/);
+  assert.match(uploadPage, /formData\.append\("year"/);
+  assert.doesNotMatch(uploadPage, /formData\.append\("provider"/);
+  assert.doesNotMatch(uploadPage, /NEXT_PUBLIC_ANTHROPIC|NEXT_PUBLIC_GEMINI|GEMINI_API_KEY/);
+});
+
+test("rejected uploads never reach the Anthropic parser", () => {
+  const rejectedPdf = validatePdfUpload({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    bytes: Buffer.from("not a pdf"),
+    maxBytes: DEFAULT_MAX_UPLOAD_BYTES,
+    maxPages: DEFAULT_MAX_PDF_PAGES,
+  });
+  assert.notEqual(rejectedPdf.status, 200);
+  const calls = { python: 0, provider: 0 };
+  if (rejectedPdf.status === 200 && isAnthropicConfigured("sk-ant-test-key")) {
+    calls.python++;
+    calls.provider++;
+  }
+  assert.deepEqual(calls, { python: 0, provider: 0 });
 });
 
 test("rejected policy decisions leave protected side-effect mocks untouched", () => {

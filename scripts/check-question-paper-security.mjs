@@ -124,6 +124,38 @@ assert.ok(
     uploadHandler.source.indexOf("extract_pdf.py"),
   "Authoritative PDF validation does not run before OCR",
 );
+assert.match(
+  uploadHandler.source,
+  /isAnthropicConfigured\(process\.env\.ANTHROPIC_API_KEY\)/,
+  "Upload handler does not fail closed when Anthropic is unconfigured",
+);
+assert.ok(
+  uploadHandler.source.indexOf("isAnthropicConfigured") >
+    uploadHandler.source.indexOf("validate_pdf_pages.py") &&
+    uploadHandler.source.indexOf("isAnthropicConfigured") <
+      uploadHandler.source.indexOf("extract_pdf.py"),
+  "Anthropic configuration is not checked after PDF validation and before OCR",
+);
+assert.match(
+  uploadHandler.source,
+  /delete childEnv\.GEMINI_API_KEY/,
+  "OCR worker environment still forwards GEMINI_API_KEY",
+);
+assert.match(
+  uploadHandler.source,
+  /delete childEnv\.GOOGLE_API_KEY/,
+  "OCR worker environment still forwards GOOGLE_API_KEY",
+);
+assert.doesNotMatch(
+  uploadHandler.source,
+  /formData\.get\(\s*["']provider["']/,
+  "Upload handler reads an untrusted provider field",
+);
+assert.doesNotMatch(
+  uploadHandler.source,
+  /GEMINI_API_KEY:\s/,
+  "Upload handler still assigns a Gemini API key for OCR",
+);
 const extractionScript = await readFile(
   join(repositoryRoot, "scripts/extract_pdf.py"),
   "utf8",
@@ -133,6 +165,32 @@ assert.match(
   /validated_page_count = validate_pdf_page_count\(args\.pdf\)/,
   "OCR worker does not enforce the authoritative page limit",
 );
+assert.match(
+  extractionScript,
+  /model="claude-haiku-4-5-20251001"/,
+  "OCR worker does not use the canonical Anthropic model",
+);
+assert.match(
+  extractionScript,
+  /def require_anthropic_api_key/,
+  "OCR worker does not fail closed without ANTHROPIC_API_KEY",
+);
+assert.doesNotMatch(
+  extractionScript,
+  /USE_GEMINI|google\.generativeai|GEMINI_API_KEY|gemini-2\.5/,
+  "OCR worker still contains a Gemini execution path",
+);
+const requirements = await readFile(
+  join(repositoryRoot, "requirements.txt"),
+  "utf8",
+);
+assert.match(requirements, /^anthropic>=/m, "requirements.txt omits anthropic");
+assert.match(requirements, /^pypdf>=/m, "requirements.txt omits pypdf");
+assert.doesNotMatch(
+  requirements,
+  /google-generativeai|google-genai/,
+  "requirements.txt still declares a Gemini client",
+);
 const uploadOrder = [
   "requireQuestionPaperApiAccess",
   "validateUploadContentLength",
@@ -140,6 +198,7 @@ const uploadOrder = [
   "validatePdfUpload",
   "writeFile(",
   "execFileAsync(",
+  "isAnthropicConfigured",
   "getSupabase()",
 ];
 let previousIndex = -1;
@@ -224,17 +283,34 @@ for (const file of await collectSourceFiles(join(repositoryRoot, "src"))) {
     /getPublicUrl\(/,
     `${relative(repositoryRoot, file)} still creates public storage URLs`,
   );
+  assert.doesNotMatch(
+    source,
+    /NEXT_PUBLIC_ANTHROPIC|NEXT_PUBLIC_GEMINI|NEXT_PUBLIC_GOOGLE_API_KEY/,
+    `${relative(repositoryRoot, file)} exposes an AI provider key to the browser`,
+  );
   if (
     source.includes('"use client"') ||
     source.includes("'use client'")
   ) {
     assert.doesNotMatch(
       source,
-      /supabase-server|SUPABASE_SERVICE_ROLE_KEY/,
+      /supabase-server|SUPABASE_SERVICE_ROLE_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY/,
       `${relative(repositoryRoot, file)} imports server database access`,
     );
   }
 }
+
+const dockerfile = await readFile(join(repositoryRoot, "Dockerfile"), "utf8");
+assert.match(
+  dockerfile,
+  /python3 -m pip install --no-cache-dir --break-system-packages -r requirements\.txt/,
+  "Dockerfile does not install the declared Python requirements",
+);
+assert.doesNotMatch(
+  dockerfile,
+  /google-generativeai|GEMINI_API_KEY/,
+  "Dockerfile still installs or configures Gemini",
+);
 
 console.log(
   `Security inventory verified ${sensitiveRoutes.length} sensitive route files.`,
