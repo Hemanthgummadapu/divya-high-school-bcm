@@ -61,6 +61,8 @@ SYMBOL_FONT_FAMILY = "NotoSansSymbols2"
 SYMBOL_FONT_LOADED = False
 MATH_FONT_FAMILY = "NotoSansMath"
 MATH_FONT_LOADED = False
+TELUGU_FONT_FAMILY = "NotoSansTelugu"
+TELUGU_FONT_LOADED = False
 PLAYFAIR_FONT = "PlayfairDisplay-Bold"
 PLAYFAIR_LOADED = False
 
@@ -121,6 +123,9 @@ def choose_font_for_char(ch: str) -> str:
     # Geometric Shapes (△▲■□) — use NotoSansSymbols2
     if SYMBOL_FONT_LOADED and 0x25A0 <= code <= 0x25FF:
         return SYMBOL_FONT_FAMILY
+    # Telugu
+    if TELUGU_FONT_LOADED and 0x0C00 <= code <= 0x0C7F:
+        return TELUGU_FONT_FAMILY
     return FONT_FAMILY
 
 
@@ -158,6 +163,19 @@ def wrap_text(c, text, width, font=None, size=FONT_BODY):
     current_width = 0
     for w in words:
         w_width = c.stringWidth(" " + w if current else w, font, size)
+        if w_width > width and not current:
+            chunk = ""
+            for ch in w:
+                next_chunk = chunk + ch
+                if c.stringWidth(next_chunk, font, size) <= width or not chunk:
+                    chunk = next_chunk
+                else:
+                    lines.append(chunk)
+                    chunk = ch
+            if chunk:
+                current = [chunk]
+                current_width = c.stringWidth(chunk, font, size)
+            continue
         if current_width + w_width <= width and (current or True):
             current.append(w)
             current_width += w_width
@@ -343,33 +361,44 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
     return y
 
 
-def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page_cb=None):
+def draw_diagram_placeholder(c, y):
+    c.setFont(FONT_FAMILY, FONT_SMALL)
+    c.drawString(CONTENT_LEFT + 25, y, "[Diagram unavailable]")
+    return y - (5 * mm)
+
+
+def load_diagram_image(diagram_base64=None, diagram_path=None):
+    if diagram_path and os.path.isfile(diagram_path):
+        return ImageReader(diagram_path)
+    if not diagram_base64 or not isinstance(diagram_base64, str):
+        return None
+    raw = base64.b64decode(diagram_base64)
+    if not raw:
+        return None
+    fd, tmp = tempfile.mkstemp(suffix=".png")
+    try:
+        os.write(fd, raw)
+        os.close(fd)
+        return ImageReader(tmp)
+    finally:
+        if os.path.isfile(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page_cb=None, diagram_path=None):
     """Draw question diagram on the right, vertically centered with the question text block.
     y_text_top: first line of question text; y_text_bottom: after last line.
     Max 130pt x 110pt, aspect ratio preserved. Returns y for next content (min of text bottom and diagram bottom)."""
-    if not diagram_base64 or not isinstance(diagram_base64, str):
-        return y_text_bottom
     try:
-        raw = base64.b64decode(diagram_base64)
-    except Exception:
-        return y_text_bottom
-    if not raw:
-        return y_text_bottom
-    tmp = None
-    try:
-        fd, tmp = tempfile.mkstemp(suffix=".png")
-        os.write(fd, raw)
-        os.close(fd)
-        img = ImageReader(tmp)
+        img = load_diagram_image(diagram_base64, diagram_path)
+        if img is None:
+            return y_text_bottom
         iw, ih = img.getSize()
     except Exception:
         return y_text_bottom
-    finally:
-        if tmp and os.path.isfile(tmp):
-            try:
-                os.unlink(tmp)
-            except Exception:
-                pass
     max_w = DIAGRAM_MAX_W
     max_h = DIAGRAM_MAX_H
     scale = min(max_w / iw, max_h / ih, 1.0)
@@ -444,7 +473,7 @@ def draw_watermark(c, logo_path):
         pass
 
 
-def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str):
+def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str, academic_year=""):
     """Draw logo 60x60 top-left and 4 header lines centered. Returns y position below header."""
     logo_size = 60
     y_top = PAGE_HEIGHT - MARGIN
@@ -471,16 +500,107 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
     y -= lead
     # 4. Class | Max. Marks | Time — same line, bold, centered
     c.setFont(FONT_FAMILY_BOLD, 10)
-    c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}")
+    year_bit = f"    Year: {academic_year}" if academic_year else ""
+    c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}{year_bit}")
     y -= lead
     draw_line(c, y)
     return y - lead
 
 
+def option_lines(options):
+    if not options:
+        return []
+    if isinstance(options[0], dict):
+        return [
+            f"{item.get('label', '')}) {clean(item.get('text', ''))}".strip()
+            for item in options
+            if item.get("text")
+        ]
+    return [f"{chr(65 + i)}) {clean(text)}" for i, text in enumerate(options) if text]
+
+
+def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
+    y = start_y
+    for section in sections:
+        title = clean(section.get("title") or "SECTION")
+        instructions = clean(section.get("instructions") or "")
+        questions = section.get("questions") or []
+        heading_need = 2 * MARGIN + 110
+        if y < heading_need:
+            new_page()
+            y = PAGE_HEIGHT - MARGIN
+        draw_text_with_fallback(c, title, CONTENT_LEFT, y, FONT_SUB)
+        y -= line_height
+        if instructions:
+            for line in wrap_text(c, instructions, CONTENT_WIDTH, size=FONT_SMALL):
+                draw_text_with_fallback(c, line, CONTENT_LEFT, y, FONT_SMALL)
+                y -= line_height
+        y -= lead
+        for q in questions:
+            estimated = 36 + 14 * max(1, len(option_lines(q.get("options") or [])))
+            if estimated < 90 and y < 2 * MARGIN + estimated:
+                new_page()
+                y = PAGE_HEIGHT - MARGIN
+            elif y < 2 * MARGIN + 25:
+                new_page()
+                y = PAGE_HEIGHT - MARGIN
+            number = clean(str(q.get("number") or ""))
+            text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
+            marks = int(q.get("marks") or 0)
+            c.setFont(FONT_FAMILY, FONT_BODY)
+            c.drawString(CONTENT_LEFT, y, f"{number}.")
+            if marks:
+                c.drawRightString(CONTENT_RIGHT, y, f"[{marks} m]")
+            question_start_y = y
+            has_diagram = q.get("diagramStatus") == "ok" and q.get("diagramPath")
+            y = draw_question_content(
+                c,
+                text,
+                y,
+                line_height,
+                lead,
+                25,
+                new_page,
+                is_mcq=q.get("type") == "MCQ",
+                same_line_y=y,
+                reserve_diagram=bool(has_diagram),
+            )
+            if has_diagram:
+                y = draw_question_diagram(
+                    c,
+                    None,
+                    question_start_y,
+                    y,
+                    new_page,
+                    diagram_path=q.get("diagramPath"),
+                )
+            elif q.get("diagramStatus") == "unavailable":
+                y = draw_diagram_placeholder(c, y)
+            for opt in option_lines(q.get("options") or []):
+                if y < 2 * MARGIN + 16:
+                    new_page()
+                    y = PAGE_HEIGHT - MARGIN
+                draw_text_with_fallback(c, opt, CONTENT_LEFT + 25, y, FONT_SMALL)
+                y -= line_height
+            y -= lead
+    return y
+
+
+def assert_path_in_work_dir(path, work_dir):
+    if not work_dir:
+        return
+    real_work = os.path.realpath(work_dir)
+    real_path = os.path.realpath(path)
+    if real_path != real_work and not real_path.startswith(real_work + os.sep):
+        raise SystemExit("output path is outside the request work directory")
+
+
 def main():
-    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED, MATH_FONT_LOADED, PLAYFAIR_LOADED
+    global FONT_FAMILY, FONT_FAMILY_BOLD, NOTO_LOADED, SYMBOL_FONT_LOADED, MATH_FONT_LOADED, PLAYFAIR_LOADED, TELUGU_FONT_LOADED
     parser = argparse.ArgumentParser(description="JK-82 style exam paper PDF generator.")
     parser.add_argument("--output", dest="output", default=None, metavar="filepath", help="Write PDF to file instead of stdout")
+    parser.add_argument("--input", dest="input_path", default=None, help="Read JSON payload from a file")
+    parser.add_argument("--work-dir", dest="work_dir", default=None, help="Restrict file writes to this directory")
     args = parser.parse_args()
 
     # Prefer project-local NotoSans (public/fonts) if available for full Unicode (log₂, √, θ, etc.)
@@ -530,11 +650,21 @@ def main():
                 PLAYFAIR_LOADED = False
         else:
             PLAYFAIR_LOADED = False
+        telugu_path = os.path.join(base, "public", "fonts", "NotoSansTelugu-Regular.ttf")
+        if os.path.isfile(telugu_path):
+            try:
+                pdfmetrics.registerFont(TTFont(TELUGU_FONT_FAMILY, telugu_path))
+                TELUGU_FONT_LOADED = True
+            except Exception:
+                TELUGU_FONT_LOADED = False
+        else:
+            TELUGU_FONT_LOADED = False
     except Exception:
         NOTO_LOADED = False
         SYMBOL_FONT_LOADED = False
         MATH_FONT_LOADED = False
         PLAYFAIR_LOADED = False
+        TELUGU_FONT_LOADED = False
 
     # If NotoSans not available, fall back to system Unicode fonts on Windows (Segoe UI / Arial), else core Helvetica.
     if not NOTO_LOADED:
@@ -562,24 +692,33 @@ def main():
                 pass
 
     print(
-        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, FONT_FAMILY_BOLD={FONT_FAMILY_BOLD}, NOTO_LOADED={NOTO_LOADED}, SYMBOL_FONT_LOADED={SYMBOL_FONT_LOADED}, MATH_FONT_LOADED={MATH_FONT_LOADED}, PLAYFAIR_LOADED={PLAYFAIR_LOADED}",
+        f"[JK82 PDF] FONT_FAMILY={FONT_FAMILY}, NOTO_LOADED={NOTO_LOADED}, TELUGU_FONT_LOADED={TELUGU_FONT_LOADED}",
         file=sys.stderr,
     )
 
     part_a_questions = []
     try:
-        payload = json.load(sys.stdin)
+        if args.input_path:
+            if args.work_dir:
+                assert_path_in_work_dir(args.input_path, args.work_dir)
+            with open(args.input_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        else:
+            payload = json.load(sys.stdin)
     except json.JSONDecodeError as e:
         print(f"Invalid JSON: {e}", file=sys.stderr)
         sys.exit(1)
     header = payload.get("header", {}) or {}
     questions = payload.get("questions", [])
+    sections = payload.get("sections") or []
     logo_path = payload.get("logoPath") or None
     if logo_path and not os.path.isfile(logo_path):
         logo_path = None
-    if not questions:
+    if not questions and not sections:
         print("No questions provided", file=sys.stderr)
         sys.exit(1)
+    if args.output and args.work_dir:
+        assert_path_in_work_dir(args.output, args.work_dir)
 
     part_b, sec_i, sec_ii, sec_iii, rest = group_questions(questions)
     exam_code = header.get("examCode", "JK-82")
@@ -590,6 +729,7 @@ def main():
     time_str = clean(header.get("time", "3.00 Hrs"))
     date_str = clean(header.get("date", ""))
     school_name = clean(header.get("schoolName", "Divya High School"))
+    academic_year = clean(header.get("academicYear", ""))
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -612,7 +752,7 @@ def main():
     draw_watermark(c, logo_path)
     location = clean(header.get("location", "Bhadrachalam"))
     if logo_path:
-        y = draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str)
+        y = draw_header_with_logo(c, logo_path, school_name, location, exam_title, subject, class_str, max_marks, time_str, academic_year)
     else:
         # No logo: same 4-line header, centered on page
         lead = 5 * mm
@@ -626,10 +766,38 @@ def main():
         c.drawCentredString(PAGE_WIDTH / 2, y, exam_title or "PRE-FINAL EXAMINATIONS")
         y -= lead
         c.setFont(FONT_FAMILY_BOLD, 10)
-        c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}")
+        year_bit = f"    Year: {academic_year}" if academic_year else ""
+        c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}{year_bit}")
         y -= lead
         draw_line(c, y)
         y -= lead
+
+    if sections:
+        render_v2_sections(c, sections, new_page, y, line_height, lead)
+        c.save()
+        pdf_bytes = buffer.getvalue()
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.pdfgen import canvas as canvas2
+        reader = PdfReader(BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        for i in range(len(reader.pages)):
+            page = reader.pages[i]
+            packet = BytesIO()
+            cc = canvas2.Canvas(packet, pagesize=A4)
+            draw_footer(cc, i + 1, len(reader.pages), school_name, date_str, i == len(reader.pages) - 1)
+            cc.save()
+            packet.seek(0)
+            overlay = PdfReader(packet)
+            page.merge_page(overlay.pages[0])
+            writer.add_page(page)
+        out = BytesIO()
+        writer.write(out)
+        if args.output is not None:
+            with open(args.output, "wb") as f:
+                f.write(out.getvalue())
+        else:
+            sys.stdout.buffer.write(out.getvalue())
+        return
 
     part_a_questions = sec_i + sec_ii + sec_iii + rest
 

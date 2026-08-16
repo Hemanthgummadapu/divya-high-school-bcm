@@ -19,7 +19,8 @@ RUN mkdir -p public/fonts && \
     curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf" -o public/fonts/NotoSans-Regular.ttf || true && \
     curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf" -o public/fonts/NotoSansSymbols2-Regular.ttf || true && \
     curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansMath/NotoSansMath-Regular.ttf" -o public/fonts/NotoSansMath-Regular.ttf || true && \
-    curl -L "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/PlayfairDisplay-Bold.ttf" -o public/fonts/PlayfairDisplay-Bold.ttf || true
+    curl -L "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/PlayfairDisplay-Bold.ttf" -o public/fonts/PlayfairDisplay-Bold.ttf || true && \
+    curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Regular.ttf" -o public/fonts/NotoSansTelugu-Regular.ttf || true
 
 RUN npm run build
 

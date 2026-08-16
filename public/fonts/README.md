@@ -4,5 +4,8 @@ Place **NotoSans** here for correct rendering of symbols (e.g. log subscripts) i
 
 - `NotoSans-Regular.ttf` — required for body text
 - `NotoSans-Bold.ttf` — optional; used for headers (falls back to Regular if missing)
+- `NotoSansTelugu-Regular.ttf` — required for Telugu question text
+- `NotoSansSymbols2-Regular.ttf` and `NotoSansMath-Regular.ttf` — symbols and operators
+- `PlayfairDisplay-Bold.ttf` — school name
 
-Download from [Google Fonts](https://fonts.google.com/noto/specimen/Noto+Sans) or the [Noto releases](https://github.com/google/fonts/tree/main/ofl/notosans). The JK-82 PDF generator will use these when present; otherwise it uses system fonts (Segoe UI / Arial on Windows) or Helvetica, and normalizes subscript digits to `_0`–`_9` so "log₁₀" appears as "log_10".
+All of these fonts are licensed under the [SIL Open Font License](https://scripts.sil.org/OFL). `npm postinstall` and the Docker image download them into this folder. The JK-82 generator registers Noto Sans Telugu for U+0C00–U+0C7F so Telugu is not replaced with boxes.
