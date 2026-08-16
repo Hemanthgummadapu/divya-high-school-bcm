@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Question Bank fixture preview</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-50 py-8 font-sans">
+  <div class="container mx-auto px-4 space-y-10">
+    <h1 class="text-4xl font-bold text-center text-slate-900">Question Bank fixture preview</h1>
+    <p class="text-center text-sm text-slate-600">Local visual QA only. No live API calls.</p>
+
+    <section class="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
+      <h2 class="text-xl font-semibold mb-3">Review · desktop two-column</h2>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div>
+          <p class="text-sm text-slate-600 mb-2">exam.pdf · page 2 · Partially extracted</p>
+          <a class="text-blue-700 underline" href="#">Open source PDF at page 2</a>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Question text</label>
+          <textarea class="w-full px-4 py-2 border rounded-lg">Triangle area question</textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button class="px-4 py-2 bg-slate-800 text-white rounded-lg">Save</button>
+            <button class="px-4 py-2 bg-blue-600 text-white rounded-lg">Save and approve</button>
+            <button class="px-4 py-2 border border-red-300 text-red-700 rounded-lg">Reject</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
+      <h2 class="text-xl font-semibold mb-3">Question Bank · selection</h2>
+      <p class="text-sm text-slate-600 mb-3">2 selected · 6 marks</p>
+      <button class="mb-4 px-4 py-2 rounded-lg bg-blue-600 text-white">Generate paper</button>
+      <p class="text-sm text-slate-500">Empty: No approved questions match these filters.</p>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
+      <h2 class="text-xl font-semibold mb-3">Sources · honest status</h2>
+      <p class="font-medium">midterm.pdf</p>
+      <p class="text-sm text-amber-800">Failed pages: 3, 4. Successful questions remain available.</p>
+      <span class="inline-flex px-2.5 py-1 rounded-full text-xs border bg-amber-50 text-amber-800 border-amber-200">Partially extracted</span>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
+      <h2 class="text-xl font-semibold mb-3">Paper builder</h2>
+      <p class="text-sm text-red-700">These questions are from different classes: 9, 10. Remove the conflicting questions to continue.</p>
+      <ol class="mt-3 space-y-2">
+        <li class="border rounded-lg p-3 text-sm">1. Short · 2 marks · Move up / Move down / Remove</li>
+      </ol>
+      <p class="mt-3 text-sm text-slate-700">Saving paper…</p>
+      <button class="mt-2 px-4 py-2 bg-gray-400 text-white rounded-lg" disabled>Generate and save</button>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
+      <h2 class="text-xl font-semibold mb-3">Saved Papers</h2>
+      <p class="font-medium">Pre-final Mathematics</p>
+      <p class="text-sm text-slate-600">Class 10 · Mathematics · 2026 · 3.00 Hrs · 80 marks · 12 questions</p>
+      <span class="inline-flex px-2.5 py-1 rounded-full text-xs border">PDF pending</span>
+      <button class="mt-2 px-3 py-1.5 border rounded-lg">Retry PDF</button>
+      <p class="mt-4 text-sm text-slate-500">Empty: No saved papers yet.</p>
+    </section>
+  </div>
+</body>
+</html>

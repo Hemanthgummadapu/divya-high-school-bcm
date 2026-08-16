@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ALL_GRADES, ALL_YEARS, getSubjectsForGrade } from "@/lib/subjects";
 import { uploadResultMessage } from "@/lib/question-bank-v2-review-ui.mjs";
+import {
+  detectSelectionConflicts,
+  formatDuration,
+  previewMarks,
+  romanClass,
+} from "@/lib/question-bank-v2-paper-ui.mjs";
 import DiagramSketchTool from "@/components/DiagramSketchTool";
 import MathKeyboard from "@/components/MathKeyboard";
 import ReactMarkdown from "react-markdown";
@@ -14,7 +20,7 @@ const dmSans = DM_Sans({
   weight: ["400", "500", "600", "700"],
 });
 
-type ViewName = "review" | "bank" | "sources";
+type ViewName = "review" | "bank" | "sources" | "saved";
 type QuestionType = "MCQ" | "Short" | "Medium" | "Long";
 
 type BankQuestion = {
@@ -40,6 +46,23 @@ type BankQuestion = {
   diagramUrl: string | null;
   approvedAt: string | null;
   updatedAt: string | null;
+};
+
+type SavedPaper = {
+  id: string;
+  title: string;
+  grade: number;
+  subject: string;
+  academicYear: number;
+  durationMinutes: number | null;
+  totalMarks: number;
+  itemCount: number | null;
+  status: string;
+  pdfAvailable: boolean;
+  pdfStatus: string;
+  finalizedAt: string | null;
+  createdAt: string | null;
+  pdfUrl: string | null;
 };
 
 type BankSource = {
@@ -160,6 +183,7 @@ export default function QuestionPapers() {
   const [view, setView] = useState<ViewName>("review");
   const [questions, setQuestions] = useState<BankQuestion[]>([]);
   const [sources, setSources] = useState<BankSource[]>([]);
+  const [savedPapers, setSavedPapers] = useState<SavedPaper[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
@@ -168,6 +192,20 @@ export default function QuestionPapers() {
   const [error, setError] = useState<string | null>(null);
   const [mutating, setMutating] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedMap, setSelectedMap] = useState<Map<string, BankQuestion>>(
+    new Map(),
+  );
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderTitle, setBuilderTitle] = useState("");
+  const [builderYear, setBuilderYear] = useState(String(new Date().getFullYear()));
+  const [builderDuration, setBuilderDuration] = useState("180");
+  const [builderSectionTitle, setBuilderSectionTitle] = useState("SECTION-I");
+  const [builderSectionInstructions, setBuilderSectionInstructions] = useState("");
+  const [builderOrder, setBuilderOrder] = useState<string[]>([]);
+  const [builderError, setBuilderError] = useState<string | null>(null);
+  const [generateStage, setGenerateStage] = useState<string | null>(null);
+  const [creationKey, setCreationKey] = useState("");
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [sourcePdf, setSourcePdf] = useState<{
     url: string | null;
@@ -225,17 +263,13 @@ export default function QuestionPapers() {
         page: String(page),
         pageSize: String(pageSize),
       });
-      if (view !== "sources") {
-        if (filters.subject) params.set("subject", filters.subject);
-        if (filters.grade) params.set("grade", filters.grade);
-        if (filters.year) params.set("year", filters.year);
+      if (filters.subject) params.set("subject", filters.subject);
+      if (filters.grade) params.set("grade", filters.grade);
+      if (filters.year) params.set("year", filters.year);
+      if (view === "bank" || view === "review") {
         if (filters.type) params.set("type", filters.type);
         if (filters.q) params.set("q", filters.q);
         if (view === "review" && sourceFilter) params.set("sourceId", sourceFilter);
-      } else {
-        if (filters.subject) params.set("subject", filters.subject);
-        if (filters.grade) params.set("grade", filters.grade);
-        if (filters.year) params.set("year", filters.year);
       }
       const response = await fetch(`/api/question-papers?${params}`);
       const data = await response.json();
@@ -243,15 +277,22 @@ export default function QuestionPapers() {
         setError(data.error || "The list could not be loaded");
         setQuestions([]);
         setSources([]);
+        setSavedPapers([]);
         setTotal(0);
         return;
       }
       if (view === "sources") {
         setSources(data.sources ?? []);
         setQuestions([]);
+        setSavedPapers([]);
+      } else if (view === "saved") {
+        setSavedPapers(data.papers ?? []);
+        setQuestions([]);
+        setSources([]);
       } else {
         setQuestions(data.questions ?? []);
         setSources([]);
+        setSavedPapers([]);
       }
       setTotal(data.total ?? 0);
     } catch {
@@ -505,13 +546,154 @@ export default function QuestionPapers() {
     }
   };
 
-  const toggleSelected = (id: string) => {
+  const toggleSelected = (question: BankQuestion) => {
     setSelectedIds((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(question.id)) next.delete(question.id);
+      else next.add(question.id);
       return next;
     });
+    setSelectedMap((current) => {
+      const next = new Map(current);
+      if (next.has(question.id)) next.delete(question.id);
+      else next.set(question.id, question);
+      return next;
+    });
+  };
+
+  const selectedQuestions = builderOrder
+    .map((id) => selectedMap.get(id))
+    .filter((question): question is BankQuestion => Boolean(question));
+  const selectionConflict = detectSelectionConflicts(
+    Array.from(selectedMap.values()),
+  );
+  const marksPreview = previewMarks(Array.from(selectedMap.values()));
+
+  const openBuilder = () => {
+    const ids = Array.from(selectedIds);
+    setBuilderOrder(ids);
+    setBuilderTitle("");
+    setBuilderYear(String(new Date().getFullYear()));
+    setBuilderDuration("180");
+    setBuilderSectionTitle("SECTION-I");
+    setBuilderSectionInstructions("");
+    setBuilderError(null);
+    setGenerateStage(null);
+    setCreationKey(
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `paper-${Date.now()}-${ids.length}`,
+    );
+    setBuilderOpen(true);
+  };
+
+  const moveBuilderItem = (index: number, direction: -1 | 1) => {
+    const next = [...builderOrder];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    setBuilderOrder(next);
+  };
+
+  const removeBuilderItem = (id: string) => {
+    setBuilderOrder((current) => current.filter((item) => item !== id));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setSelectedMap((current) => {
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const handleGeneratePaper = async () => {
+    if (!selectionConflict.ok) {
+      setBuilderError(selectionConflict.error || "Selected questions conflict");
+      return;
+    }
+    if (builderOrder.length === 0) {
+      setBuilderError("Select at least one question");
+      return;
+    }
+    setGenerateStage("Saving paper");
+    setBuilderError(null);
+    try {
+      const response = await fetch("/api/question-papers/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creationKey,
+          title: builderTitle,
+          academicYear: Number(builderYear),
+          durationMinutes: Number(builderDuration),
+          items: builderOrder.map((id, index) => ({
+            questionId: id,
+            sectionTitle: builderSectionTitle,
+            sectionInstructions: builderSectionInstructions,
+            sectionOrder: 1,
+            questionOrder: index + 1,
+          })),
+        }),
+      });
+      const data = await response.json();
+      if (data.paperSaved && !data.success) {
+        setGenerateStage(null);
+        setBuilderError(data.error || "The paper was saved, but the PDF could not be created");
+        setSavedNotice(data.paperId ?? null);
+        return;
+      }
+      if (!response.ok || !data.success) {
+        setGenerateStage(null);
+        setBuilderError(data.error || "The paper could not be saved");
+        return;
+      }
+      setGenerateStage("Ready");
+      setSelectedIds(new Set());
+      setSelectedMap(new Map());
+      setBuilderOrder([]);
+      setBuilderOpen(false);
+      setView("saved");
+      setPage(1);
+      setSavedNotice(null);
+      if (data.pdfUrl) {
+        window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      setGenerateStage(null);
+      setBuilderError("The paper could not be saved");
+    }
+  };
+
+  const handleRetryPdf = async (paperId: string) => {
+    setMutating(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/question-papers/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", paperId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setError(data.error || "The PDF could not be created");
+        return;
+      }
+      if (data.pdfUrl) {
+        window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+      }
+      setBuilderOpen(false);
+      setSavedNotice(null);
+      setView("saved");
+      await fetchList();
+    } catch {
+      setError("The PDF could not be created");
+    } finally {
+      setMutating(false);
+    }
   };
 
   const selectedCount = selectedIds.size;
@@ -688,6 +870,7 @@ export default function QuestionPapers() {
               ["review", `Review${reviewTotal ? ` (${reviewTotal})` : ""}`],
               ["bank", "Question Bank"],
               ["sources", "Sources"],
+              ["saved", "Saved Papers"],
             ] as const
           ).map(([name, label]) => (
             <button
@@ -1016,16 +1199,16 @@ export default function QuestionPapers() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-slate-600">{total} approved questions</p>
               <p className="text-sm text-slate-600">
-                {selectedCount} selected for the future paper builder
+                {selectedCount} selected · {marksPreview} marks
               </p>
             </div>
             <button
               type="button"
-              disabled
-              className="mb-4 px-4 py-2 rounded-lg bg-gray-200 text-gray-600 cursor-not-allowed"
-              title="Paper generation will be added in the next phase"
+              disabled={selectedCount === 0}
+              onClick={openBuilder}
+              className="mb-4 px-4 py-2 rounded-lg bg-blue-600 text-white disabled:bg-gray-200 disabled:text-gray-600 disabled:cursor-not-allowed"
             >
-              Generate paper (coming next)
+              Generate paper
             </button>
             {loading ? (
               <p>Loading questions…</p>
@@ -1043,7 +1226,7 @@ export default function QuestionPapers() {
                         id={`select-${question.id}`}
                         type="checkbox"
                         checked={selectedIds.has(question.id)}
-                        onChange={() => toggleSelected(question.id)}
+                        onChange={() => toggleSelected(question)}
                         className="mt-1"
                       />
                       <div className="min-w-0 flex-1">
@@ -1167,7 +1350,261 @@ export default function QuestionPapers() {
             />
           </section>
         )}
+
+        {view === "saved" && (
+          <section className="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
+            {savedNotice && (
+              <p className="mb-4 text-sm text-amber-800" role="status">
+                The paper was saved. You can retry the PDF from this list.
+              </p>
+            )}
+            {loading ? (
+              <p>Loading saved papers…</p>
+            ) : savedPapers.length === 0 ? (
+              <p>No saved papers yet.</p>
+            ) : (
+              <ul className="space-y-4">
+                {savedPapers.map((paper) => (
+                  <li
+                    key={paper.id}
+                    className="border border-slate-200 rounded-xl p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900 break-words">
+                          {paper.title}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          Class {paper.grade} · {paper.subject} · {paper.academicYear}
+                          {paper.durationMinutes
+                            ? ` · ${formatDuration(paper.durationMinutes)}`
+                            : ""}
+                          {` · ${paper.totalMarks} marks`}
+                          {paper.itemCount != null
+                            ? ` · ${paper.itemCount} questions`
+                            : ""}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {paper.finalizedAt
+                            ? `Finalized ${new Date(paper.finalizedAt).toLocaleString()}`
+                            : paper.createdAt
+                              ? `Created ${new Date(paper.createdAt).toLocaleString()}`
+                              : ""}
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border bg-slate-100 text-slate-700 border-slate-200">
+                        {paper.pdfStatus}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {paper.pdfAvailable ? (
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 bg-blue-600 text-white rounded-lg"
+                          onClick={async () => {
+                            const response = await fetch(
+                              `/api/question-papers/${paper.id}?resource=paper`,
+                            );
+                            const data = await response.json();
+                            if (data.pdfUrl) {
+                              window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+                            } else {
+                              setError(data.error || "The PDF is not available");
+                            }
+                          }}
+                        >
+                          Download
+                        </button>
+                      ) : paper.status === "final" ? (
+                        <button
+                          type="button"
+                          disabled={mutating}
+                          className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                          onClick={() => handleRetryPdf(paper.id)}
+                        >
+                          Retry PDF
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPage={setPage}
+            />
+          </section>
+        )}
       </div>
+
+      {builderOpen && (
+        <Modal title="Paper builder" onClose={() => !generateStage && setBuilderOpen(false)}>
+          {!selectionConflict.ok && (
+            <p className="mb-4 text-sm text-red-700" role="alert">
+              {selectionConflict.error}. Remove the conflicting questions to continue.
+            </p>
+          )}
+          <p className="mb-3 text-sm text-slate-600">
+            {builderOrder.length} questions · {previewMarks(selectedQuestions)} marks
+            {selectionConflict.ok && selectionConflict.grade
+              ? ` · Class ${romanClass(selectionConflict.grade)} ${selectionConflict.subject || ""}`
+              : ""}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="md:col-span-3">
+              <label htmlFor="builder-title" className={labelClass}>
+                Paper title
+              </label>
+              <input
+                id="builder-title"
+                value={builderTitle}
+                onChange={(event) => setBuilderTitle(event.target.value)}
+                className={inputClass}
+                maxLength={300}
+              />
+            </div>
+            <div>
+              <label htmlFor="builder-year" className={labelClass}>
+                Academic year
+              </label>
+              <select
+                id="builder-year"
+                value={builderYear}
+                onChange={(event) => setBuilderYear(event.target.value)}
+                className={inputClass}
+              >
+                {years.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="builder-duration" className={labelClass}>
+                Duration (minutes)
+              </label>
+              <input
+                id="builder-duration"
+                type="number"
+                min={1}
+                max={600}
+                value={builderDuration}
+                onChange={(event) => setBuilderDuration(event.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="builder-section" className={labelClass}>
+                Section title
+              </label>
+              <input
+                id="builder-section"
+                value={builderSectionTitle}
+                onChange={(event) => setBuilderSectionTitle(event.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="md:col-span-3">
+              <label htmlFor="builder-instructions" className={labelClass}>
+                Section instructions
+              </label>
+              <input
+                id="builder-instructions"
+                value={builderSectionInstructions}
+                onChange={(event) => setBuilderSectionInstructions(event.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <ol className="space-y-3 mb-4">
+            {selectedQuestions.map((question, index) => (
+              <li key={question.id} className="border border-slate-200 rounded-lg p-3">
+                <p className="text-sm font-medium text-slate-700">
+                  {index + 1}. {question.questionType} · {question.marks} marks
+                </p>
+                <p className="text-sm text-slate-600 break-words whitespace-pre-wrap">
+                  {question.questionText}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={index === 0 || Boolean(generateStage)}
+                    onClick={() => moveBuilderItem(index, -1)}
+                    className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                  >
+                    Move up
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === selectedQuestions.length - 1 || Boolean(generateStage)}
+                    onClick={() => moveBuilderItem(index, 1)}
+                    className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                  >
+                    Move down
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(generateStage)}
+                    onClick={() => removeBuilderItem(question.id)}
+                    className="px-3 py-1.5 border border-red-300 text-red-700 rounded-lg disabled:text-gray-400"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {generateStage && (
+            <p className="mb-3 text-sm text-slate-700" role="status">
+              {generateStage}…
+            </p>
+          )}
+          {builderError && (
+            <p className="mb-3 text-sm text-red-700" role="alert">
+              {builderError}
+              {savedNotice && (
+                <>
+                  <button
+                    type="button"
+                    className="ml-2 text-blue-700 underline"
+                    onClick={() => {
+                      setBuilderOpen(false);
+                      setView("saved");
+                      setPage(1);
+                    }}
+                  >
+                    Open Saved Papers
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-2 text-blue-700 underline"
+                    disabled={mutating}
+                    onClick={() => handleRetryPdf(savedNotice)}
+                  >
+                    Retry PDF
+                  </button>
+                </>
+              )}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={
+              Boolean(generateStage) ||
+              !selectionConflict.ok ||
+              builderOrder.length === 0 ||
+              !builderTitle.trim()
+            }
+            onClick={handleGeneratePaper}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+          >
+            Generate and save
+          </button>
+        </Modal>
+      )}
 
       {addOpen && (
         <Modal title="Add question" onClose={() => !mutating && setAddOpen(false)}>
