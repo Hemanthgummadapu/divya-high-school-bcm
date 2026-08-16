@@ -1,11 +1,19 @@
 # Fonts for PDF generation
 
-Place **NotoSans** here for correct rendering of symbols (e.g. log subscripts) in generated question paper PDFs:
+These SIL Open Font License files are tracked so Railway and Docker builds
+do not download fonts at build or runtime.
 
-- `NotoSans-Regular.ttf` — required for body text
-- `NotoSans-Bold.ttf` — optional; used for headers (falls back to Regular if missing)
-- `NotoSansTelugu-Regular.ttf` — required for Telugu question text
-- `NotoSansSymbols2-Regular.ttf` and `NotoSansMath-Regular.ttf` — symbols and operators
-- `PlayfairDisplay-Bold.ttf` — school name
+Required JK-82 fonts:
 
-All of these fonts are licensed under the [SIL Open Font License](https://scripts.sil.org/OFL). `npm postinstall` and the Docker image download them into this folder. The JK-82 generator registers Noto Sans Telugu for U+0C00–U+0C7F so Telugu is not replaced with boxes.
+- `NotoSans-Regular.ttf` — body text
+- `NotoSansTelugu-Regular.ttf` — Telugu (U+0C00–U+0C7F)
+- `NotoSansSymbols2-Regular.ttf` — geometric shapes
+- `NotoSansMath-Regular.ttf` — mathematical operators
+- `PlayfairDisplay-Bold.ttf` — school name header
+
+`NotoSans-Bold.ttf` is optional. The generator falls back to Regular.
+
+License: `OFL.txt` (SIL Open Font License 1.1).
+Checksums: `SHA256SUMS`.
+
+`npm postinstall` verifies these files and checksums. It does not download fonts.

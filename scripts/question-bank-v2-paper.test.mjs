@@ -264,10 +264,18 @@ test("JK-82 generator accepts V2 sections and Telugu", () => {
   assert.match(jk82, /--work-dir/);
   assert.match(jk82, /Diagram unavailable/);
   assert.match(jk82, /assert_path_in_work_dir/);
-  assert.equal(
-    existsSync(join(root, "public/fonts/NotoSansTelugu-Regular.ttf")),
-    true,
-  );
+  const requiredFonts = [
+    "NotoSans-Regular.ttf",
+    "NotoSansTelugu-Regular.ttf",
+    "NotoSansSymbols2-Regular.ttf",
+    "NotoSansMath-Regular.ttf",
+    "PlayfairDisplay-Bold.ttf",
+    "OFL.txt",
+    "SHA256SUMS",
+  ];
+  for (const file of requiredFonts) {
+    assert.equal(existsSync(join(root, "public/fonts", file)), true, file);
+  }
 });
 
 test("retry, signing, and generated-PDF bounds reject unsafe input", () => {

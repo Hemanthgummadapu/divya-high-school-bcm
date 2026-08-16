@@ -11,3 +11,7 @@ data
 .next
 *.log
 .cursor
+scripts/__pycache__
+scripts/fixtures
+scripts/preview-question-bank-ui.html
+supabase/.temp

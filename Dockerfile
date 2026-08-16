@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y python3 python3-pip curl poppler-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y python3 python3-pip poppler-utils && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -15,12 +15,14 @@ RUN npm ci
 
 COPY . .
 
-RUN mkdir -p public/fonts && \
-    curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf" -o public/fonts/NotoSans-Regular.ttf || true && \
-    curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf" -o public/fonts/NotoSansSymbols2-Regular.ttf || true && \
-    curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansMath/NotoSansMath-Regular.ttf" -o public/fonts/NotoSansMath-Regular.ttf || true && \
-    curl -L "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/PlayfairDisplay-Bold.ttf" -o public/fonts/PlayfairDisplay-Bold.ttf || true && \
-    curl -L "https://github.com/googlefonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Regular.ttf" -o public/fonts/NotoSansTelugu-Regular.ttf || true
+RUN test -f public/fonts/NotoSans-Regular.ttf && \
+    test -f public/fonts/NotoSansTelugu-Regular.ttf && \
+    test -f public/fonts/NotoSansSymbols2-Regular.ttf && \
+    test -f public/fonts/NotoSansMath-Regular.ttf && \
+    test -f public/fonts/PlayfairDisplay-Bold.ttf && \
+    test -f public/fonts/OFL.txt && \
+    test -f public/fonts/SHA256SUMS && \
+    node scripts/download-fonts.js
 
 RUN npm run build
 
