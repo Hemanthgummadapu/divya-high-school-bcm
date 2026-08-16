@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabase } from "@/lib/supabase";
+import { getSupabase } from "@/lib/supabase-server";
 import type { Question } from "@/lib/questionPapers";
+import {
+  questionPaperServerError,
+  requireQuestionPaperApiAccess,
+} from "@/lib/question-paper-auth";
 
 /**
  * POST /api/question-papers/generate
  * Generate a question paper from selected question IDs (Supabase)
  */
 export async function POST(request: NextRequest) {
+  const authorization = await requireQuestionPaperApiAccess(request, {
+    mutation: true,
+  });
+  if (!authorization.ok) return authorization.response;
+  const { requestId } = authorization;
+
   try {
     const body = await request.json();
     const { questionIds } = body;
@@ -21,10 +31,7 @@ export async function POST(request: NextRequest) {
     const hasSupabase =
       process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!hasSupabase) {
-      return NextResponse.json(
-        { success: false, error: "Supabase not configured" },
-        { status: 503 }
-      );
+      return questionPaperServerError(requestId);
     }
 
     const { data: questionRows, error } = await getSupabase()
@@ -32,7 +39,8 @@ export async function POST(request: NextRequest) {
       .select("*")
       .in("id", questionIds);
 
-    if (error || !questionRows || questionRows.length === 0) {
+    if (error) return questionPaperServerError(requestId);
+    if (!questionRows || questionRows.length === 0) {
       return NextResponse.json(
         { success: false, error: "No questions found with provided IDs" },
         { status: 404 }
@@ -91,11 +99,12 @@ export async function POST(request: NextRequest) {
       success: true,
       paper: generatedPaper,
     });
-  } catch (error: any) {
-    console.error("Error generating question paper:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+  } catch {
+    console.warn("[question-paper-api]", {
+      requestId,
+      operation: "compose_paper",
+      outcome: "request_error",
+    });
+    return questionPaperServerError(requestId);
   }
 }

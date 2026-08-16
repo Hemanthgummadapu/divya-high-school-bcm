@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:security": "node --test scripts/question-paper-security.test.mjs && node scripts/check-question-paper-security.mjs",
     "postinstall": "node scripts/download-fonts.js"
   },
   "dependencies": {

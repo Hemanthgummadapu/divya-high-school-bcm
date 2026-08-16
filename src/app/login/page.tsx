@@ -8,6 +8,24 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const hasAccessDenied = error === "AccessDenied";
+  const requestedCallbackUrl = searchParams.get("callbackUrl");
+
+  const getSafeCallbackUrl = () => {
+    if (!requestedCallbackUrl) return "/admin-portal";
+    try {
+      const parsed = new URL(requestedCallbackUrl, window.location.origin);
+      const isQuestionPaperPath =
+        parsed.pathname === "/academics/question-papers" ||
+        parsed.pathname.startsWith("/academics/question-papers/");
+      if (
+        parsed.origin === window.location.origin &&
+        isQuestionPaperPath
+      ) {
+        return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch {}
+    return "/admin-portal";
+  };
 
   return (
     <div className="min-h-screen bg-[#020617] flex items-center justify-center px-4">
@@ -43,7 +61,7 @@ export default function LoginPage() {
           type="button"
           onClick={() =>
             signIn("google", {
-              callbackUrl: "/admin-portal",
+              callbackUrl: getSafeCallbackUrl(),
             })
           }
           className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-[#facc15] text-[#020617] font-medium py-2.5 px-4 shadow-lg hover:bg-[#eab308] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#facc15] focus:ring-offset-[#020617] transition"

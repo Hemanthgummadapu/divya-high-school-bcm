@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
 import { existsSync } from "fs";
-import { readFile, unlink } from "fs/promises";
+import { readFile, stat, unlink } from "fs/promises";
 import { tmpdir } from "os";
+import { randomUUID } from "crypto";
+import {
+  questionPaperServerError,
+  requireQuestionPaperApiAccess,
+} from "@/lib/question-paper-auth";
+import { getUploadLimits } from "@/lib/question-paper-upload-policy.mjs";
+const MAX_GENERATED_PDF_BYTES = 50 * 1024 * 1024;
 
 /**
  * POST /api/question-papers/generate-pdf
@@ -11,6 +18,12 @@ import { tmpdir } from "os";
  * Body: { questions: Question[], header: Record<string, string> }
  */
 export async function POST(request: NextRequest) {
+  const authorization = await requireQuestionPaperApiAccess(request, {
+    mutation: true,
+  });
+  if (!authorization.ok) return authorization.response;
+  const { requestId } = authorization;
+  const { pdfTimeoutMs } = getUploadLimits();
   let tmpPdfPath: string | null = null;
   try {
     const body = await request.json();
@@ -25,15 +38,12 @@ export async function POST(request: NextRequest) {
 
     const scriptPath = join(process.cwd(), "scripts", "generate_paper_pdf.py");
     if (!existsSync(scriptPath)) {
-      return NextResponse.json(
-        { success: false, error: "PDF generator script not found" },
-        { status: 500 }
-      );
+      return questionPaperServerError(requestId);
     }
 
     const venvPython = join(process.cwd(), "venv", "bin", "python3");
     const pythonCmd = existsSync(venvPython) ? venvPython : "python3";
-    tmpPdfPath = join(tmpdir(), `question-paper-${Date.now()}.pdf`);
+    tmpPdfPath = join(tmpdir(), `question-paper-${randomUUID()}.pdf`);
 
     const payload = JSON.stringify({
       header: header || {},
@@ -56,17 +66,32 @@ export async function POST(request: NextRequest) {
         });
         let stdout = "";
         let stderr = "";
-        proc.stdout?.on("data", (d) => { stdout += d.toString(); });
-        proc.stderr?.on("data", (d) => { stderr += d.toString(); });
+        let settled = false;
+        const finish = (value: { success: boolean; out?: string; err?: string }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          resolve(value);
+        };
+        const timeout = setTimeout(() => {
+          proc.kill("SIGKILL");
+          finish({ success: false });
+        }, pdfTimeoutMs);
+        proc.stdout?.on("data", (d) => {
+          stdout = `${stdout}${d.toString()}`.slice(-65_536);
+        });
+        proc.stderr?.on("data", (d) => {
+          stderr = `${stderr}${d.toString()}`.slice(-65_536);
+        });
         proc.on("close", (code) => {
-          resolve({
+          finish({
             success: code === 0,
             out: stdout.trim(),
             err: stderr || undefined,
           });
         });
         proc.on("error", () => {
-          resolve({ success: false, err: "Failed to start Python" });
+          finish({ success: false });
         });
         proc.stdin.write(payload, "utf-8", () => {
           proc.stdin.end();
@@ -75,23 +100,23 @@ export async function POST(request: NextRequest) {
     );
 
     if (!result.success) {
-      console.error("PDF generation failed:", result.err, result.out);
-      return NextResponse.json(
-        { success: false, error: result.err || result.out || "PDF generation failed" },
-        { status: 500 }
-      );
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "legacy_generate_pdf",
+        outcome: "processing_error",
+      });
+      return questionPaperServerError(requestId);
     }
 
     if (!existsSync(tmpPdfPath)) {
-      return NextResponse.json(
-        { success: false, error: "PDF file was not created" },
-        { status: 500 }
-      );
+      return questionPaperServerError(requestId);
     }
 
+    const pdfStats = await stat(tmpPdfPath);
+    if (pdfStats.size <= 0 || pdfStats.size > MAX_GENERATED_PDF_BYTES) {
+      return questionPaperServerError(requestId);
+    }
     const pdfBuffer = await readFile(tmpPdfPath);
-    await unlink(tmpPdfPath).catch(() => {});
-
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
@@ -99,14 +124,14 @@ export async function POST(request: NextRequest) {
         "Content-Disposition": `attachment; filename="Question_Paper_${new Date().toISOString().split("T")[0]}.pdf"`,
       },
     });
-  } catch (error: any) {
-    if (tmpPdfPath) {
-      await unlink(tmpPdfPath).catch(() => {});
-    }
-    console.error("Generate PDF error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+  } catch {
+    console.warn("[question-paper-api]", {
+      requestId,
+      operation: "legacy_generate_pdf",
+      outcome: "request_error",
+    });
+    return questionPaperServerError(requestId);
+  } finally {
+    if (tmpPdfPath) await unlink(tmpPdfPath).catch(() => {});
   }
 }

@@ -6,15 +6,27 @@ import {
   type FilterOptions,
 } from "@/lib/questionPapers";
 import { isValidSubjectForGrade } from "@/lib/subjects";
-import { getSupabase } from "@/lib/supabase";
+import { getSupabase } from "@/lib/supabase-server";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, mkdir, readFile, unlink } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 import { platform } from "os";
+import { randomUUID } from "crypto";
+import {
+  questionPaperServerError,
+  requireQuestionPaperApiAccess,
+} from "@/lib/question-paper-auth";
+import {
+  getUploadLimits,
+  validatePdfUpload,
+  validateUploadContentLength,
+} from "@/lib/question-paper-upload-policy.mjs";
+import { createSignedQuestionDiagramUrls } from "@/lib/question-diagrams";
 
 const execFileAsync = promisify(execFile);
+export const dynamic = "force-dynamic";
 
 function normalizeText(text: string): string {
   return (text || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -70,6 +82,10 @@ function filterDuplicateQuestions(
  * Always reads from Supabase; returns empty array if no data or Supabase unavailable.
  */
 export async function GET(request: NextRequest) {
+  const authorization = await requireQuestionPaperApiAccess(request);
+  if (!authorization.ok) return authorization.response;
+  const { requestId } = authorization;
+
   try {
     const { searchParams } = new URL(request.url);
 
@@ -85,20 +101,10 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!hasSupabase) {
-      return NextResponse.json({
-        success: true,
-        papers: [],
-        statistics: { totalPapers: 0, totalQuestions: 0, bySubject: {}, byType: {} },
-        count: 0,
-      });
+      return questionPaperServerError(requestId);
     }
 
     try {
-      const { count } = await getSupabase()
-        .from("questions")
-        .select("*", { count: "exact", head: true });
-      console.log("[GET /api/question-papers] Total questions in DB:", count);
-
       let query = getSupabase().from("questions").select("*");
       if (filters.subject) query = query.eq("subject", filters.subject);
       if (filters.grade) {
@@ -114,13 +120,16 @@ export async function GET(request: NextRequest) {
 
       const { data: questionRows, error: questionsError } = await query;
 
-      console.log("[GET /api/question-papers] Query filters:", JSON.stringify(filters));
-      console.log("[GET /api/question-papers] Questions returned by select:", questionRows?.length ?? 0);
       if (questionsError) {
-        console.log("[GET /api/question-papers] Supabase questions error:", questionsError.message);
+        console.warn("[question-paper-api]", {
+          requestId,
+          operation: "list_questions",
+          outcome: "database_error",
+        });
+        return questionPaperServerError(requestId);
       }
 
-      if (questionsError || !questionRows || questionRows.length === 0) {
+      if (!questionRows || questionRows.length === 0) {
         return NextResponse.json({
           success: true,
           papers: [],
@@ -129,13 +138,27 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      const signedDiagramUrls = await createSignedQuestionDiagramUrls(
+        questionRows as Array<{
+          id: string;
+          diagram_url?: string | null;
+        }>,
+      );
       const paperIds = [...new Set(questionRows.map((r: { paper_id: string }) => r.paper_id))];
       const { data: paperRows, error: papersError } = await getSupabase()
         .from("question_papers")
         .select("*")
         .in("id", paperIds);
 
-      if (papersError || !paperRows || paperRows.length === 0) {
+      if (papersError) {
+        console.warn("[question-paper-api]", {
+          requestId,
+          operation: "list_papers",
+          outcome: "database_error",
+        });
+        return questionPaperServerError(requestId);
+      }
+      if (!paperRows || paperRows.length === 0) {
         return NextResponse.json({
           success: true,
           papers: [],
@@ -175,7 +198,7 @@ export async function GET(request: NextRequest) {
                 type: (q.type as Question["type"]) || "Short",
                 marks: Number(q.marks) ?? 0,
                 diagram: (q as { diagram?: string }).diagram ?? undefined,
-                diagram_url: (q as { diagram_url?: string }).diagram_url ?? undefined,
+                diagram_url: signedDiagramUrls.get(q.id),
               })
             );
           return {
@@ -191,30 +214,27 @@ export async function GET(request: NextRequest) {
         }
       );
       const stats = getStatistics(papers);
-      const totalQuestionsFromPapers = papers.reduce((sum, p) => sum + p.questions.length, 0);
-      console.log("[GET /api/question-papers] Using Supabase. Papers:", papers.length, "Total questions in response:", totalQuestionsFromPapers);
       return NextResponse.json({
         success: true,
         papers,
         statistics: stats,
         count: papers.length,
       });
-    } catch (supabaseError) {
-      console.error("Supabase fetch error:", supabaseError);
-      return NextResponse.json({
-        success: true,
-        papers: [],
-        statistics: { totalPapers: 0, totalQuestions: 0, bySubject: {}, byType: {} },
-        count: 0,
+    } catch {
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "list",
+        outcome: "database_exception",
       });
+      return questionPaperServerError(requestId);
     }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error fetching question papers:", error);
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+  } catch {
+    console.warn("[question-paper-api]", {
+      requestId,
+      operation: "list",
+      outcome: "request_error",
+    });
+    return questionPaperServerError(requestId);
   }
 }
 
@@ -223,9 +243,42 @@ export async function GET(request: NextRequest) {
  * Upload and process a PDF file
  */
 export async function POST(request: NextRequest) {
+  const authorization = await requireQuestionPaperApiAccess(request, {
+    mutation: true,
+  });
+  if (!authorization.ok) return authorization.response;
+  const { requestId } = authorization;
+  const limits = getUploadLimits();
+  const contentLengthError = validateUploadContentLength(
+    request.headers.get("content-length"),
+    limits.maxBytes,
+  );
+  if (contentLengthError) {
+    return NextResponse.json(
+      { success: false, error: contentLengthError.error, requestId },
+      { status: contentLengthError.status },
+    );
+  }
+
+  const temporaryPaths = new Set<string>();
   try {
     const formData = await request.formData();
-    const file = formData.get("file") as File;
+    const files = formData.getAll("file");
+    const allUploadedFiles = Array.from(formData.values()).filter(
+      (value): value is File => value instanceof File,
+    );
+    if (
+      files.length !== 1 ||
+      !(files[0] instanceof File) ||
+      allUploadedFiles.length !== 1 ||
+      allUploadedFiles[0] !== files[0]
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Exactly one PDF document is required", requestId },
+        { status: 422 },
+      );
+    }
+    const file = files[0];
     const subject = formData.get("subject") as string;
     const gradeParam = formData.get("grade") as string;
     const year = formData.get("year") as string;
@@ -251,12 +304,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type
-    if (file.type !== "application/pdf") {
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const uploadValidation = validatePdfUpload({
+      name: file.name,
+      mimeType: file.type,
+      bytes: buffer,
+      maxBytes: limits.maxBytes,
+      maxPages: limits.maxPages,
+    });
+    if (uploadValidation.status !== 200) {
       return NextResponse.json(
-        { success: false, error: "Only PDF files are allowed" },
-        { status: 400 }
+        { success: false, error: uploadValidation.error, requestId },
+        { status: uploadValidation.status },
       );
+    }
+
+    const hasSupabase =
+      process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!hasSupabase) {
+      return questionPaperServerError(requestId);
     }
 
     // Save uploaded file temporarily
@@ -265,19 +333,17 @@ export async function POST(request: NextRequest) {
       await mkdir(uploadsDir, { recursive: true });
     }
 
-    const timestamp = Date.now();
-    const filename = `paper_${timestamp}.pdf`;
+    const uploadId = randomUUID();
+    const filename = `paper_${uploadId}.pdf`;
     const filepath = join(uploadsDir, filename);
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
     await writeFile(filepath, buffer);
+    temporaryPaths.add(filepath);
 
-    // Run OCR extraction script; write to a temp JSON file (not question-papers.json)
-    const scriptPath = join(process.cwd(), "scripts", "extract_pdf.py");
     const dataDir = join(process.cwd(), "data");
     if (!existsSync(dataDir)) await mkdir(dataDir, { recursive: true });
-    const tempOutputPath = join(dataDir, `extract_${timestamp}.json`);
+    const tempOutputPath = join(dataDir, `extract_${uploadId}.json`);
+    temporaryPaths.add(tempOutputPath);
 
     const isWindows = platform() === "win32";
     const venvPython = isWindows
@@ -285,7 +351,39 @@ export async function POST(request: NextRequest) {
       : join(process.cwd(), "venv", "bin", "python3");
     const systemPython = isWindows ? "python" : "python3";
     const pythonCmd = existsSync(venvPython) ? venvPython : systemPython;
+    const validateScript = join(process.cwd(), "scripts", "validate_pdf_pages.py");
+    if (!existsSync(validateScript)) {
+      return questionPaperServerError(requestId);
+    }
+    try {
+      await execFileAsync(
+        pythonCmd,
+        [
+          validateScript,
+          "--pdf",
+          filepath,
+          "--max-pages",
+          String(limits.maxPages),
+        ],
+        {
+          cwd: process.cwd(),
+          maxBuffer: 64 * 1024,
+          timeout: limits.pdfTimeoutMs,
+          killSignal: "SIGKILL",
+        },
+      );
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "The PDF could not be validated",
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
 
+    const scriptPath = join(process.cwd(), "scripts", "extract_pdf.py");
     const args = [
       scriptPath,
       "--pdf", filepath,
@@ -295,11 +393,6 @@ export async function POST(request: NextRequest) {
       "--output", tempOutputPath,
     ];
 
-    console.log("Executing OCR script:", pythonCmd, args.join(" "));
-
-    const hasSupabase =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -307,36 +400,52 @@ export async function POST(request: NextRequest) {
       GEMINI_API_KEY:
         process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
       GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+      QUESTION_PAPER_MAX_PDF_PAGES: String(limits.maxPages),
     };
 
     try {
-      const { stdout, stderr } = await execFileAsync(pythonCmd, args, {
+      await execFileAsync(pythonCmd, args, {
         cwd: process.cwd(),
         maxBuffer: 10 * 1024 * 1024,
         env: childEnv,
+        timeout: limits.ocrTimeoutMs,
+        killSignal: "SIGKILL",
       });
-
-      console.log("OCR Output (stdout):", stdout);
-      if (stderr) console.error("OCR Warnings/Errors (stderr):", stderr);
 
       // Read extraction result from temp file (no readDatabase)
       const raw = await readFile(tempOutputPath, "utf-8");
       const db = JSON.parse(raw) as { papers: QuestionPaper[] };
       const newPaper = db.papers[db.papers.length - 1];
       if (!newPaper) {
-        await unlink(tempOutputPath).catch(() => {});
         return NextResponse.json(
-          { success: false, error: "No paper extracted from PDF" },
-          { status: 500 }
+          {
+            success: false,
+            error: "No questions could be extracted from the PDF",
+            requestId,
+          },
+          { status: 422 },
+        );
+      }
+      if (newPaper.questions.length === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "No questions could be extracted from the PDF",
+            requestId,
+          },
+          { status: 422 },
         );
       }
 
       let questionsInserted = 0;
       let skippedDuplicatesSupabase = 0;
 
-      if (hasSupabase && newPaper.questions.length > 0) {
+      if (newPaper.questions.length > 0) {
+        let paperInserted = false;
         try {
-          await getSupabase().from("question_papers").insert({
+          const { error: paperInsertError } = await getSupabase()
+            .from("question_papers")
+            .insert({
             id: newPaper.id,
             subject: newPaper.subject,
             grade: gradeNum,
@@ -344,12 +453,20 @@ export async function POST(request: NextRequest) {
             total_questions: newPaper.questions.length,
             file_name: newPaper.filename,
           });
+          if (paperInsertError) {
+            throw new Error("paper_insert_failed");
+          }
+          paperInserted = true;
 
-          const { data: existingQuestions } = await getSupabase()
+          const { data: existingQuestions, error: existingQuestionsError } =
+            await getSupabase()
             .from("questions")
             .select("text")
             .eq("grade", gradeNum)
             .eq("subject", subject);
+          if (existingQuestionsError) {
+            throw new Error("duplicate_check_failed");
+          }
           const existingTexts = (existingQuestions ?? []).map((r) =>
             normalizeText((r as { text?: string }).text ?? "")
           );
@@ -380,30 +497,46 @@ export async function POST(request: NextRequest) {
               .insert(questionsToInsert);
 
             if (insertError) {
-              console.error("[POST /api/question-papers] QUESTIONS INSERT ERROR:", JSON.stringify(insertError, null, 2));
-              questionsInserted = 0;
+              throw new Error("question_insert_failed");
             } else {
               questionsInserted = questionsToInsert.length;
-              console.log(`[POST /api/question-papers] Successfully inserted ${questionsToInsert.length} questions`);
             }
+          } else {
+            const { error: emptyPaperCleanupError } = await getSupabase()
+              .from("question_papers")
+              .delete()
+              .eq("id", newPaper.id);
+            if (emptyPaperCleanupError) {
+              throw new Error("empty_paper_cleanup_failed");
+            }
+            paperInserted = false;
+            return NextResponse.json({
+              success: true,
+              partial: true,
+              paper: newPaper,
+              message: "No new questions were saved because all were duplicates",
+              duplicatesSkipped: skippedDuplicatesSupabase,
+              questionsInserted: 0,
+            });
           }
-          console.log(
-            `[POST /api/question-papers] inserted=${questionsInserted}, skipped_duplicates=${skippedDuplicatesSupabase}`
-          );
-        } catch (supabaseErr) {
-          console.warn("Supabase insert failed:", supabaseErr);
+        } catch {
+          console.warn("[question-paper-api]", {
+            requestId,
+            operation: "persist_extraction",
+            outcome: "database_error",
+          });
+          if (paperInserted) {
+            await getSupabase()
+              .from("questions")
+              .delete()
+              .eq("paper_id", newPaper.id);
+            await getSupabase()
+              .from("question_papers")
+              .delete()
+              .eq("id", newPaper.id);
+          }
+          return questionPaperServerError(requestId);
         }
-      }
-
-      try {
-        await unlink(tempOutputPath);
-      } catch (e) {
-        console.error("Error deleting temp extract file:", e);
-      }
-      try {
-        await unlink(filepath);
-      } catch (e) {
-        console.error("Error deleting temp upload file:", e);
       }
 
       return NextResponse.json({
@@ -411,47 +544,27 @@ export async function POST(request: NextRequest) {
         paper: newPaper,
         message: `Successfully extracted ${newPaper.questions.length} questions`,
         duplicatesSkipped: skippedDuplicatesSupabase,
-        questionsInserted: hasSupabase ? questionsInserted : undefined,
+        questionsInserted,
       });
-    } catch (execError: any) {
-      console.error("=== OCR Script Execution Failed ===");
-      console.error("Python:", pythonCmd, "Args:", args);
-      console.error("Error message:", execError.message);
-      if (execError.stdout) console.error("Stdout:", execError.stdout);
-      if (execError.stderr) console.error("Stderr:", execError.stderr);
+    } catch {
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "extract_pdf",
+        outcome: "processing_error",
+      });
 
-      try {
-        await unlink(filepath);
-      } catch (e) {
-        console.error("Error deleting temp file:", e);
-      }
-
-      const stderr = execError.stderr?.trim() || execError.stdout?.trim() || "";
-      const hasPopplerHint =
-        /poppler|pdftoppm|Unable to get page count/i.test(stderr) ||
-        /PDFInfoNotFound|pdf2image/i.test(execError.message || "");
-      const hasImportError = /ModuleNotFoundError|ImportError|No module named/i.test(stderr || execError.message || "");
-      let userError = "OCR processing failed. Make sure Python dependencies are installed.";
-      if (hasPopplerHint) {
-        userError =
-          "PDF conversion failed: Poppler is required. Install poppler-utils (Linux), brew install poppler (macOS), or add Poppler to PATH on Windows. See SETUP_QUESTION_BANK.md.";
-      } else if (hasImportError) {
-        userError =
-          "Python dependencies missing. Run: pip install -r requirements.txt (and ensure venv is activated if you use one).";
-      } else if (stderr) {
-        userError = stderr.slice(0, 500);
-      }
-
-      return NextResponse.json(
-        { success: false, error: userError, details: { message: execError.message } },
-        { status: 500 }
-      );
+      return questionPaperServerError(requestId);
     }
-  } catch (error: any) {
-    console.error("Error uploading question paper:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
+  } catch {
+    console.warn("[question-paper-api]", {
+      requestId,
+      operation: "upload",
+      outcome: "request_error",
+    });
+    return questionPaperServerError(requestId);
+  } finally {
+    await Promise.all(
+      [...temporaryPaths].map((path) => unlink(path).catch(() => {})),
     );
   }
 }
@@ -461,6 +574,12 @@ export async function POST(request: NextRequest) {
  * Delete questions by IDs or clear all (Supabase only).
  */
 export async function DELETE(request: NextRequest) {
+  const authorization = await requireQuestionPaperApiAccess(request, {
+    mutation: true,
+  });
+  if (!authorization.ok) return authorization.response;
+  const { requestId } = authorization;
+
   try {
     let body: any = {};
     try {
@@ -474,23 +593,33 @@ export async function DELETE(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!hasSupabase) {
-      return NextResponse.json(
-        { success: false, error: "Supabase not configured" },
-        { status: 503 }
-      );
+      return questionPaperServerError(requestId);
     }
 
     if (!questionIds || questionIds.length === 0) {
-      const { data: allQuestions } = await getSupabase().from("questions").select("id");
+      const { data: allQuestions, error: listQuestionsError } =
+        await getSupabase().from("questions").select("id");
+      if (listQuestionsError) return questionPaperServerError(requestId);
       const ids = (allQuestions ?? []).map((r: { id: string }) => r.id);
       const deletedCount = ids.length;
       if (ids.length > 0) {
-        await getSupabase().from("questions").delete().in("id", ids);
+        const { error: deleteQuestionsError } = await getSupabase()
+          .from("questions")
+          .delete()
+          .in("id", ids);
+        if (deleteQuestionsError) return questionPaperServerError(requestId);
       }
-      const { data: allPapers } = await getSupabase().from("question_papers").select("id");
+      const { data: allPapers, error: listPapersError } = await getSupabase()
+        .from("question_papers")
+        .select("id");
+      if (listPapersError) return questionPaperServerError(requestId);
       const paperIds = (allPapers ?? []).map((r: { id: string }) => r.id);
       if (paperIds.length > 0) {
-        await getSupabase().from("question_papers").delete().in("id", paperIds);
+        const { error: deletePapersError } = await getSupabase()
+          .from("question_papers")
+          .delete()
+          .in("id", paperIds);
+        if (deletePapersError) return questionPaperServerError(requestId);
       }
       return NextResponse.json({
         success: true,
@@ -501,23 +630,25 @@ export async function DELETE(request: NextRequest) {
 
     const { error } = await getSupabase().from("questions").delete().in("id", questionIds);
     if (error) {
-      console.error("Delete questions error:", error);
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "delete_questions",
+        outcome: "database_error",
+      });
+      return questionPaperServerError(requestId);
     }
     return NextResponse.json({
       success: true,
       message: `Deleted ${questionIds.length} question(s)`,
       deletedCount: questionIds.length,
     });
-  } catch (error: any) {
-    console.error("Error deleting questions:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+  } catch {
+    console.warn("[question-paper-api]", {
+      requestId,
+      operation: "delete_questions",
+      outcome: "request_error",
+    });
+    return questionPaperServerError(requestId);
   }
 }
 

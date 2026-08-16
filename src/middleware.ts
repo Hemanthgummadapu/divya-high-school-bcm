@@ -1,5 +1,6 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import { evaluateQuestionPaperIdentity } from "@/lib/question-paper-security-policy.mjs";
 
 export default withAuth(
   function middleware(req) {
@@ -7,7 +8,44 @@ export default withAuth(
     const role = token?.role as "admin" | "staff" | "student" | undefined;
     const { pathname, origin } = req.nextUrl;
 
+    if (pathname === "/academics/question-papers/access-denied") {
+      return NextResponse.next();
+    }
+
+    if (pathname.startsWith("/academics/question-papers")) {
+      const decision = evaluateQuestionPaperIdentity({
+        sessionPresent: Boolean(token),
+        email: token?.email,
+        emailVerified: token?.emailVerified,
+        allowedEmailsValue: process.env.QUESTION_PAPER_ALLOWED_EMAILS,
+      });
+
+      if (!decision.allowed) {
+        if (decision.status === 401) {
+          const loginUrl = new URL("/login", origin);
+          loginUrl.searchParams.set("callbackUrl", req.nextUrl.href);
+          return NextResponse.redirect(loginUrl);
+        }
+        return NextResponse.redirect(
+          new URL("/academics/question-papers/access-denied", origin),
+        );
+      }
+
+      return NextResponse.next();
+    }
+
     if (!role) {
+      const questionPaperAccess = evaluateQuestionPaperIdentity({
+        sessionPresent: Boolean(token),
+        email: token?.email,
+        emailVerified: token?.emailVerified,
+        allowedEmailsValue: process.env.QUESTION_PAPER_ALLOWED_EMAILS,
+      });
+      if (questionPaperAccess.allowed) {
+        return NextResponse.redirect(
+          new URL("/academics/question-papers", origin),
+        );
+      }
       const loginUrl = new URL("/login", origin);
       return NextResponse.redirect(loginUrl);
     }
@@ -56,6 +94,7 @@ export const config = {
     "/staff-portal/:path*",
     "/student-portal",
     "/student-portal/:path*",
+    "/academics/question-papers",
+    "/academics/question-papers/:path*",
   ],
 };
-

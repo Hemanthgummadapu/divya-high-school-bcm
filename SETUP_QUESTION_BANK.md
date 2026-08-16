@@ -190,3 +190,24 @@ Generate a paper from selected questions:
 - Question patterns are detected automatically
 - Manual review recommended for extracted questions
 
+## Phase 1 deployment blockers and containment notes
+
+### Gemini production dependency (extraction blocker)
+
+`scripts/extract_pdf.py` defaults to Gemini (`USE_GEMINI = True`) and imports `google.generativeai`. That package is listed in `requirements.txt`, but the Railway `Dockerfile` installs only:
+
+`reportlab pillow requests pypdf pdf2image anthropic python-dotenv`
+
+`pypdf` is present in the production image. `google-generativeai` is not. Until the image is updated, default PDF extraction will fail in production. This is a known deployment/feature blocker and was not changed in Phase 1.
+
+### Containment migration (do not auto-apply)
+
+`supabase/migrations/20260816000000_question_paper_phase_1_containment.sql` is a manual, unapplied artifact. Do not apply it automatically during application deployment.
+
+Before applying it:
+
+1. Deploy the Phase 1 application code first. The `diagrams` bucket must stay readable by the old public-URL path until the new signed-URL code is live.
+2. Require authorized users to sign out and sign in again so sessions include the Google `emailVerified` claim.
+3. Capture current table, sequence, routine, RLS, `storage.objects` policies, `diagrams` bucket public flag, existing `diagram_url` values, and an exact rollback script.
+4. Apply the SQL only during a reviewed maintenance window, then run the verification queries in the migration file.
+

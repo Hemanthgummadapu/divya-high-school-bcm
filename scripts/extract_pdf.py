@@ -62,6 +62,34 @@ def effective_gemini_api_key() -> str | None:
 USE_GEMINI = True  # Set False to fall back to Claude Haiku
 EXTRACT_DPI = 250  # PDF page render DPI (was 150; higher helps Telugu glyphs)
 
+
+def bounded_max_pdf_pages() -> int:
+    """Return a safe configured page cap; never permit an unlimited value."""
+    try:
+        configured = int(os.getenv("QUESTION_PAPER_MAX_PDF_PAGES", "20"))
+    except (TypeError, ValueError):
+        configured = 20
+    return max(1, min(configured, 100))
+
+
+MAX_PDF_PAGES = bounded_max_pdf_pages()
+
+
+def validate_pdf_page_count(pdf_path: str) -> int:
+    """Parse the PDF and enforce the page cap before conversion or AI setup."""
+    try:
+        total_pages = len(PdfReader(pdf_path).pages)
+    except Exception:
+        print("Error: PDF could not be parsed")
+        sys.exit(1)
+    if total_pages <= 0:
+        print("Error: Could not determine PDF page count")
+        sys.exit(1)
+    if total_pages > MAX_PDF_PAGES:
+        print(f"Error: PDF exceeds the {MAX_PDF_PAGES}-page processing limit")
+        sys.exit(1)
+    return total_pages
+
 print(
     f"DEBUG: GEMINI_API_KEY set: {bool(os.getenv('GEMINI_API_KEY'))} | "
     f"GOOGLE_API_KEY set: {bool(os.getenv('GOOGLE_API_KEY'))} | "
@@ -209,8 +237,10 @@ CRITICAL TELUGU LANGUAGE INSTRUCTIONS:
 def parse_model_json_response(response_text: str, page_num: int, provider: str) -> Dict[str, Any]:
     """Parse JSON object from model output (Claude or Gemini)."""
     response_text = (response_text or "").strip()
-    print(f"=== PAGE {page_num} RAW RESPONSE ({provider}) ===")
-    print(response_text)
+    print(
+        f"Page {page_num}: {provider} response received "
+        f"({len(response_text)} characters)"
+    )
 
     json_start = response_text.find("{")
     json_end = response_text.rfind("}") + 1
@@ -225,7 +255,6 @@ def parse_model_json_response(response_text: str, page_num: int, provider: str) 
             result = json.loads(json_str)
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON from {provider} for page {page_num}: {e}")
-            print(f"Response was: {response_text[:200]}...")
             return {"section": "SECTION-A", "questions": []}
 
         if isinstance(result, dict) and "sections" in result and isinstance(result["sections"], list):
@@ -366,12 +395,20 @@ def process_one_page(
 
 
 class QuestionExtractor:
-    def __init__(self, pdf_path: str, subject: str, grade: str, year: str):
+    def __init__(
+        self,
+        pdf_path: str,
+        subject: str,
+        grade: str,
+        year: str,
+        validated_page_count: int,
+    ):
         self.pdf_path = pdf_path
         self.subject = subject
         self.grade = grade
         self.year = year
         self.questions = []
+        self._validated_page_count = validated_page_count
 
         if USE_GEMINI:
             if not effective_gemini_api_key():
@@ -388,13 +425,8 @@ class QuestionExtractor:
             self.claude_client = Anthropic(api_key=api_key)
         
     def _get_total_pages(self) -> int:
-        """Get total number of pages in PDF using pypdf (reliable, no image conversion)."""
-        try:
-            reader = PdfReader(self.pdf_path)
-            return len(reader.pages)
-        except Exception as e:
-            print(f"Error counting pages: {e}")
-            return 0
+        """Return the page count validated before provider initialization."""
+        return self._validated_page_count
     
     def extract_questions_from_pdf(self) -> List[Dict[str, Any]]:
         """Convert PDF pages to images and extract questions using Gemini or Claude vision."""
@@ -405,7 +437,7 @@ class QuestionExtractor:
             if total_pages == 0:
                 print("Error: Could not determine PDF page count")
                 sys.exit(1)
-            
+
             self._page_count = total_pages
             print(f"Total pages: {total_pages}")
             if USE_GEMINI:
@@ -746,6 +778,8 @@ def main():
         print(f"Error: PDF file not found: {args.pdf}")
         sys.exit(1)
 
+    validated_page_count = validate_pdf_page_count(args.pdf)
+
     # Fail fast if poppler/pdf2image cannot run (clear error for API caller)
     check_poppler_available(args.pdf)
 
@@ -753,7 +787,13 @@ def main():
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     
     # Extract questions
-    extractor = QuestionExtractor(args.pdf, args.subject, args.grade, args.year)
+    extractor = QuestionExtractor(
+        args.pdf,
+        args.subject,
+        args.grade,
+        args.year,
+        validated_page_count,
+    )
     extractor.questions = extractor.extract_questions_from_pdf()
     
     # Duplicate detection: skip questions >85% similar to existing for same subject+grade
