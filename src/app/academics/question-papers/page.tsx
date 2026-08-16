@@ -1452,6 +1452,10 @@ export default function QuestionPapers() {
               ? ` · Class ${romanClass(selectionConflict.grade)} ${selectionConflict.subject || ""}`
               : ""}
           </p>
+          <p className="mb-4 text-sm text-slate-600">
+            This paper uses one section. Every selected question is placed in
+            the section below. Multiple sections are not edited in this screen.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div className="md:col-span-3">
               <label htmlFor="builder-title" className={labelClass}>

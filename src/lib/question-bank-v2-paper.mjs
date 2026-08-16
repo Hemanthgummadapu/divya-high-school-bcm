@@ -103,12 +103,10 @@ export function canSignGeneratedPaper(paperId, storedPath) {
 
 export function pdfStatusLabel(row) {
   if (row.status === "archived") return "Archived";
-  if (row.status === "draft") return "Generating";
   if (row.status === "final" && row.pdf_storage_path && row.pdf_sha256) {
     return "Ready";
   }
-  if (row.status === "final") return "PDF pending";
-  return row.status;
+  return "PDF pending";
 }
 
 export function findClientSnapshotKeys(body) {

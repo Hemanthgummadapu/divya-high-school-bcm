@@ -155,7 +155,11 @@ export async function listSavedPapers(filters: {
   if (filters.grade != null) query = query.eq("grade", filters.grade);
   if (filters.subject) query = query.eq("subject", filters.subject);
   if (filters.year != null) query = query.eq("academic_year", filters.year);
-  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.status) {
+    query = query.eq("status", filters.status);
+  } else {
+    query = query.in("status", ["final", "archived"]);
+  }
   const { data, error, count } = await query
     .order("finalized_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
