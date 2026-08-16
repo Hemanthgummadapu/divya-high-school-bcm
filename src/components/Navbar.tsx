@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Lock, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 const ABOUT_LINKS = [
   { href: "/about", label: "Overview" },
@@ -12,45 +12,30 @@ const ABOUT_LINKS = [
   { href: "/academics/faculty", label: "Faculty" },
 ];
 
-/** Preserves portal routes in markup; visible UI is coming-soon only */
 function LoginDropdownPanel({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="relative bg-primary-blue border border-white/10 rounded-md shadow-lg min-w-[200px] overflow-hidden">
-      <div className="invisible pointer-events-none select-none" aria-hidden="true">
-        <Link
-          href="/student-portal"
-          className="block px-4 py-2.5 text-white hover:text-[#bfdbfe] hover:bg-white/5 transition-colors duration-300 text-sm"
-          onClick={onNavigate}
-          tabIndex={-1}
-        >
-          Student
-        </Link>
-        <Link
-          href="/staff-portal"
-          className="block px-4 py-2.5 text-white hover:text-[#bfdbfe] hover:bg-white/5 transition-colors duration-300 text-sm"
-          onClick={onNavigate}
-          tabIndex={-1}
-        >
-          Staff
-        </Link>
-        <Link
-          href="/admin-portal"
-          className="block px-4 py-2.5 text-white hover:text-[#bfdbfe] hover:bg-white/5 transition-colors duration-300 text-sm"
-          onClick={onNavigate}
-          tabIndex={-1}
-        >
-          Admin
-        </Link>
-      </div>
-      <div
-        className="absolute inset-0 flex flex-col items-center justify-center px-4 py-5 text-center bg-primary-blue pointer-events-none"
-        role="status"
-        aria-live="polite"
+    <div className="bg-primary-blue border border-white/10 rounded-md shadow-lg min-w-[200px] overflow-hidden py-1">
+      <Link
+        href="/student-portal"
+        className="block px-4 py-2.5 text-white hover:text-[#bfdbfe] hover:bg-white/5 transition-colors duration-300 text-sm"
+        onClick={onNavigate}
       >
-        <Lock className="w-5 h-5 text-[#bfdbfe] mb-2" aria-hidden="true" />
-        <p className="text-sm font-semibold text-white font-heading">Coming Soon</p>
-        <p className="text-xs text-white/70 mt-1 leading-snug">Student &amp; staff portal launching soon.</p>
-      </div>
+        Student
+      </Link>
+      <Link
+        href="/staff-portal"
+        className="block px-4 py-2.5 text-white hover:text-[#bfdbfe] hover:bg-white/5 transition-colors duration-300 text-sm"
+        onClick={onNavigate}
+      >
+        Staff
+      </Link>
+      <Link
+        href="/admin-portal"
+        className="block px-4 py-2.5 text-white hover:text-[#bfdbfe] hover:bg-white/5 transition-colors duration-300 text-sm"
+        onClick={onNavigate}
+      >
+        Admin
+      </Link>
     </div>
   );
 }
