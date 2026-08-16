@@ -29,6 +29,7 @@ export function getUploadLimits(
 export function validateUploadContentLength(
   contentLength: string | null,
   maxBytes: number,
+  options?: { required?: boolean },
 ): UploadValidationError | null;
 export function countPdfPages(bytes: Uint8Array): number;
 export function validatePngDiagram(

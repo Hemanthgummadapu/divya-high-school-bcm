@@ -198,6 +198,8 @@ It adds four empty tables (`question_sources`, `question_bank_questions`, `saved
 
 Keep `scripts/question-bank-v2-rollback.sql` available. It drops only empty Phase 2B objects.
 
+Phase 2C (unreleased) connects `POST /api/question-papers` to V2 `question_sources` / `persist_extracted_questions`. Extracted questions are stored with `review_status = needs_review`. The Question Bank UI still reads legacy tables until Phase 2D. A source left in `processing` after a crash is visible in V2 data; Phase 2D may add a retry action. Do not reprocess failed or partial sources automatically.
+
 Do not apply further schema changes automatically during application deployment.
 
 ## Phase 1 deployment blockers and containment notes

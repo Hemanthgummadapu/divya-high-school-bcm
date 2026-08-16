@@ -36,13 +36,6 @@ except ImportError as e:
 # Disable PIL decompression bomb warnings for very large scanned PDFs
 Image.MAX_IMAGE_PIXELS = None
 
-# In production (Railway), env vars are set directly in the environment
-# In development, they come from .env.local
-print(
-    f"DEBUG: ANTHROPIC_API_KEY present: {bool(os.getenv('ANTHROPIC_API_KEY'))}",
-    file=sys.stderr,
-)
-
 # Load environment variables (project root = parent of scripts/). Optional in production.
 load_dotenv(
     dotenv_path=Path(__file__).resolve().parent.parent / ".env.local",
@@ -106,9 +99,10 @@ def check_poppler_available(pdf_path: str) -> None:
             sys.exit(1)
         raise
 
-# Cache directory for processed pages
-CACHE_DIR = Path("data/ocr_cache")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+RESULT_SCHEMA_VERSION = 1
+MAX_RESULT_BYTES = 2 * 1024 * 1024
+MAX_QUESTIONS_PER_PAGE = 50
+ALLOWED_QUESTION_TYPES = ("MCQ", "Short", "Medium", "Long")
 
 # Claude API prompt
 CLAUDE_PROMPT = """You are extracting questions from an Indian school exam paper image.
@@ -173,53 +167,88 @@ Rules:
 - Return ONLY valid JSON, nothing else."""
 
 
-def parse_model_json_response(response_text: str, page_num: int, provider: str) -> Dict[str, Any]:
-    """Parse JSON object from Anthropic model output."""
+def classify_provider_error(error: Exception) -> str:
+    message = str(error).lower()
+    if "timeout" in message or "timed out" in message:
+        return "timeout"
+    if "529" in message or "overloaded" in message or "rate" in message:
+        return "provider"
+    if "json" in message or "parse" in message:
+        return "parse"
+    return "provider"
+
+
+def failed_page(page_num: int, error_category: str) -> Dict[str, Any]:
+    return {
+        "pageNumber": page_num,
+        "status": "failed",
+        "errorCategory": error_category,
+        "questions": [],
+    }
+
+
+def succeeded_page(page_num: int, questions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "pageNumber": page_num,
+        "status": "succeeded",
+        "questions": questions,
+    }
+
+
+def parse_model_json_response(response_text: str, page_num: int) -> Dict[str, Any]:
+    """Parse JSON object from Anthropic model output. Never logs response text."""
     response_text = (response_text or "").strip()
-    print(
-        f"Page {page_num}: {provider} response received "
-        f"({len(response_text)} characters)"
-    )
+    if len(response_text) > MAX_RESULT_BYTES:
+        return {"ok": False, "error_category": "validation"}
 
     json_start = response_text.find("{")
     json_end = response_text.rfind("}") + 1
 
-    if json_start >= 0 and json_end > json_start:
-        json_str = response_text[json_start:json_end]
-        json_str = json_str.replace("\\ ", "\\\\ ")
-        json_str = json_str.replace("\\+", "\\\\+")
-        json_str = json_str.replace("\\=", "\\\\=")
-        json_str = re.sub(r'\\([^"\\/bfnrtu0-9])', r"\\\\\1", json_str)
-        try:
-            result = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON from {provider} for page {page_num}: {e}")
-            return {"section": "SECTION-A", "questions": []}
+    if json_start < 0 or json_end <= json_start:
+        return {"ok": False, "error_category": "parse"}
 
-        if isinstance(result, dict) and "sections" in result and isinstance(result["sections"], list):
-            all_questions: List[Dict[str, Any]] = []
-            first_section_name: str | None = None
-            for sec_obj in result["sections"]:
-                if not isinstance(sec_obj, dict):
-                    continue
-                sec_name = sec_obj.get("section")
-                if first_section_name is None and isinstance(sec_name, str):
-                    first_section_name = sec_name
-                sec_questions = sec_obj.get("questions") or []
-                if isinstance(sec_questions, list):
-                    for q in sec_questions:
-                        if isinstance(q, dict) and sec_name and "section" not in q:
-                            q["section"] = sec_name
-                    all_questions.extend([q for q in sec_questions if isinstance(q, dict)])
-            return {
-                "section": first_section_name or "SECTION-A",
-                "questions": all_questions,
-            }
+    json_str = response_text[json_start:json_end]
+    json_str = json_str.replace("\\ ", "\\\\ ")
+    json_str = json_str.replace("\\+", "\\\\+")
+    json_str = json_str.replace("\\=", "\\\\=")
+    json_str = re.sub(r'\\([^"\\/bfnrtu0-9])', r"\\\\\1", json_str)
+    try:
+        result = json.loads(json_str)
+    except json.JSONDecodeError:
+        return {"ok": False, "error_category": "parse"}
 
-        return result
+    if not isinstance(result, dict):
+        return {"ok": False, "error_category": "parse"}
 
-    print(f"Warning: No valid JSON found in {provider} response for page {page_num}")
-    return {"section": "SECTION-A", "questions": []}
+    if "sections" in result and isinstance(result["sections"], list):
+        all_questions: List[Dict[str, Any]] = []
+        first_section_name: str | None = None
+        for sec_obj in result["sections"]:
+            if not isinstance(sec_obj, dict):
+                continue
+            sec_name = sec_obj.get("section")
+            if first_section_name is None and isinstance(sec_name, str):
+                first_section_name = sec_name
+            sec_questions = sec_obj.get("questions") or []
+            if isinstance(sec_questions, list):
+                for q in sec_questions:
+                    if isinstance(q, dict) and sec_name and "section" not in q:
+                        q["section"] = sec_name
+                all_questions.extend([q for q in sec_questions if isinstance(q, dict)])
+        return {
+            "ok": True,
+            "section": first_section_name or "SECTION-A",
+            "questions": all_questions,
+        }
+
+    questions = result.get("questions")
+    if not isinstance(questions, list):
+        return {"ok": False, "error_category": "parse"}
+    return {
+        "ok": True,
+        "section": result.get("section") or "SECTION-A",
+        "questions": [q for q in questions if isinstance(q, dict)],
+    }
 
 
 def get_page_hash(pdf_path: str, page_num: int) -> str:
@@ -229,24 +258,22 @@ def get_page_hash(pdf_path: str, page_num: int) -> str:
     return hashlib.md5(content.encode()).hexdigest()
 
 
-def get_cached_result(page_hash: str) -> Dict[str, Any] | None:
-    """Get cached extraction result for a page"""
-    cache_file = CACHE_DIR / f"{page_hash}.json"
+def get_cached_result(work_dir: Path, page_hash: str) -> Dict[str, Any] | None:
+    cache_file = work_dir / f"{page_hash}.json"
     if cache_file.exists():
         try:
-            return json.loads(cache_file.read_text(encoding='utf-8'))
-        except:
+            return json.loads(cache_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
             return None
     return None
 
 
-def save_cached_result(page_hash: str, result: Dict[str, Any]):
-    """Save extraction result to cache"""
-    cache_file = CACHE_DIR / f"{page_hash}.json"
+def save_cached_result(work_dir: Path, page_hash: str, result: Dict[str, Any]) -> None:
+    cache_file = work_dir / f"{page_hash}.json"
     try:
-        cache_file.write_text(json.dumps(result, indent=2), encoding='utf-8')
-    except:
-        pass  # Ignore cache write errors
+        cache_file.write_text(json.dumps(result), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def image_to_base64(image: Image.Image) -> str:
@@ -286,15 +313,79 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
                 ],
             )
             response_text = message.content[0].text.strip()
-            return parse_model_json_response(response_text, page_num, "Claude")
+            return parse_model_json_response(response_text, page_num)
         except Exception as e:
             msg = str(e)
             if ("529" in msg or "overloaded" in msg.lower()) and attempt < max_attempts:
-                print(f"Claude API overloaded for page {page_num}, retrying in 5 seconds (attempt {attempt}/{max_attempts})...")
+                print(
+                    f"request page={page_num} outcome=provider_retry attempt={attempt}",
+                    file=sys.stderr,
+                )
                 time.sleep(5)
                 continue
-            print(f"Error calling Claude API for page {page_num}: {e}")
-            return {"section": "SECTION-A", "questions": []}
+            return {"ok": False, "error_category": classify_provider_error(e)}
+    return {"ok": False, "error_category": "provider"}
+
+
+def normalize_page_questions(
+    questions: List[Dict[str, Any]],
+    section: str,
+    extractor: "QuestionExtractor",
+) -> List[Dict[str, Any]] | None:
+    if len(questions) > MAX_QUESTIONS_PER_PAGE:
+        return None
+    normalized: List[Dict[str, Any]] = []
+    effective_section = section
+    if isinstance(effective_section, str) and re.match(
+        r"^JK-\d+$", effective_section.strip(), re.IGNORECASE
+    ):
+        effective_section = "SECTION-A"
+    for index, raw in enumerate(questions, start=1):
+        if not isinstance(raw, dict):
+            return None
+        text = raw.get("text") or raw.get("questionText")
+        if not isinstance(text, str) or not text.strip():
+            return None
+        question_type = raw.get("type") or raw.get("questionType")
+        if question_type not in ALLOWED_QUESTION_TYPES:
+            question_type = extractor.detect_question_type(text)
+        if question_type not in ALLOWED_QUESTION_TYPES:
+            return None
+        marks = raw.get("marks")
+        if marks is None:
+            marks = extractor.extract_marks(text, effective_section)
+        try:
+            marks = int(marks)
+        except (TypeError, ValueError):
+            return None
+        if marks < 1 or marks > 100:
+            return None
+        options = raw.get("options") or []
+        if not isinstance(options, list):
+            return None
+        cleaned_options: List[str] = []
+        for opt in options:
+            if isinstance(opt, str):
+                cleaned_options.append(re.sub(r"^[A-Da-d]\)\s*", "", opt))
+            elif isinstance(opt, dict) and opt.get("text"):
+                cleaned_options.append(str(opt.get("text")))
+            else:
+                return None
+        if question_type == "MCQ" and not (2 <= len(cleaned_options) <= 6):
+            return None
+        normalized.append(
+            {
+                "sourceOrder": index,
+                "questionType": question_type,
+                "questionText": text,
+                "rawExtractedText": text,
+                "marks": marks,
+                "sectionLabel": raw.get("section") or effective_section,
+                "options": cleaned_options if question_type == "MCQ" else [],
+                "correctAnswer": raw.get("correct_answer") or raw.get("correctAnswer"),
+            }
+        )
+    return normalized
 
 
 def process_one_page(
@@ -302,16 +393,34 @@ def process_one_page(
     client: Anthropic,
     image: Image.Image,
     page_num: int,
-) -> Tuple[int, List[Dict[str, Any]], str, bool]:
-    """Process a single page: cache lookup or Anthropic extraction. Returns (page_num, questions, section, was_cached)."""
+    work_dir: Path,
+    extractor: "QuestionExtractor",
+) -> Dict[str, Any]:
     page_hash = get_page_hash(pdf_path, page_num)
-    cached = get_cached_result(page_hash)
-    if cached:
-        return (page_num, cached.get("questions", []), cached.get("section", "SECTION-A"), True)
-    image_base64 = image_to_base64(image)
+    cached = get_cached_result(work_dir, page_hash)
+    if cached and cached.get("status") in ("succeeded", "failed"):
+        return cached
+    try:
+        image_base64 = image_to_base64(image)
+    except Exception:
+        return failed_page(page_num, "internal")
     result = extract_with_claude(client, image_base64, page_num)
-    save_cached_result(page_hash, result)
-    return (page_num, result.get("questions", []), result.get("section", "SECTION-A"), False)
+    if not result.get("ok"):
+        page = failed_page(page_num, result.get("error_category") or "provider")
+        save_cached_result(work_dir, page_hash, page)
+        return page
+    questions = normalize_page_questions(
+        result.get("questions") or [],
+        str(result.get("section") or "SECTION-A"),
+        extractor,
+    )
+    if questions is None:
+        page = failed_page(page_num, "validation")
+        save_cached_result(work_dir, page_hash, page)
+        return page
+    page = succeeded_page(page_num, questions)
+    save_cached_result(work_dir, page_hash, page)
+    return page
 
 
 class QuestionExtractor:
@@ -322,12 +431,14 @@ class QuestionExtractor:
         grade: str,
         year: str,
         validated_page_count: int,
+        work_dir: Path,
     ):
         self.pdf_path = pdf_path
         self.subject = subject
         self.grade = grade
         self.year = year
-        self.questions = []
+        self.work_dir = work_dir
+        self.page_results: List[Dict[str, Any]] = []
         self._validated_page_count = validated_page_count
 
         self.claude_client = Anthropic(api_key=require_anthropic_api_key())
@@ -336,44 +447,39 @@ class QuestionExtractor:
         """Return the page count validated before provider initialization."""
         return self._validated_page_count
     
-    def extract_questions_from_pdf(self) -> List[Dict[str, Any]]:
-        """Convert PDF pages to images and extract questions using Anthropic Claude vision."""
-        print(f"Converting PDF to images: {self.pdf_path}")
-        
+    def extract_page_results(self) -> List[Dict[str, Any]]:
+        """Convert PDF pages to images and extract one result per page."""
         try:
             total_pages = self._get_total_pages()
             if total_pages == 0:
-                print("Error: Could not determine PDF page count")
+                print("Error: Could not determine PDF page count", file=sys.stderr)
                 sys.exit(1)
 
             self._page_count = total_pages
-            print(f"Total pages: {total_pages}")
-            print("Using Claude API Vision for extraction...")
-            
-            all_questions = []
-            processed_count = 0
-            cached_count = 0
-            start_time = time.time()
-
-            # Process pages in parallel within each batch
+            page_results: List[Dict[str, Any]] = []
             batch_size = 8
-            max_workers = 3  # Parallel API calls per batch (limited to avoid overloading API)
-            batch_delay = 1.0  # 1 second delay between batches
+            max_workers = 3
+            batch_delay = 1.0
 
             for batch_start in range(1, total_pages + 1, batch_size):
                 batch_end = min(batch_start + batch_size - 1, total_pages)
-                print(f"\nProcessing batch: pages {batch_start}-{batch_end} of {total_pages} (parallel)")
-
-                # Convert batch to images (one convert_from_path per batch)
-                batch_images = convert_from_path(
-                    self.pdf_path,
-                    dpi=EXTRACT_DPI,
-                    first_page=batch_start,
-                    last_page=batch_end
+                print(
+                    f"request pages={batch_start}-{batch_end}/{total_pages} outcome=batch_start",
+                    file=sys.stderr,
                 )
+                try:
+                    batch_images = convert_from_path(
+                        self.pdf_path,
+                        dpi=EXTRACT_DPI,
+                        first_page=batch_start,
+                        last_page=batch_end,
+                    )
+                except Exception:
+                    for page_num in range(batch_start, batch_end + 1):
+                        page_results.append(failed_page(page_num, "internal"))
+                    continue
 
-                # Process all pages in this batch in parallel
-                batch_results = []
+                batch_results: List[Dict[str, Any]] = []
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = {
                         executor.submit(
@@ -382,6 +488,8 @@ class QuestionExtractor:
                             self.claude_client,
                             batch_images[i],
                             batch_start + i,
+                            self.work_dir,
+                            self,
                         ): batch_start + i
                         for i in range(len(batch_images))
                     }
@@ -389,79 +497,21 @@ class QuestionExtractor:
                         page_num = futures[future]
                         try:
                             batch_results.append(future.result())
-                        except Exception as e:
-                            print(f"Error processing page {page_num}: {e}")
-                            batch_results.append((page_num, [], "SECTION-A", False))
+                        except Exception:
+                            batch_results.append(failed_page(page_num, "internal"))
 
-                # Sort by page number to preserve order
-                batch_results.sort(key=lambda x: x[0])
-
-                for page_num, questions, section, was_cached in batch_results:
-                    if was_cached:
-                        cached_count += 1
-                    # Normalize section: ignore paper codes like "JK-82"
-                    import re
-                    effective_section = section
-                    if isinstance(effective_section, str) and re.match(r"^JK-\d+$", effective_section.strip(), re.IGNORECASE):
-                        effective_section = "SECTION-A"
-                    for q in questions:
-                        q["section"] = effective_section
-                        q["id"] = f"q_{uuid.uuid4().hex[:12]}"
-                        # Ensure type is one of the expected values
-                        if "type" not in q or q["type"] not in ["MCQ", "Short", "Long", "Medium"]:
-                            # Auto-detect type
-                            q["type"] = self.detect_question_type(q.get("text", ""))
-                        if "marks" not in q:
-                            q["marks"] = self.extract_marks(q.get("text", ""), q.get("section", ""))
-                        if "options" not in q:
-                            q["options"] = []
-                        # Clean MCQ option prefixes like "A)", "B)", "C)", "D)"
-                        if q.get("options"):
-                            import re
-                            cleaned_options: List[str] = []
-                            for opt in q["options"]:
-                                if isinstance(opt, str):
-                                    cleaned_options.append(re.sub(r'^[A-Da-d]\)\s*', '', opt))
-                                else:
-                                    cleaned_options.append(opt)
-                            q["options"] = cleaned_options
-                    all_questions.extend(questions)
-                    processed_count += 1
-                
-                # Calculate progress
-                elapsed = time.time() - start_time
-                pages_per_sec = processed_count / elapsed if elapsed > 0 else 0
-                remaining_pages = total_pages - processed_count
-                eta_seconds = remaining_pages / pages_per_sec if pages_per_sec > 0 else 0
-                eta_minutes = int(eta_seconds // 60)
-                eta_secs = int(eta_seconds % 60)
-                
-                print(f"\nProgress: {processed_count}/{total_pages} pages "
-                      f"({processed_count*100//total_pages}%) | "
-                      f"Speed: {pages_per_sec:.2f} pages/sec | "
-                      f"ETA: {eta_minutes}m {eta_secs}s | "
-                      f"Cached: {cached_count} | "
-                      f"Questions found: {len(all_questions)}")
-                
-                # Delay between batches (except for the last batch)
+                expected = set(range(batch_start, batch_end + 1))
+                seen = {page.get("pageNumber") for page in batch_results}
+                for missing in sorted(expected - seen):
+                    batch_results.append(failed_page(missing, "internal"))
+                batch_results.sort(key=lambda item: item["pageNumber"])
+                page_results.extend(batch_results)
                 if batch_end < total_pages:
                     time.sleep(batch_delay)
-            
-            total_time = time.time() - start_time
-            print(f"\nCompleted extraction on {processed_count} pages in {int(total_time//60)}m {int(total_time%60)}s")
-            print(f"   Average speed: {total_pages/total_time:.2f} pages/sec")
-            print(f"   Cached pages: {cached_count} (skipped API calls)")
-            print(f"   Total questions extracted: {len(all_questions)}")
-            
-            # Post-process sections to fix UNKNOWN and mis-grouped sections
-            all_questions = self._post_process_sections(all_questions)
-            
-            return all_questions
-            
-        except Exception as e:
-            print(f"Error during PDF processing: {e}")
-            import traceback
-            traceback.print_exc()
+
+            return build_document_pages(page_results, total_pages)
+        except Exception:
+            print("Error during PDF processing", file=sys.stderr)
             sys.exit(1)
     
     def _post_process_sections(self, questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -593,46 +643,46 @@ class QuestionExtractor:
             return 1
         return 1
     
-    def save_to_json(self, output_path: str):
-        """Save extracted questions to JSON database"""
-        # Load existing database
-        db_path = Path(output_path)
-        if db_path.exists():
-            try:
-                with open(db_path, 'r') as f:
-                    db = json.load(f)
-            except json.JSONDecodeError:
-                db = {"papers": []}
-        else:
-            db = {"papers": []}
-        
-        # Create paper entry
-        paper_id = f"paper_{int(datetime.now().timestamp())}"
-        filename = os.path.basename(self.pdf_path)
-        
-        # Count pages (stored during extraction)
-        total_pages = getattr(self, '_page_count', 0)
-        
-        paper = {
-            "id": paper_id,
-            "filename": filename,
-            "subject": self.subject,
-            "grade": self.grade,
-            "year": self.year,
-            "uploadedAt": datetime.now().isoformat(),
-            "totalPages": total_pages,
-            "questions": self.questions
-        }
-        
-        db["papers"].append(paper)
-        
-        # Save database
-        with open(db_path, 'w') as f:
-            json.dump(db, f, indent=2)
-        
-        print(f"\nSaved {len(self.questions)} questions to {output_path}")
-        print(f"Paper ID: {paper_id}")
-        return paper_id
+    def save_document_result(self, output_path: str, pages: List[Dict[str, Any]]) -> None:
+        write_document_result(output_path, getattr(self, "_page_count", len(pages)), pages)
+
+
+def build_document_pages(
+    page_results: List[Dict[str, Any]],
+    total_pages: int,
+) -> List[Dict[str, Any]]:
+    by_number: Dict[int, Dict[str, Any]] = {}
+    for page in page_results:
+        page_num = page.get("pageNumber")
+        if not isinstance(page_num, int) or page_num < 1 or page_num > total_pages:
+            continue
+        if page_num in by_number:
+            by_number[page_num] = failed_page(page_num, "internal")
+            continue
+        if page.get("status") not in ("succeeded", "failed"):
+            by_number[page_num] = failed_page(page_num, "internal")
+            continue
+        by_number[page_num] = page
+    pages = []
+    for page_num in range(1, total_pages + 1):
+        pages.append(by_number.get(page_num) or failed_page(page_num, "internal"))
+    return pages
+
+
+def write_document_result(
+    output_path: str,
+    page_count: int,
+    pages: List[Dict[str, Any]],
+) -> None:
+    document = {
+        "schemaVersion": RESULT_SCHEMA_VERSION,
+        "pageCount": page_count,
+        "pages": pages,
+    }
+    encoded = json.dumps(document, ensure_ascii=False).encode("utf-8")
+    if len(encoded) > MAX_RESULT_BYTES:
+        raise ValueError("extract_result_too_large")
+    Path(output_path).write_bytes(encoded)
 
 
 def normalize_text_for_similarity(text: str) -> str:
@@ -676,20 +726,22 @@ def main():
     parser.add_argument('--grade', required=True, help='Grade/Class')
     parser.add_argument('--year', required=True, help='Year')
     parser.add_argument('--output', default='data/question-papers.json', help='Output JSON file')
+    parser.add_argument('--work-dir', required=True, help='Request-scoped working directory')
     
     args = parser.parse_args()
 
     if not os.path.exists(args.pdf):
-        print(f"Error: PDF file not found: {args.pdf}")
+        print("Error: PDF file not found", file=sys.stderr)
+        sys.exit(1)
+
+    work_dir = Path(args.work_dir)
+    if not work_dir.is_dir():
+        print("Error: work directory is not available", file=sys.stderr)
         sys.exit(1)
 
     validated_page_count = validate_pdf_page_count(args.pdf)
-
-    # Fail fast if poppler/pdf2image cannot run (clear error for API caller)
     check_poppler_available(args.pdf)
-
-    # Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     
     try:
         extractor = QuestionExtractor(
@@ -698,35 +750,21 @@ def main():
             args.grade,
             args.year,
             validated_page_count,
+            work_dir,
         )
-    except ValueError as e:
-        print(f"Error: {e}")
+    except ValueError:
+        print("Error: extraction is not configured", file=sys.stderr)
         sys.exit(1)
-    extractor.questions = extractor.extract_questions_from_pdf()
-    
-    # Duplicate detection: skip questions >85% similar to existing for same subject+grade
-    existing_texts = []
-    db_path = Path(args.output)
-    if db_path.exists():
-        try:
-            with open(db_path, "r") as f:
-                db = json.load(f)
-            for paper in db.get("papers", []):
-                if paper.get("subject") == args.subject and paper.get("grade") == args.grade:
-                    for q in paper.get("questions", []):
-                        existing_texts.append(normalize_text_for_similarity(q.get("text", "")))
-        except (json.JSONDecodeError, IOError):
-            pass
-    non_duplicates, duplicates_skipped = count_duplicates(extractor.questions, existing_texts, threshold=0.85)
-    extractor.questions = non_duplicates
-    if duplicates_skipped > 0:
-        print(f"DUPLICATES_SKIPPED: {duplicates_skipped}")
-    
-    paper_id = extractor.save_to_json(args.output)
-    
-    print(f"\n✅ Extraction complete!")
-    print(f"Paper ID: {paper_id}")
-    print(f"Questions extracted: {len(extractor.questions)}")
+    pages = extractor.extract_page_results()
+    try:
+        extractor.save_document_result(args.output, pages)
+    except ValueError:
+        print("Error: extraction result exceeded the size limit", file=sys.stderr)
+        sys.exit(1)
+    print(
+        f"request pages={len(pages)} outcome=extract_complete",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

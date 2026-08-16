@@ -9,11 +9,10 @@ import { isValidSubjectForGrade } from "@/lib/subjects";
 import { getSupabase } from "@/lib/supabase-server";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { writeFile, mkdir, readFile, unlink } from "fs/promises";
+import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
-import { platform } from "os";
-import { randomUUID } from "crypto";
+import { platform, tmpdir } from "os";
 import {
   questionPaperServerError,
   requireQuestionPaperApiAccess,
@@ -25,57 +24,29 @@ import {
 } from "@/lib/question-paper-upload-policy.mjs";
 import { isAnthropicConfigured } from "@/lib/question-paper-provider-policy.mjs";
 import { createSignedQuestionDiagramUrls } from "@/lib/question-diagrams";
+import {
+  MAX_EXTRACT_RESULT_BYTES,
+  buildPersistencePlan,
+  computePdfSha256,
+  createSourceId,
+  parseValidatePdfPagesStdout,
+  sanitizeOriginalFilename,
+  userSafeUploadError,
+  validateDocumentResult,
+} from "@/lib/question-bank-v2-extract.mjs";
+import {
+  attachQuestionDiagrams,
+  createProcessingSource,
+  deleteCreatedStorageObjects,
+  findSourceByChecksum,
+  markSourceFailed,
+  persistExtractedQuestions,
+  uploadSourcePdf,
+  type CreatedStorageObject,
+} from "@/lib/question-bank-v2-persist";
 
 const execFileAsync = promisify(execFile);
 export const dynamic = "force-dynamic";
-
-function normalizeText(text: string): string {
-  return (text || "").toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-/** Dice coefficient (bigram similarity) in [0, 1]. */
-function similarity(a: string, b: string): number {
-  if (!a || !b) return 0;
-  const bigrams = (s: string) => {
-    const set = new Set<string>();
-    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
-    return set;
-  };
-  const A = bigrams(a);
-  const B = bigrams(b);
-  let intersect = 0;
-  A.forEach((bg) => {
-    if (B.has(bg)) intersect++;
-  });
-  return (2 * intersect) / (A.size + B.size) || 0;
-}
-
-function filterDuplicateQuestions(
-  newQuestions: Question[],
-  existingNormalizedTexts: string[],
-  threshold = 0.85
-): { kept: Question[]; skipped: number } {
-  const kept: Question[] = [];
-  let skipped = 0;
-  for (const q of newQuestions) {
-    const norm = normalizeText(q.text ?? "");
-    if (!norm) {
-      kept.push(q);
-      continue;
-    }
-    let isDup = false;
-    for (const existing of existingNormalizedTexts) {
-      if (!existing) continue;
-      if (norm === existing || similarity(norm, existing) >= threshold) {
-        isDup = true;
-        break;
-      }
-    }
-    if (isDup) skipped++;
-    else kept.push(q);
-  }
-  return { kept, skipped };
-}
 
 /**
  * GET /api/question-papers
@@ -239,9 +210,30 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function duplicateResponse(
+  requestId: string,
+  existing: {
+    id: string;
+    extraction_status: string;
+    extracted_question_count?: number | null;
+    page_count?: number | null;
+  },
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      duplicate: true,
+      sourceId: existing.id,
+      status: existing.extraction_status,
+      requestId,
+    },
+    { status: 409 },
+  );
+}
+
 /**
  * POST /api/question-papers
- * Upload and process a PDF file
+ * Upload a PDF, extract with Sonnet 4.6, and persist to V2 tables.
  */
 export async function POST(request: NextRequest) {
   const authorization = await requireQuestionPaperApiAccess(request, {
@@ -253,6 +245,7 @@ export async function POST(request: NextRequest) {
   const contentLengthError = validateUploadContentLength(
     request.headers.get("content-length"),
     limits.maxBytes,
+    { required: true },
   );
   if (contentLengthError) {
     return NextResponse.json(
@@ -261,7 +254,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const temporaryPaths = new Set<string>();
+  const createdObjects: CreatedStorageObject[] = [];
+  let workDir: string | null = null;
+  let sourceId: string | null = null;
+  let sourceRowCreated = false;
+
   try {
     const formData = await request.formData();
     const files = formData.getAll("file");
@@ -286,22 +283,33 @@ export async function POST(request: NextRequest) {
 
     if (!file || !subject || !gradeParam || !year) {
       return NextResponse.json(
-        { success: false, error: "Missing required fields" },
-        { status: 400 }
+        { success: false, error: "Missing required fields", requestId },
+        { status: 400 },
       );
     }
 
     const gradeNum = parseInt(gradeParam, 10);
     if (Number.isNaN(gradeNum) || gradeNum < 1 || gradeNum > 10) {
       return NextResponse.json(
-        { success: false, error: "Invalid grade; must be 1–10" },
-        { status: 400 }
+        { success: false, error: "Invalid grade; must be 1–10", requestId },
+        { status: 400 },
       );
     }
     if (!isValidSubjectForGrade(subject, gradeNum)) {
       return NextResponse.json(
-        { success: false, error: "Invalid subject for the selected grade" },
-        { status: 400 }
+        { success: false, error: "Invalid subject for the selected grade", requestId },
+        { status: 400 },
+      );
+    }
+    const academicYear = parseInt(year, 10);
+    if (
+      Number.isNaN(academicYear) ||
+      academicYear < 2000 ||
+      academicYear > 2100
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Invalid academic year", requestId },
+        { status: 400 },
       );
     }
 
@@ -328,23 +336,10 @@ export async function POST(request: NextRequest) {
       return questionPaperServerError(requestId);
     }
 
-    // Save uploaded file temporarily
-    const uploadsDir = join(process.cwd(), "uploads");
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-
-    const uploadId = randomUUID();
-    const filename = `paper_${uploadId}.pdf`;
-    const filepath = join(uploadsDir, filename);
-
+    workDir = await mkdtemp(join(tmpdir(), `qb-extract-${requestId}-`));
+    const filepath = join(workDir, "original.pdf");
+    const tempOutputPath = join(workDir, "extract.json");
     await writeFile(filepath, buffer);
-    temporaryPaths.add(filepath);
-
-    const dataDir = join(process.cwd(), "data");
-    if (!existsSync(dataDir)) await mkdir(dataDir, { recursive: true });
-    const tempOutputPath = join(dataDir, `extract_${uploadId}.json`);
-    temporaryPaths.add(tempOutputPath);
 
     const isWindows = platform() === "win32";
     const venvPython = isWindows
@@ -356,8 +351,10 @@ export async function POST(request: NextRequest) {
     if (!existsSync(validateScript)) {
       return questionPaperServerError(requestId);
     }
+
+    let pageCount: number | null = null;
     try {
-      await execFileAsync(
+      const validation = await execFileAsync(
         pythonCmd,
         [
           validateScript,
@@ -373,6 +370,7 @@ export async function POST(request: NextRequest) {
           killSignal: "SIGKILL",
         },
       );
+      pageCount = parseValidatePdfPagesStdout(validation.stdout);
     } catch {
       return NextResponse.json(
         {
@@ -383,12 +381,79 @@ export async function POST(request: NextRequest) {
         { status: 422 },
       );
     }
+    if (!pageCount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "The PDF could not be validated",
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
+
+    const contentSha256 = computePdfSha256(buffer);
+    const existing = await findSourceByChecksum(contentSha256);
+    if (existing) {
+      return duplicateResponse(requestId, existing);
+    }
 
     if (!isAnthropicConfigured(process.env.ANTHROPIC_API_KEY)) {
       console.warn("[question-paper-api]", {
         requestId,
         operation: "extract_pdf",
         outcome: "provider_not_configured",
+      });
+      return questionPaperServerError(requestId);
+    }
+
+    sourceId = createSourceId();
+    try {
+      createdObjects.push(await uploadSourcePdf(sourceId, buffer));
+    } catch {
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "source_upload",
+        outcome: "storage_error",
+      });
+      return questionPaperServerError(requestId);
+    }
+
+    try {
+      const created = await createProcessingSource({
+        id: sourceId,
+        originalFilename: sanitizeOriginalFilename(file.name),
+        contentSha256,
+        byteSize: buffer.byteLength,
+        pageCount,
+        grade: gradeNum,
+        subject,
+        academicYear,
+      });
+      if (created.duplicate) {
+        await deleteCreatedStorageObjects(createdObjects);
+        createdObjects.length = 0;
+        if (created.existing) {
+          return duplicateResponse(requestId, created.existing);
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            duplicate: true,
+            error: userSafeUploadError("duplicate"),
+            requestId,
+          },
+          { status: 409 },
+        );
+      }
+      sourceRowCreated = true;
+    } catch {
+      await deleteCreatedStorageObjects(createdObjects);
+      createdObjects.length = 0;
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "source_insert",
+        outcome: "database_error",
       });
       return questionPaperServerError(requestId);
     }
@@ -401,6 +466,7 @@ export async function POST(request: NextRequest) {
       "--grade", gradeParam,
       "--year", year,
       "--output", tempOutputPath,
+      "--work-dir", workDir,
     ];
 
     const childEnv: NodeJS.ProcessEnv = {
@@ -419,161 +485,198 @@ export async function POST(request: NextRequest) {
         timeout: limits.ocrTimeoutMs,
         killSignal: "SIGKILL",
       });
-
-      // Read extraction result from temp file (no readDatabase)
-      const raw = await readFile(tempOutputPath, "utf-8");
-      const db = JSON.parse(raw) as { papers: QuestionPaper[] };
-      const newPaper = db.papers[db.papers.length - 1];
-      if (!newPaper) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "No questions could be extracted from the PDF",
-            requestId,
-          },
-          { status: 422 },
-        );
-      }
-      if (newPaper.questions.length === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "No questions could be extracted from the PDF",
-            requestId,
-          },
-          { status: 422 },
-        );
-      }
-
-      let questionsInserted = 0;
-      let skippedDuplicatesSupabase = 0;
-
-      if (newPaper.questions.length > 0) {
-        let paperInserted = false;
-        try {
-          const { error: paperInsertError } = await getSupabase()
-            .from("question_papers")
-            .insert({
-            id: newPaper.id,
-            subject: newPaper.subject,
-            grade: gradeNum,
-            year: parseInt(year, 10) || new Date().getFullYear(),
-            total_questions: newPaper.questions.length,
-            file_name: newPaper.filename,
-          });
-          if (paperInsertError) {
-            throw new Error("paper_insert_failed");
-          }
-          paperInserted = true;
-
-          const { data: existingQuestions, error: existingQuestionsError } =
-            await getSupabase()
-            .from("questions")
-            .select("text")
-            .eq("grade", gradeNum)
-            .eq("subject", subject);
-          if (existingQuestionsError) {
-            throw new Error("duplicate_check_failed");
-          }
-          const existingTexts = (existingQuestions ?? []).map((r) =>
-            normalizeText((r as { text?: string }).text ?? "")
-          );
-          const { kept, skipped } = filterDuplicateQuestions(
-            newPaper.questions,
-            existingTexts,
-            0.85
-          );
-          skippedDuplicatesSupabase = skipped;
-
-          if (kept.length > 0) {
-            const questionsToInsert = kept.map((q) => ({
-              id: q.id,
-              paper_id: newPaper.id,
-              grade: gradeNum,
-              subject,
-              year: parseInt(year, 10) || new Date().getFullYear(),
-              number: q.number,
-              text: q.text,
-              marks: q.marks,
-              type: q.type,
-              section: q.section ?? "",
-              options: q.options ?? [],
-              diagram: q.diagram ?? null,
-            }));
-            const { error: insertError } = await getSupabase()
-              .from("questions")
-              .insert(questionsToInsert);
-
-            if (insertError) {
-              throw new Error("question_insert_failed");
-            } else {
-              questionsInserted = questionsToInsert.length;
-            }
-          } else {
-            const { error: emptyPaperCleanupError } = await getSupabase()
-              .from("question_papers")
-              .delete()
-              .eq("id", newPaper.id);
-            if (emptyPaperCleanupError) {
-              throw new Error("empty_paper_cleanup_failed");
-            }
-            paperInserted = false;
-            return NextResponse.json({
-              success: true,
-              partial: true,
-              paper: newPaper,
-              message: "No new questions were saved because all were duplicates",
-              duplicatesSkipped: skippedDuplicatesSupabase,
-              questionsInserted: 0,
-            });
-          }
-        } catch {
-          console.warn("[question-paper-api]", {
-            requestId,
-            operation: "persist_extraction",
-            outcome: "database_error",
-          });
-          if (paperInserted) {
-            await getSupabase()
-              .from("questions")
-              .delete()
-              .eq("paper_id", newPaper.id);
-            await getSupabase()
-              .from("question_papers")
-              .delete()
-              .eq("id", newPaper.id);
-          }
-          return questionPaperServerError(requestId);
-        }
-      }
-
-      return NextResponse.json({
-        success: true,
-        paper: newPaper,
-        message: `Successfully extracted ${newPaper.questions.length} questions`,
-        duplicatesSkipped: skippedDuplicatesSupabase,
-        questionsInserted,
-      });
     } catch {
       console.warn("[question-paper-api]", {
         requestId,
         operation: "extract_pdf",
         outcome: "processing_error",
       });
+      await markSourceFailed(sourceId, "internal");
+      return NextResponse.json(
+        {
+          success: false,
+          sourceId,
+          status: "failed",
+          error: userSafeUploadError("failed"),
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
 
+    const resultStat = await readFile(tempOutputPath).catch(() => null);
+    if (!resultStat || resultStat.byteLength === 0 || resultStat.byteLength > MAX_EXTRACT_RESULT_BYTES) {
+      await markSourceFailed(sourceId, "validation");
+      return NextResponse.json(
+        {
+          success: false,
+          sourceId,
+          status: "failed",
+          error: userSafeUploadError("failed"),
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(resultStat.toString("utf8"));
+    } catch {
+      await markSourceFailed(sourceId, "parse");
+      return NextResponse.json(
+        {
+          success: false,
+          sourceId,
+          status: "failed",
+          error: userSafeUploadError("failed"),
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
+
+    const document = validateDocumentResult(parsed, pageCount);
+    if (!document.ok) {
+      await markSourceFailed(sourceId, "validation");
+      return NextResponse.json(
+        {
+          success: false,
+          sourceId,
+          status: "failed",
+          error: userSafeUploadError("failed"),
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
+
+    const plan = buildPersistencePlan(document.pages);
+    if (!plan.ok || !Array.isArray(plan.questions)) {
+      await markSourceFailed(sourceId, "validation");
+      return NextResponse.json(
+        {
+          success: false,
+          sourceId,
+          status: "failed",
+          error: userSafeUploadError("failed"),
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
+
+    const persistableQuestions = plan.questions.filter(
+      (question): question is NonNullable<typeof question> => Boolean(question),
+    );
+    const persistInput = {
+      sourceId,
+      plan: {
+        status: plan.status ?? "failed",
+        processedPageCount: plan.processedPageCount ?? 0,
+        failedPageNumbers: plan.failedPageNumbers ?? [],
+        questions: persistableQuestions,
+        errorCategory: plan.errorCategory ?? null,
+      },
+    };
+
+    if (plan.status === "failed") {
+      try {
+        await persistExtractedQuestions(persistInput);
+      } catch {
+        await markSourceFailed(sourceId, plan.errorCategory || "internal");
+      }
+      return NextResponse.json(
+        {
+          success: false,
+          sourceId,
+          status: "failed",
+          error: userSafeUploadError("failed"),
+          requestId,
+        },
+        { status: 422 },
+      );
+    }
+
+    let persisted: {
+      extracted_question_count?: number;
+      extraction_status?: string;
+    };
+    try {
+      persisted = await persistExtractedQuestions(persistInput);
+    } catch {
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "persist_extracted_questions",
+        outcome: "database_error",
+      });
+      await markSourceFailed(sourceId, "internal");
       return questionPaperServerError(requestId);
     }
+
+    const diagramObjects: CreatedStorageObject[] = [];
+    try {
+      diagramObjects.push(
+        ...(await attachQuestionDiagrams({
+          sourceId,
+          questions: persistableQuestions,
+          maxDiagramBytes: limits.maxDiagramBytes,
+        })),
+      );
+    } catch {
+      await deleteCreatedStorageObjects(diagramObjects);
+      console.warn("[question-paper-api]", {
+        requestId,
+        operation: "attach_diagrams",
+        outcome: "storage_error",
+      });
+    }
+
+    const savedCount = Number(persisted.extracted_question_count ?? plan.questions.length);
+    const status = persisted.extraction_status === "completed" || persisted.extraction_status === "partial"
+      ? persisted.extraction_status
+      : plan.status;
+
+    if (status === "partial") {
+      return NextResponse.json({
+        success: true,
+        sourceId,
+        status: "partial",
+        totalPages: pageCount,
+        processedPages: plan.processedPageCount,
+        failedPages: plan.failedPageNumbers,
+        savedQuestionCount: savedCount,
+        warning: userSafeUploadError("partial"),
+        requestId,
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      sourceId,
+      status: "completed",
+      totalPages: pageCount,
+      processedPages: plan.processedPageCount,
+      failedPages: [],
+      savedQuestionCount: savedCount,
+      requestId,
+    });
   } catch {
     console.warn("[question-paper-api]", {
       requestId,
       operation: "upload",
       outcome: "request_error",
     });
+    if (sourceId && sourceRowCreated) {
+      await markSourceFailed(sourceId, "internal").catch(() => {});
+    } else if (createdObjects.length > 0) {
+      await deleteCreatedStorageObjects(createdObjects).catch(() => {});
+    }
     return questionPaperServerError(requestId);
   } finally {
-    await Promise.all(
-      [...temporaryPaths].map((path) => unlink(path).catch(() => {})),
-    );
+    if (workDir) {
+      await rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 

@@ -137,6 +137,31 @@ assert.ok(
       uploadHandler.source.indexOf("extract_pdf.py"),
   "Anthropic configuration is not checked after PDF validation and before OCR",
 );
+assert.ok(
+  uploadHandler.source.indexOf("findSourceByChecksum") <
+    uploadHandler.source.indexOf("uploadSourcePdf"),
+  "Duplicate checksum lookup does not run before source storage",
+);
+assert.ok(
+  uploadHandler.source.indexOf("isAnthropicConfigured") <
+    uploadHandler.source.indexOf("extract_pdf.py"),
+  "Anthropic configuration is not checked before parser spawn",
+);
+assert.doesNotMatch(
+  uploadHandler.source,
+  /\.from\(\s*["']questions["']\)/,
+  "Upload handler still writes legacy questions",
+);
+assert.doesNotMatch(
+  uploadHandler.source,
+  /\.from\(\s*["']question_papers["']\)/,
+  "Upload handler still writes legacy question_papers",
+);
+assert.doesNotMatch(
+  uploadHandler.source,
+  /\.from\(\s*["']generated_pdfs["']\)/,
+  "Upload handler still writes legacy generated_pdfs",
+);
 assert.match(
   uploadHandler.source,
   /delete childEnv\.GEMINI_API_KEY/,
@@ -214,8 +239,12 @@ const uploadOrder = [
   "validatePdfUpload",
   "writeFile(",
   "execFileAsync(",
+  "findSourceByChecksum",
   "isAnthropicConfigured",
-  "getSupabase()",
+  "uploadSourcePdf",
+  "createProcessingSource",
+  "extract_pdf.py",
+  "persistExtractedQuestions",
 ];
 let previousIndex = -1;
 for (const marker of uploadOrder) {

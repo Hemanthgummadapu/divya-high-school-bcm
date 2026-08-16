@@ -86,8 +86,17 @@ export function validatePngDiagram(value, maxBytes) {
   return { status: 200, bytes };
 }
 
-export function validateUploadContentLength(contentLength, maxBytes) {
-  if (contentLength == null || contentLength === "") return null;
+export function validateUploadContentLength(
+  contentLength,
+  maxBytes,
+  options = {},
+) {
+  if (contentLength == null || contentLength === "") {
+    if (options.required) {
+      return { status: 422, error: "Content-Length is required" };
+    }
+    return null;
+  }
   if (!/^\d+$/.test(contentLength)) {
     return { status: 422, error: "Invalid Content-Length header" };
   }
