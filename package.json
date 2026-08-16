@@ -15,6 +15,7 @@
     "test:subjects": "node --test scripts/question-bank-v2-subjects.test.mjs",
     "test:review": "node --test scripts/question-bank-v2-review.test.mjs",
     "test:paper": "node --test scripts/question-bank-v2-paper.test.mjs && ./venv/bin/python3 scripts/question-bank-v2-paper-pdf-fixtures.py",
+    "test:rpc": "node scripts/run-rpc-integration.mjs",
     "postinstall": "node scripts/download-fonts.js"
   },
   "dependencies": {

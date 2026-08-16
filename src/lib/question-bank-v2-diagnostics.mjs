@@ -91,6 +91,7 @@ export function sanitizeRpcErrorCategory(error) {
   if (matched) return matched;
   const code = String(error?.code ?? "");
   if (code === "57014") return "timeout";
+  if (code === "42702") return "ambiguous_column";
   if (code === "08006" || code === "08001" || code === "57P01") return "connection";
   if (/^PGRST/i.test(code)) return "rpc_error";
   return "rpc_error";

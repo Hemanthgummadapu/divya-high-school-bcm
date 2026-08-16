@@ -153,6 +153,7 @@ test("sanitized diagnostics omit secrets, paths, and content", () => {
   assert.equal(containsForbiddenLogText(serialized), false);
   assert.doesNotMatch(serialized, /sk-ant|questionText|source-pdfs\//);
   assert.equal(sanitizeRpcErrorCategory({ message: "invalid_question_text" }), "invalid_question_text");
+  assert.equal(sanitizeRpcErrorCategory({ code: "42702", message: "column reference \"page_number\" is ambiguous" }), "ambiguous_column");
   assert.equal(sanitizeRpcErrorCategory({ message: "boom with secrets sk-ant-x" }), "rpc_error");
 });
 

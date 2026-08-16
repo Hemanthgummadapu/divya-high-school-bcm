@@ -103,6 +103,25 @@ test("verification script is read-only and rollback is limited to empty V2 objec
   );
 });
 
+test("forward persist ambiguity migration does not edit Phase 2B", () => {
+  const forwardPath = join(
+    root,
+    "supabase/migrations/20260816020000_persist_extracted_questions_page_number.sql",
+  );
+  const forward = readFileSync(forwardPath, "utf8");
+  assert.match(migration, /FROM unnest\(failed_pages\) AS page_number/);
+  assert.match(forward, /SECURITY INVOKER/);
+  assert.match(forward, /failed_page\(page_no\)/);
+  assert.match(forward, /GRANT EXECUTE ON FUNCTION public\.persist_extracted_questions/);
+  assert.match(forward, /REVOKE ALL ON FUNCTION public\.persist_extracted_questions/);
+  assert.doesNotMatch(forward, /SECURITY DEFINER/);
+  assert.doesNotMatch(forward, /FROM unnest\(failed_pages\) AS page_number/);
+  assert.doesNotMatch(
+    stripSql(forward),
+    /\b(UPDATE|DELETE|ALTER TABLE|DROP TABLE)\s+(public\.)?(questions|question_papers|generated_pdfs)\b/i,
+  );
+});
+
 test("setup documentation describes the unapplied Phase 2B foundation", () => {
   assert.match(setup, /20260816010000_question_bank_v2\.sql/);
   assert.match(setup, /question_sources/);
