@@ -16,7 +16,7 @@ import {
   loadBankQuestions,
   loadSavedPaper,
   loadSavedPaperItems,
-  saveFinalPaper,
+  saveQuestionPaper,
 } from "@/lib/question-bank-v2-paper-api";
 
 export const dynamic = "force-dynamic";
@@ -111,6 +111,24 @@ export async function POST(request: NextRequest) {
     if (!parsed.items || !parsed.creationKey) {
       return jsonError(requestId, "Invalid request", 400);
     }
+    // A draft save and a finalize follow the same authoritative path: only a
+    // finalize generates a PDF.
+    const finalize = parsed.action !== "draft";
+
+    // Editing is only ever allowed while the paper is still a draft; a
+    // finalized paper's snapshots must keep matching its generated PDF.
+    if (parsed.paperId) {
+      const existing = await loadSavedPaper(parsed.paperId);
+      if (!existing) return jsonError(requestId, "Paper not found", 404);
+      if (existing.status !== "draft") {
+        return jsonError(
+          requestId,
+          "This paper is already final and cannot be edited",
+          409,
+        );
+      }
+    }
+
     const requestedIds = parsed.items.map((item) => item.questionId);
     const rows = await loadBankQuestions(requestedIds);
     const verified = verifyBankQuestions(requestedIds, rows);
@@ -127,21 +145,37 @@ export async function POST(request: NextRequest) {
       idempotent?: boolean;
       total_marks?: number;
       status?: string;
+      lock_version?: number;
+      item_count?: number;
     };
     try {
-      saved = await saveFinalPaper({
+      saved = await saveQuestionPaper({
         creationKey: parsed.creationKey,
+        paperId: parsed.paperId,
+        expectedLockVersion: parsed.expectedLockVersion,
         title: parsed.title,
         grade: verified.grade,
         subject: verified.subject,
         academicYear: parsed.academicYear,
         durationMinutes: parsed.durationMinutes,
         items: built.snapshots,
+        finalize,
       });
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
       if (code === "creation_key_conflict") {
         return jsonError(requestId, "This paper was already saved with different content", 409);
+      }
+      if (code === "stale_paper_lock_version") {
+        return jsonError(
+          requestId,
+          "This draft was changed elsewhere. Reload it before saving again.",
+          409,
+          { staleLock: true },
+        );
+      }
+      if (code === "paper_not_found") {
+        return jsonError(requestId, "Paper not found", 404);
       }
       console.warn("[question-paper-api]", {
         requestId,
@@ -153,6 +187,23 @@ export async function POST(request: NextRequest) {
 
     const paperId = saved.paper_id;
     if (!paperId) return questionPaperServerError(requestId);
+
+    if (!finalize) {
+      return NextResponse.json(
+        {
+          success: true,
+          stage: "draft",
+          paperId,
+          status: saved.status ?? "draft",
+          lockVersion: saved.lock_version ?? null,
+          totalMarks: saved.total_marks ?? 0,
+          itemCount: saved.item_count ?? parsed.items.length,
+          idempotent: Boolean(saved.idempotent),
+          requestId,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
 
     const paper = await loadSavedPaper(paperId);
     const items = await loadSavedPaperItems(paperId);

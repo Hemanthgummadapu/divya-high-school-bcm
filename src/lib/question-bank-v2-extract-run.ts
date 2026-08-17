@@ -5,10 +5,10 @@ import { questionPaperServerError } from "@/lib/question-paper-auth";
 import {
   MAX_EXTRACT_RESULT_BYTES,
   buildPersistencePlan,
-  inlineDiagramCrops,
   userSafeUploadError,
   validateDocumentResult,
 } from "@/lib/question-bank-v2-extract.mjs";
+import { inlineDiagramCrops } from "@/lib/question-bank-v2-diagram-crop.mjs";
 import { logExtractionStage } from "@/lib/question-bank-v2-diagnostics.mjs";
 import {
   resolveExtractPython,

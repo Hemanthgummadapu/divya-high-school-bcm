@@ -7,12 +7,12 @@ import { randomUUID } from "node:crypto";
 import zlib from "node:zlib";
 import {
   buildPersistencePlan,
-  inlineDiagramCrops,
   isSafeDiagramCropRef,
   normalizeExtractedQuestion,
   normalizeSucceededPage,
   validateDocumentResult,
 } from "../src/lib/question-bank-v2-extract.mjs";
+import { inlineDiagramCrops } from "../src/lib/question-bank-v2-diagram-crop.mjs";
 
 function crc32Buffer(buffer) {
   let crc = ~0;

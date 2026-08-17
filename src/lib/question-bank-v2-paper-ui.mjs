@@ -1,3 +1,45 @@
+export const MAX_PAPER_TITLE_LENGTH = 300;
+
+/**
+ * Suggest a generated-paper name from the composition. The source-paper name
+ * is never used here: it identifies where questions came from, not the paper
+ * being prepared. The suggestion is a starting point the user can edit.
+ */
+export function suggestGeneratedPaperName(input = {}) {
+  const grade = Number(input.grade);
+  const subject = String(input.subject ?? "").trim();
+  const year = Number(input.academicYear);
+  const parts = [];
+  if (Number.isSafeInteger(grade) && grade >= 1 && grade <= 10) {
+    parts.push(`Class ${grade}`);
+  }
+  if (subject) parts.push(subject);
+  const examLabel = String(input.examLabel ?? "").trim();
+  if (examLabel) parts.push(examLabel);
+  if (Number.isSafeInteger(year) && year >= 2000 && year <= 2100) {
+    parts.push(String(year));
+  }
+  const base = parts.join(" ").trim();
+  if (!base) return "";
+  const setLabel = String(input.setLabel ?? "").trim();
+  const suggestion = setLabel ? `${base} – ${setLabel}` : base;
+  return suggestion.slice(0, MAX_PAPER_TITLE_LENGTH);
+}
+
+/**
+ * Names may legitimately repeat (Set A / Set B), so a clash is a warning the
+ * user can ignore, never a block and never a database constraint.
+ */
+export function findDuplicatePaperNameWarning(title, papers) {
+  const normalized = String(title ?? "").trim().toLowerCase();
+  if (!normalized || !Array.isArray(papers)) return null;
+  const clash = papers.some(
+    (paper) => String(paper?.title ?? "").trim().toLowerCase() === normalized,
+  );
+  if (!clash) return null;
+  return "A paper with this name already exists. Consider adding Set A, Set B or a date.";
+}
+
 export function romanClass(grade) {
   const roman = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
   return roman[grade] || String(grade);

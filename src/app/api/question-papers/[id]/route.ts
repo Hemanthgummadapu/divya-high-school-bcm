@@ -11,7 +11,10 @@ import {
   parsePositiveInt,
 } from "@/lib/question-bank-v2-review.mjs";
 import { getV2SourceDetail, renameV2Source } from "@/lib/question-bank-v2-review-api";
-import { getSavedPaperDetail } from "@/lib/question-bank-v2-paper-api";
+import {
+  getPaperComposition,
+  getSavedPaperDetail,
+} from "@/lib/question-bank-v2-paper-api";
 import { validateDisplayName } from "@/lib/question-bank-v2-source-name.mjs";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +52,31 @@ export async function GET(
       return NextResponse.json(
         { success: false, error: "Invalid page size", requestId },
         { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    // Composition view: everything the builder needs to continue a draft or
+    // start a new paper from a previous one. Snapshot text is never returned
+    // as editable content — only bank question ids the server re-reads.
+    if (request.nextUrl.searchParams.get("resource") === "composition") {
+      const composition = await getPaperComposition(params.id);
+      if (!composition) {
+        return NextResponse.json(
+          { success: false, error: "Paper not found", requestId },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          paper: composition.paper,
+          sections: composition.sections,
+          questions: composition.questions,
+          unavailable: composition.unavailable,
+          warning: composition.warning,
+          requestId,
+        },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 

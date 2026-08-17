@@ -22,6 +22,7 @@ import {
   generatedPaperObjectKey,
   generatedPaperStoragePath,
   isValidGeneratedPdf,
+  planTemplateFromPaper,
   publicSavedPaper,
   romanClass,
 } from "@/lib/question-bank-v2-paper.mjs";
@@ -74,32 +75,41 @@ export async function loadBankQuestions(ids: string[]) {
   return data ?? [];
 }
 
-export async function saveFinalPaper(input: {
+export async function saveQuestionPaper(input: {
   creationKey: string;
+  paperId?: string | null;
+  expectedLockVersion?: number | null;
   title: string;
   grade: number;
   subject: string;
   academicYear: number;
   durationMinutes: number;
   items: Array<Record<string, unknown>>;
+  finalize: boolean;
 }) {
   requireSupabaseConfig();
   const { data, error } = await getSupabase().rpc("save_question_paper", {
-    p_paper_id: null,
+    p_paper_id: input.paperId ?? null,
     p_creation_key: input.creationKey,
-    p_expected_lock_version: null,
+    p_expected_lock_version: input.expectedLockVersion ?? null,
     p_title: input.title,
     p_grade: input.grade,
     p_subject: input.subject,
     p_academic_year: input.academicYear,
     p_duration_minutes: input.durationMinutes,
     p_items: input.items,
-    p_finalize: true,
+    p_finalize: input.finalize,
   });
   if (error) {
     const message = String(error.message || "");
     if (message.includes("final papers are immutable")) {
       throw Object.assign(new Error("creation_key_conflict"), { status: 409 });
+    }
+    if (message.includes("stale_paper_lock_version")) {
+      throw Object.assign(new Error("stale_paper_lock_version"), { status: 409 });
+    }
+    if (message.includes("paper_not_found")) {
+      throw Object.assign(new Error("paper_not_found"), { status: 404 });
     }
     throw new Error("save_paper_failed");
   }
@@ -112,6 +122,18 @@ export async function saveFinalPaper(input: {
     item_count?: number;
     lock_version?: number;
   };
+}
+
+export async function saveFinalPaper(input: {
+  creationKey: string;
+  title: string;
+  grade: number;
+  subject: string;
+  academicYear: number;
+  durationMinutes: number;
+  items: Array<Record<string, unknown>>;
+}) {
+  return saveQuestionPaper({ ...input, finalize: true });
 }
 
 export async function loadSavedPaper(paperId: string) {
@@ -145,6 +167,7 @@ export async function listSavedPapers(filters: {
   year: number | null;
   subject: string;
   status: string;
+  search?: string;
 }) {
   requireSupabaseConfig();
   const from = (filters.page - 1) * filters.pageSize;
@@ -155,12 +178,17 @@ export async function listSavedPapers(filters: {
   if (filters.grade != null) query = query.eq("grade", filters.grade);
   if (filters.subject) query = query.eq("subject", filters.subject);
   if (filters.year != null) query = query.eq("academic_year", filters.year);
+  if (filters.search) {
+    query = query.ilike("title", `%${filters.search.replace(/[%_]/g, "\\$&")}%`);
+  }
   if (filters.status) {
     query = query.eq("status", filters.status);
   } else {
-    query = query.in("status", ["final", "archived"]);
+    query = query.in("status", ["draft", "final", "archived"]);
   }
+  // Drafts sort by their own recency; finalized papers by finalization.
   const { data, error, count } = await query
+    .order("updated_at", { ascending: false, nullsFirst: false })
     .order("finalized_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .order("id", { ascending: true })
@@ -418,6 +446,75 @@ export async function generateAndStorePaperPdf(input: {
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * Rebuild an editable composition from a saved paper.
+ *
+ * Used both to continue a draft and to start a new paper from a previous one.
+ * The saved items only supply arrangement and bank question ids; every
+ * question's content is re-read from the current approved bank rows, so a
+ * question that has since been rejected, archived or deleted is reported as
+ * unavailable rather than resurrected from a historical snapshot.
+ */
+export async function getPaperComposition(paperId: string) {
+  const paper = await loadSavedPaper(paperId);
+  if (!paper) return null;
+  const items = await loadSavedPaperItems(paperId);
+  const bankIds = [
+    ...new Set(
+      items
+        .map((item) => item.bank_question_id as string | null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const rows = await loadBankQuestions(bankIds);
+  const plan = planTemplateFromPaper(items, rows);
+  const rowsById = new Map(rows.map((row) => [row.id as string, row]));
+
+  const sections: Array<{
+    sectionOrder: number;
+    title: string;
+    instructions: string | null;
+    questionIds: string[];
+  }> = [];
+  for (const entry of plan.available) {
+    let section = sections.find(
+      (candidate) => candidate.sectionOrder === entry.sectionOrder,
+    );
+    if (!section) {
+      section = {
+        sectionOrder: entry.sectionOrder,
+        title: entry.sectionTitle,
+        instructions: entry.sectionInstructions,
+        questionIds: [],
+      };
+      sections.push(section);
+    }
+    section.questionIds.push(entry.questionId);
+  }
+  sections.sort((a, b) => a.sectionOrder - b.sectionOrder);
+
+  return {
+    paper: publicSavedPaper(paper, { itemCount: items.length }),
+    sections,
+    questions: plan.available.map((entry) => {
+      const row = rowsById.get(entry.questionId);
+      return {
+        id: entry.questionId,
+        grade: row?.grade ?? null,
+        subject: row?.subject ?? null,
+        academicYear: row?.academic_year ?? null,
+        questionType: row?.question_type ?? null,
+        questionText: row?.question_text ?? "",
+        marks: row?.marks ?? 0,
+        hasDiagram: Boolean(row?.diagram_path),
+        reviewStatus: row?.review_status ?? null,
+      };
+    }),
+    unavailable: plan.unavailable,
+    warning: plan.warning,
+  };
 }
 
 export async function getSavedPaperDetail(paperId: string) {

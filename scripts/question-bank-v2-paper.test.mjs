@@ -223,7 +223,7 @@ test("PDF path signing and status labels stay honest", () => {
 });
 
 test("canonical generate route is the only writer and retired routes return 410", () => {
-  assert.match(generateRoute, /saveFinalPaper/);
+  assert.match(generateRoute, /saveQuestionPaper/);
   assert.match(generateRoute, /generateAndStorePaperPdf/);
   assert.match(generateRoute, /loadSavedPaperItems/);
   assert.match(generateRoute, /action === "retry"/);
@@ -240,7 +240,10 @@ test("canonical generate route is the only writer and retired routes return 410"
   assert.match(paperApi, /loadSavedPaperItems/);
   assert.doesNotMatch(paperApi, /question_bank_questions[\s\S]*retry/);
   assert.match(paperApi, /diagramStatus/);
-  assert.match(paperApi, /\.in\(\s*["']status["'],\s*\[["']final["'],\s*["']archived["']\]/);
+  assert.match(
+    paperApi,
+    /\.in\(\s*["']status["'],\s*\[["']draft["'],\s*["']final["'],\s*["']archived["']\]/,
+  );
   assert.match(paperApi, /generatedPaperObjectKey/);
   assert.match(paperApi, /storedPath\.slice\(`\$\{GENERATED_PAPERS_BUCKET\}\/`/);
 });
@@ -312,7 +315,7 @@ test("retry, signing, and generated-PDF bounds reject unsafe input", () => {
   oversized.write("%PDF-", 0);
   assert.equal(isValidGeneratedPdf(oversized, 1), false);
   assert.equal(isValidGeneratedPdf(Buffer.from("%PDF-1.4\n..."), 0), false);
-  assert.equal(pdfStatusLabel({ status: "draft" }), "PDF pending");
+  assert.equal(pdfStatusLabel({ status: "draft" }), "Draft");
   assert.notEqual(pdfStatusLabel({ status: "final" }), "Generating");
   assert.equal(generatedPaperObjectKey(PAPER, EXPORT), `${PAPER}/${EXPORT}.pdf`);
   assert.doesNotMatch(generatedPaperObjectKey(PAPER, EXPORT), /^generated-papers\//);

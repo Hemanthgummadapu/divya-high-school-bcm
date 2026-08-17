@@ -102,6 +102,7 @@ export function canSignGeneratedPaper(paperId, storedPath) {
 }
 
 export function pdfStatusLabel(row) {
+  if (row.status === "draft") return "Draft";
   if (row.status === "archived") return "Archived";
   if (row.status === "final" && row.pdf_storage_path && row.pdf_sha256) {
     return "Ready";
@@ -138,8 +139,24 @@ export function parseGenerateRequest(body) {
     }
     return { ok: true, action: "retry", paperId: body.paperId };
   }
-  if (action !== "create") {
+  if (action !== "create" && action !== "draft") {
     return { ok: false, error: "Invalid action" };
+  }
+
+  // A draft save and a finalize share one validated shape. Both may target an
+  // existing draft, which requires the caller's lock version so a stale
+  // browser cannot overwrite a newer composition.
+  let paperId = null;
+  let expectedLockVersion = null;
+  if (body.paperId != null && body.paperId !== "") {
+    if (!isUuid(body.paperId)) {
+      return { ok: false, error: "Invalid paper" };
+    }
+    paperId = body.paperId;
+    expectedLockVersion = parsePositiveInt(body.expectedLockVersion, null);
+    if (expectedLockVersion == null || expectedLockVersion < 1) {
+      return { ok: false, error: "Invalid lock version" };
+    }
   }
 
   const leaked = findClientSnapshotKeys(body);
@@ -226,13 +243,68 @@ export function parseGenerateRequest(body) {
 
   return {
     ok: true,
-    action: "create",
+    action,
     creationKey: body.creationKey,
+    paperId,
+    expectedLockVersion,
     title,
     academicYear,
     durationMinutes,
     items,
   };
+}
+
+export {
+  findDuplicatePaperNameWarning,
+  suggestGeneratedPaperName,
+} from "./question-bank-v2-paper-ui.mjs";
+
+/**
+ * Map a previous paper's saved items back onto currently approved bank rows.
+ * Snapshot text is historical and never authoritative: only the bank question
+ * id survives, and a question that is now missing, rejected or archived is
+ * reported instead of being silently carried into the new composition.
+ */
+export function planTemplateFromPaper(items, approvedRows) {
+  const approved = new Map(
+    (Array.isArray(approvedRows) ? approvedRows : [])
+      .filter((row) => row && row.review_status === "approved")
+      .map((row) => [row.id, row]),
+  );
+  const available = [];
+  const unavailable = [];
+  const ordered = [...(Array.isArray(items) ? items : [])].sort((a, b) => {
+    const sectionDelta =
+      Number(a?.section_display_order ?? 0) - Number(b?.section_display_order ?? 0);
+    if (sectionDelta !== 0) return sectionDelta;
+    return (
+      Number(a?.question_display_order ?? 0) - Number(b?.question_display_order ?? 0)
+    );
+  });
+  for (const item of ordered) {
+    const bankQuestionId = item?.bank_question_id ?? null;
+    const row = bankQuestionId ? approved.get(bankQuestionId) : null;
+    const position = {
+      sectionTitle: item?.section_title ?? null,
+      numberLabel: item?.number_label ?? null,
+    };
+    if (!row) {
+      unavailable.push(position);
+      continue;
+    }
+    available.push({
+      questionId: bankQuestionId,
+      sectionTitle: item?.section_title ?? "SECTION-I",
+      sectionInstructions: item?.section_instructions ?? null,
+      sectionOrder: Number(item?.section_display_order ?? 1),
+      questionOrder: Number(item?.question_display_order ?? 1),
+    });
+  }
+  const warning =
+    unavailable.length > 0
+      ? `${unavailable.length} question${unavailable.length === 1 ? " from this paper is" : "s from this paper are"} no longer available in the approved Question Bank.`
+      : null;
+  return { available, unavailable, warning };
 }
 
 export function verifyBankQuestions(requestedIds, rows) {
@@ -364,6 +436,9 @@ export function publicSavedPaper(row, extras = {}) {
     pdfStatus: pdfStatusLabel(row),
     finalizedAt: row.finalized_at ?? null,
     createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
+    lockVersion: row.lock_version ?? null,
+    editable: row.status === "draft",
     pdfUrl: extras.pdfUrl ?? null,
   };
 }
