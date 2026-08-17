@@ -114,6 +114,8 @@ async function downloadPostgrest(destDir) {
   return binary;
 }
 
+const DISPLAY_NAME_MIGRATION = "20260817000000_question_sources_display_name.sql";
+
 function applyMigrations(psql, env) {
   const bootstrap = join(root, "scripts/question-bank-v2-rpc-integration-bootstrap.sql");
   run(psql, ["-v", "ON_ERROR_STOP=1", "-f", bootstrap], { env });
@@ -121,9 +123,38 @@ function applyMigrations(psql, env) {
   const files = readdirSync(migrationsDir)
     .filter((name) => name.endsWith(".sql"))
     .sort();
-  for (const file of files) {
+  const prior = files.filter((name) => name !== DISPLAY_NAME_MIGRATION);
+  const displayName = files.find((name) => name === DISPLAY_NAME_MIGRATION);
+  for (const file of prior) {
     run(psql, ["-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, file)], { env });
   }
+  run(
+    psql,
+    [
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-f",
+      join(root, "scripts/question-bank-v2-display-name-backfill-fixtures.sql"),
+    ],
+    { env },
+  );
+  if (!displayName) {
+    throw new Error("display_name migration is missing");
+  }
+  run(psql, ["-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, displayName)], {
+    env,
+  });
+  run(
+    psql,
+    [
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-f",
+      join(root, "scripts/question-bank-v2-display-name-backfill-verify.sql"),
+    ],
+    { env },
+  );
+  process.stderr.write("display_name backfill verified\n");
 }
 
 async function main() {

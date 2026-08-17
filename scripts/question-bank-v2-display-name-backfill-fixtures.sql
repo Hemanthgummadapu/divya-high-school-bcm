@@ -1,0 +1,83 @@
+-- Disposable fixtures for display_name backfill. Applied after every
+-- migration except 20260817000000, then removed after verification.
+
+INSERT INTO public.question_sources (
+  id,
+  original_filename,
+  storage_path,
+  content_sha256,
+  mime_type,
+  byte_size,
+  page_count,
+  grade,
+  subject,
+    academic_year,
+    extraction_status,
+    processed_page_count,
+    failed_page_numbers,
+    extracted_question_count
+) VALUES
+  (
+    '4b04d3ce-632b-45f5-a6a4-939ee69c37c8',
+    'Class 10 Mathematics 2026.pdf',
+    'source-pdfs/4b04d3ce-632b-45f5-a6a4-939ee69c37c8/original.pdf',
+    '872134ec1ab2a6312e6b434e390c27933cafab52b6c60f7553d1bcc43926aec7',
+    'application/pdf',
+    595680,
+    6,
+    10,
+    'Mathematics',
+    2026,
+    'partial',
+    5,
+    '{1}',
+    31
+  ),
+  (
+    '11111111-1111-4111-8111-aaaaaaaaaaa1',
+    'Pre-Final Mathematics.PDF',
+    'source-pdfs/11111111-1111-4111-8111-aaaaaaaaaaa1/original.pdf',
+    repeat('a', 64),
+    'application/pdf',
+    1024,
+    2,
+    10,
+    'Mathematics',
+    2026,
+    'completed',
+    2,
+    '{}',
+    4
+  ),
+  (
+    '11111111-1111-4111-8111-aaaaaaaaaaa2',
+    '  Class 9 Science 2025.pdf  ',
+    'source-pdfs/11111111-1111-4111-8111-aaaaaaaaaaa2/original.pdf',
+    repeat('b', 64),
+    'application/pdf',
+    1024,
+    2,
+    9,
+    'Science',
+    2025,
+    'completed',
+    2,
+    '{}',
+    2
+  ),
+  (
+    '11111111-1111-4111-8111-aaaaaaaaaaa3',
+    '.pdf',
+    'source-pdfs/11111111-1111-4111-8111-aaaaaaaaaaa3/original.pdf',
+    repeat('c', 64),
+    'application/pdf',
+    1024,
+    1,
+    8,
+    'English',
+    2026,
+    'failed',
+    0,
+    '{}',
+    0
+  );

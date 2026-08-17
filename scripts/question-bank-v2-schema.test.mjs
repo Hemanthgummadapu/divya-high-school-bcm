@@ -130,10 +130,15 @@ test("display_name forward migration backfills and stays off legacy tables", () 
   const forward = readFileSync(forwardPath, "utf8");
   const stripped = stripSql(forward);
   assert.match(forward, /ADD COLUMN display_name text/);
-  assert.match(forward, /regexp_replace\(original_filename, '\\.pdf\$', '', 'i'\)/);
+  assert.match(
+    forward,
+    /regexp_replace\(btrim\(original_filename\), '\\.pdf\$', '', 'i'\)/,
+  );
+  assert.match(forward, /RAISE EXCEPTION 'display_name backfill produced an invalid value'/);
   assert.match(forward, /ALTER COLUMN display_name SET NOT NULL/);
   assert.match(forward, /char_length\(display_name\) BETWEEN 1 AND 160/);
   assert.match(forward, /display_name = btrim\(display_name\)/);
+  assert.match(forward, /Untitled paper/);
   assert.doesNotMatch(forward, /UNIQUE.*display_name|display_name.*UNIQUE/i);
   assert.doesNotMatch(forward, /question_sources_content_sha256_key/);
   assert.doesNotMatch(stripped, /\bCREATE POLICY\b/);
