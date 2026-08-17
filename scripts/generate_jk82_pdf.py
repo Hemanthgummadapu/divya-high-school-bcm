@@ -46,6 +46,9 @@ TURN_OVER_Y = 12 * mm
 DIAGRAM_MAX_W = 130
 DIAGRAM_MAX_H = 110
 TEXT_WIDTH_RATIO_WITH_DIAGRAM = 0.6
+# Largest block reserved to keep a question with its options. Capped so a very
+# long question starts on a fresh page and then flows instead of looping.
+MAX_QUESTION_BLOCK_RESERVE = 260
 
 # Font sizes (increased by 2pt for better readability)
 FONT_TITLE = 16
@@ -220,9 +223,25 @@ def draw_line(c, y, left=None, right=None):
     c.line(left, y, right, y)
 
 
+DOUBLE_PIPE_RE = re.compile(r"\|\|+")
+
+
+def table_pipe_count(line):
+    """Count pipes that could delimit a markdown table cell.
+
+    Exam papers write 'is parallel to' as '||' (for example 'DE||BC'), and a
+    question naming two parallel pairs carries four pipes. Markdown never puts
+    two pipes together with no cell between them, so '||' runs are ignored and
+    such a question is no longer mistaken for a table and rendered as a grid.
+    """
+    return DOUBLE_PIPE_RE.sub("", line or "").count("|")
+
+
 def preprocess_question_text_for_tables(text):
     """Split single-line table data into proper lines: find segments with 3+ pipes, put each on its own line."""
     if not text or not text.strip():
+        return text
+    if table_pipe_count(text) < 3:
         return text
     pattern = r'((?:[^|]+\|){3,}[^|]*)'
     parts = re.split(pattern, text)
@@ -249,9 +268,9 @@ def parse_table_in_text(text):
     i = 0
     while i < len(lines):
         line = lines[i]
-        if line.count("|") >= 3:
+        if table_pipe_count(line) >= 3:
             table_rows = []
-            while i < len(lines) and lines[i].count("|") >= 3:
+            while i < len(lines) and table_pipe_count(lines[i]) >= 3:
                 row = [cell.strip() for cell in lines[i].split("|")]
                 row = [c for c in row if c]
                 if row:
@@ -551,13 +570,17 @@ def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
                 y -= line_height
         y -= lead
         for q in questions:
+            # Keep a question with its options. The estimate previously only
+            # governed blocks under 90pt, so a four-option MCQ (92pt) fell
+            # through to a 25pt check and could leave a lone option stranded
+            # on the next page. Reserve the estimated block, capped so a very
+            # long question still starts a page and then flows normally.
             estimated = 36 + 14 * max(1, len(option_lines(q.get("options") or [])))
-            if estimated < 90 and y < 2 * MARGIN + estimated:
+            page_top = PAGE_HEIGHT - MARGIN
+            required = min(estimated, MAX_QUESTION_BLOCK_RESERVE)
+            if y < 2 * MARGIN + required and y < page_top - 1:
                 new_page()
-                y = PAGE_HEIGHT - MARGIN
-            elif y < 2 * MARGIN + 25:
-                new_page()
-                y = PAGE_HEIGHT - MARGIN
+                y = page_top
             number = clean(str(q.get("number") or ""))
             text = clean_for_pdf(clean_preserve_newlines(q.get("text", "")))
             marks = int(q.get("marks") or 0)

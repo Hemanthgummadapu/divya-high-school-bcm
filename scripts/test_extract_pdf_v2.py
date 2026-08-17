@@ -437,6 +437,50 @@ class ExtractPdfV2Tests(unittest.TestCase):
             # No base64 PNG payloads inside the extraction JSON
             self.assertNotIn("diagramPngBase64", output.read_text(encoding="utf-8"))
 
+    def test_parallel_notation_is_not_mistaken_for_a_table(self):
+        """Real papers write 'is parallel to' as '||' (DE||BC). Two such pairs
+        carry four pipes and were being rendered as a markdown table grid."""
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import generate_jk82_pdf as gen
+
+        for question in (
+            "In a triangle ABC, the DE||BC, then AD/DB =",
+            "If AB||CD and EF||GH then find the angle between them.",
+            "Given AB||CD, EF||GH and IJ||KL, prove the lines are coplanar.",
+        ):
+            _, tables, _ = gen.parse_table_in_text(question)
+            self.assertEqual(tables, [], question)
+
+        # A genuine markdown table still parses into rows.
+        _, tables, _ = gen.parse_table_in_text(
+            "| C.I. | 0-20 | 20-40 | 40-60 |\n|---|---|---|---|\n| F | 2 | 5 | 12 |"
+        )
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables[0][0], ["C.I.", "0-20", "20-40", "40-60"])
+        self.assertEqual(gen.table_pipe_count("AB||CD and EF||GH"), 0)
+        self.assertEqual(gen.table_pipe_count("| a | b | c |"), 4)
+
+    def test_mcq_keeps_its_options_on_one_page(self):
+        """A four-option MCQ reserves its whole block, so the last option is
+        never stranded alone on the following page."""
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import generate_jk82_pdf as gen
+
+        options = [{"label": chr(65 + i), "text": f"option {i}"} for i in range(4)]
+        estimated = 36 + 14 * max(1, len(gen.option_lines(options)))
+        self.assertGreater(estimated, 90, "four options exceed the old 90pt cap")
+        self.assertLessEqual(
+            min(estimated, gen.MAX_QUESTION_BLOCK_RESERVE),
+            gen.MAX_QUESTION_BLOCK_RESERVE,
+        )
+        source = (ROOT / "scripts" / "generate_jk82_pdf.py").read_text(encoding="utf-8")
+        self.assertNotIn("if estimated < 90 and y < 2 * MARGIN + estimated:", source)
+        self.assertIn("required = min(estimated, MAX_QUESTION_BLOCK_RESERVE)", source)
+
+    def test_generated_header_names_the_subject(self):
+        source = (ROOT / "scripts" / "generate_jk82_pdf.py").read_text(encoding="utf-8")
+        self.assertIn('f"Subject: {subject}"', source)
+
     def test_mock_skips_provider_and_live_path_still_requires_key(self):
         self.assertEqual(extract.apply_extract_mock("completed", 1)["ok"], True)
         with self.assertRaises(ValueError):
