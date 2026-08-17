@@ -112,7 +112,7 @@ function extractionDocument() {
   };
 }
 
-test("extraction contract keeps page numbers, order, sections and symbols", () => {
+test("extraction keeps page numbers, order and symbols but drops source sections", () => {
   const document = validateDocumentResult(extractionDocument(), 4);
   assert.equal(document.ok, true);
   assert.deepEqual(
@@ -138,10 +138,11 @@ test("extraction contract keeps page numbers, order, sections and symbols", () =
     ],
   );
 
-  // Per-question sections survive; a page heading never overwrites them.
+  // Sections belong to a prepared paper, so the source paper's own PART and
+  // SECTION arrangement is never carried onto a reusable bank question.
   assert.deepEqual(
     plan.questions.map((q) => q.section_label),
-    ["PART-B", "SECTION-I", "SECTION-II", "SECTION-III"],
+    [null, null, null, null],
   );
 
   // MCQ options keep their labels, order and text.

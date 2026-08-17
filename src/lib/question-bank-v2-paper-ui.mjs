@@ -40,6 +40,27 @@ export function findDuplicatePaperNameWarning(title, papers) {
   return "A paper with this name already exists. Consider adding Set A, Set B or a date.";
 }
 
+/**
+ * Suggest a source-paper name from what the user has already chosen. A
+ * filename like "Screenshot 2026-02-22 at 10.38.pdf" is useless in the Source
+ * Paper filter, so class/subject/year is preferred and the filename is only a
+ * last resort. The result stays required and editable.
+ */
+export function suggestSourcePaperName({ grade, subject, academicYear } = {}) {
+  const gradeNumber = Number(grade);
+  const parts = [];
+  if (Number.isSafeInteger(gradeNumber) && gradeNumber >= 1 && gradeNumber <= 10) {
+    parts.push(`Class ${gradeNumber}`);
+  }
+  const subjectName = String(subject ?? "").trim();
+  if (subjectName) parts.push(subjectName);
+  const year = Number(academicYear);
+  if (Number.isSafeInteger(year) && year >= 2000 && year <= 2100) {
+    parts.push(String(year));
+  }
+  return parts.join(" ").trim();
+}
+
 export function romanClass(grade) {
   const roman = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
   return roman[grade] || String(grade);

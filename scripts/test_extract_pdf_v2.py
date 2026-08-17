@@ -375,19 +375,33 @@ class ExtractPdfV2Tests(unittest.TestCase):
         self.assertIsNone(questions[1]["diagram"])
         self.assertIsNone(questions[1]["diagramCropRef"])
 
-    def test_per_question_section_survives_page_heading(self):
+    def test_source_sections_are_never_carried_into_bank_questions(self):
+        """Sections belong to a prepared paper, not to a reusable question, so
+        the source paper's own PART/SECTION arrangement is discarded."""
         questions = extract.normalize_page_questions(
             [
                 {"text": "Q1", "type": "Short", "marks": 2, "section": "SECTION-I"},
                 {"text": "Q2", "type": "Medium", "marks": 4, "section": "SECTION-II"},
                 {"text": "Q3", "type": "Medium", "marks": 4},
             ],
-            "SECTION-II",
+            "PART-A",
             FakeExtractor(),
         )
-        self.assertEqual(questions[0]["sectionLabel"], "SECTION-I")
-        self.assertEqual(questions[1]["sectionLabel"], "SECTION-II")
-        self.assertEqual(questions[2]["sectionLabel"], "SECTION-II")
+        for question in questions:
+            self.assertIsNone(question["sectionLabel"])
+        # Question content, type, marks and order are still preserved.
+        self.assertEqual([q["questionType"] for q in questions], ["Short", "Medium", "Medium"])
+        self.assertEqual([q["marks"] for q in questions], [2, 4, 4])
+        self.assertEqual([q["sourceOrder"] for q in questions], [1, 2, 3])
+
+    def test_prompt_ignores_source_structure(self):
+        prompt = extract.CLAUDE_PROMPT
+        self.assertIn("IGNORE the source paper's own structure", prompt)
+        self.assertIn('Do not include a "section" field', prompt)
+        for banned in ("Turn Over", "marks-allocation headings", "answer-space formatting"):
+            self.assertIn(banned, prompt)
+        # The prompt must no longer instruct a page heading to label questions.
+        self.assertNotIn("assign ALL questions on that page", prompt)
 
     def test_mocked_diagram_subprocess_writes_request_owned_crop(self):
         with tempfile.TemporaryDirectory(prefix="qb-mock-diagram-") as tmp:

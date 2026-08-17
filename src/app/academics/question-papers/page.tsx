@@ -27,6 +27,7 @@ import {
   questionTypeLabel,
   romanClass,
   suggestGeneratedPaperName,
+  suggestSourcePaperName,
   summarizeSelection,
 } from "@/lib/question-bank-v2-paper-ui.mjs";
 import {
@@ -279,6 +280,21 @@ export default function QuestionPapers() {
   const [templateWarning, setTemplateWarning] = useState<string | null>(null);
   const [draftNotice, setDraftNotice] = useState<string | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [builderPicked, setBuilderPicked] = useState<Set<string>>(new Set());
+  const [bulkSectionKey, setBulkSectionKey] = useState("");
+  const [templatePicker, setTemplatePicker] = useState<{
+    paper: SavedPaper;
+    sections: Array<{
+      sectionOrder: number;
+      title: string;
+      instructions: string | null;
+      questionIds: string[];
+    }>;
+    questions: BankQuestion[];
+    unavailable: Array<{ sectionTitle: string | null; numberLabel: string | null }>;
+    warning: string | null;
+  } | null>(null);
+  const [templatePicked, setTemplatePicked] = useState<Set<string>>(new Set());
   const savingRef = useRef(false);
   const [builderYear, setBuilderYear] = useState(String(new Date().getFullYear()));
   const [builderDuration, setBuilderDuration] = useState("180");
@@ -900,6 +916,84 @@ export default function QuestionPapers() {
    * read the server's authoritative composition; a template keeps the previous
    * paper untouched by opening as an unsaved new paper.
    */
+  /**
+   * Show a previous paper's questions so the user can take only some of them.
+   * Questions still mapped to approved bank rows are selectable; the rest are
+   * reported and cannot be chosen.
+   */
+  const openTemplatePicker = async (paper: SavedPaper) => {
+    setMutating(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/question-papers/${paper.id}?resource=composition`,
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setError(data.error || "This paper could not be opened");
+        return;
+      }
+      const questions: BankQuestion[] = (data.questions ?? []).map(
+        (question: Record<string, unknown>) =>
+          ({
+            ...(question as unknown as BankQuestion),
+            reviewStatus: "approved",
+            options: [],
+          }) as BankQuestion,
+      );
+      setTemplatePicker({
+        paper,
+        sections: data.sections ?? [],
+        questions,
+        unavailable: data.unavailable ?? [],
+        warning: data.warning ?? null,
+      });
+      setTemplatePicked(new Set(questions.map((question) => question.id)));
+    } catch {
+      setError("This paper could not be opened");
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  /** Load only the chosen previous-paper questions into a new composition. */
+  const startCompositionFromPicked = () => {
+    if (!templatePicker || templatePicked.size === 0) return;
+    const chosen = templatePicker.questions.filter((question) =>
+      templatePicked.has(question.id),
+    );
+    const nextMap = new Map(chosen.map((question) => [question.id, question]));
+    setSelectedMap(nextMap);
+    setSelectedIds(new Set(nextMap.keys()));
+    // Their previous section grouping is only the initial suggestion.
+    const sections = templatePicker.sections
+      .map((section, index) => ({
+        key: `section-${index + 1}`,
+        title: section.title || `Section ${index + 1}`,
+        instructions: section.instructions ?? "",
+        questionIds: section.questionIds.filter((id) => templatePicked.has(id)),
+      }))
+      .filter((section) => section.questionIds.length > 0);
+    setBuilderSections(
+      sections.length > 0 ? sections : groupQuestionsIntoSections(chosen),
+    );
+    setBuilderTitle(`${templatePicker.paper.title} – Copy`);
+    setBuilderYear(String(templatePicker.paper.academicYear));
+    setBuilderDuration(String(templatePicker.paper.durationMinutes ?? 180));
+    setBuilderPaperId(null);
+    setBuilderLockVersion(null);
+    setCreationKey(newCreationKey(chosen.length));
+    setTemplateWarning(templatePicker.warning);
+    setBuilderPicked(new Set());
+    setBulkSectionKey("");
+    setDraftNotice(null);
+    setBuilderDirty(false);
+    setBuilderError(null);
+    setGenerateStage(null);
+    setTemplatePicker(null);
+    setBuilderOpen(true);
+  };
+
   const openComposition = async (
     paper: SavedPaper,
     mode: "continue" | "template",
@@ -1019,6 +1113,61 @@ export default function QuestionPapers() {
     );
   };
 
+  /**
+   * Sections live on the prepared paper, so any selected question may be moved
+   * into any section regardless of its type. The suggested type-based grouping
+   * is only a starting point.
+   */
+  const assignQuestionToSection = (questionId: string, targetKey: string) => {
+    setBuilderDirty(true);
+    setBuilderSections((current) => {
+      if (!current.some((section) => section.key === targetKey)) return current;
+      return current.map((section) => {
+        const without = section.questionIds.filter((id) => id !== questionId);
+        if (section.key !== targetKey) return { ...section, questionIds: without };
+        return { ...section, questionIds: [...without, questionId] };
+      });
+    });
+  };
+
+  const moveSelectedQuestionsToSection = (targetKey: string) => {
+    const moving = builderSections.flatMap((section) =>
+      section.questionIds.filter((id) => builderPicked.has(id)),
+    );
+    if (moving.length === 0 || !targetKey) return;
+    setBuilderDirty(true);
+    setBuilderSections((current) =>
+      current.map((section) => {
+        const without = section.questionIds.filter((id) => !moving.includes(id));
+        if (section.key !== targetKey) return { ...section, questionIds: without };
+        return { ...section, questionIds: [...without, ...moving] };
+      }),
+    );
+    setBuilderPicked(new Set());
+  };
+
+  const addBuilderSection = () => {
+    setBuilderDirty(true);
+    setBuilderSections((current) => [
+      ...current,
+      {
+        key: `section-${Date.now()}`,
+        title: `Section ${String.fromCharCode(65 + current.length)}`,
+        instructions: "",
+        questionIds: [],
+      },
+    ]);
+  };
+
+  const removeBuilderSection = (sectionKey: string) => {
+    setBuilderDirty(true);
+    setBuilderSections((current) =>
+      current.filter(
+        (section) => section.key !== sectionKey || section.questionIds.length > 0,
+      ),
+    );
+  };
+
   const removeBuilderItem = (id: string) => {
     setBuilderDirty(true);
     setBuilderSections((current) =>
@@ -1060,16 +1209,20 @@ export default function QuestionPapers() {
     savedPapers.filter((paper) => paper.id !== builderPaperId),
   );
 
+  // Empty sections are never saved, and the remaining sections are renumbered
+  // so their order has no gaps.
   const builderItems = () =>
-    builderSections.flatMap((section, sectionIndex) =>
-      section.questionIds.map((id, questionIndex) => ({
-        questionId: id,
-        sectionTitle: section.title,
-        sectionInstructions: section.instructions,
-        sectionOrder: sectionIndex + 1,
-        questionOrder: questionIndex + 1,
-      })),
-    );
+    builderSections
+      .filter((section) => section.questionIds.length > 0)
+      .flatMap((section, sectionIndex) =>
+        section.questionIds.map((id, questionIndex) => ({
+          questionId: id,
+          sectionTitle: section.title,
+          sectionInstructions: section.instructions,
+          sectionOrder: sectionIndex + 1,
+          questionOrder: questionIndex + 1,
+        })),
+      );
 
   const handleSaveDraft = async () => {
     if (savingRef.current) return;
@@ -1897,9 +2050,6 @@ export default function QuestionPapers() {
                             {question.sourcePageNumber != null && (
                               <span>Page {question.sourcePageNumber}</span>
                             )}
-                            {question.sectionLabel && (
-                              <span>{question.sectionLabel}</span>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -2053,7 +2203,14 @@ export default function QuestionPapers() {
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       if (file && file.type === "application/pdf") {
-                        const suggestion = suggestPaperNameFromFilename(file.name);
+                        // Class/subject/year makes a far better source name
+                        // than a filename like "Screenshot 2026-02-22 at 10.38".
+                        const suggestion =
+                          suggestSourcePaperName({
+                            grade: uploadForm.grade,
+                            subject: uploadForm.subject,
+                            academicYear: uploadForm.year,
+                          }) || suggestPaperNameFromFilename(file.name);
                         setUploadForm((current) => ({
                           ...current,
                           file,
@@ -2308,7 +2465,8 @@ export default function QuestionPapers() {
                 >
                   <option value="">All</option>
                   <option value="draft">Draft</option>
-                  <option value="final">Ready / PDF pending</option>
+                  <option value="ready">Ready</option>
+                  <option value="pdf_pending">PDF pending</option>
                   <option value="archived">Archived</option>
                 </select>
               </div>
@@ -2499,14 +2657,24 @@ export default function QuestionPapers() {
                         </button>
                       ) : null}
                       {!paper.editable && (
-                        <button
-                          type="button"
-                          disabled={mutating}
-                          className={secondaryButtonClass}
-                          onClick={() => openComposition(paper, "template")}
-                        >
-                          Use as template
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={secondaryButtonClass}
+                            onClick={() => openComposition(paper, "template")}
+                          >
+                            Use as template
+                          </button>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={secondaryButtonClass}
+                            onClick={() => openTemplatePicker(paper)}
+                          >
+                            View questions
+                          </button>
+                        </>
                       )}
                     </div>
                   </li>
@@ -2621,6 +2789,48 @@ export default function QuestionPapers() {
               />
             </div>
           </div>
+          <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="min-w-[14rem] flex-1">
+              <label htmlFor="builder-bulk-section" className={labelClass}>
+                Move selected questions to…
+              </label>
+              <select
+                id="builder-bulk-section"
+                value={bulkSectionKey}
+                disabled={Boolean(generateStage) || savingDraft}
+                onChange={(event) => setBulkSectionKey(event.target.value)}
+                className={inputClass}
+              >
+                <option value="">Choose a section</option>
+                {builderSections.map((section, index) => (
+                  <option key={section.key} value={section.key}>
+                    {section.title || `Section ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              disabled={
+                Boolean(generateStage) ||
+                savingDraft ||
+                !bulkSectionKey ||
+                builderPicked.size === 0
+              }
+              onClick={() => moveSelectedQuestionsToSection(bulkSectionKey)}
+              className={secondaryButtonClass}
+            >
+              Move {builderPicked.size} selected
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(generateStage) || savingDraft}
+              onClick={addBuilderSection}
+              className={secondaryButtonClass}
+            >
+              Add section
+            </button>
+          </div>
           <div className="mb-4 space-y-4">
             {builderSections.map((section, sectionIndex) => (
               <section
@@ -2651,6 +2861,16 @@ export default function QuestionPapers() {
                     >
                       Move section down
                     </button>
+                    {section.questionIds.length === 0 && (
+                      <button
+                        type="button"
+                        disabled={Boolean(generateStage) || savingDraft}
+                        onClick={() => removeBuilderSection(section.key)}
+                        className={dangerButtonClass}
+                      >
+                        Remove section
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mb-3 grid grid-cols-1 gap-3">
@@ -2702,14 +2922,56 @@ export default function QuestionPapers() {
                         key={question.id}
                         className="rounded-lg border border-slate-200 p-3"
                       >
-                        <p className="text-sm font-medium text-slate-700">
-                          {index + 1}. {questionTypeLabel(question.questionType)} ·{" "}
-                          {question.marks} mark{question.marks === 1 ? "" : "s"}
-                          {question.diagramUrl ? " · Has diagram" : ""}
-                        </p>
-                        <p className="line-clamp-2 whitespace-pre-wrap break-words text-sm text-slate-600">
-                          {question.questionText}
-                        </p>
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select question ${index + 1} for bulk section assignment`}
+                            checked={builderPicked.has(question.id)}
+                            disabled={Boolean(generateStage) || savingDraft}
+                            onChange={() =>
+                              setBuilderPicked((current) => {
+                                const next = new Set(current);
+                                if (next.has(question.id)) next.delete(question.id);
+                                else next.add(question.id);
+                                return next;
+                              })
+                            }
+                            className="mt-1 h-5 w-5 rounded border-slate-300 text-[#1e3a8a] focus:ring-[#1e3a8a]"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-slate-700">
+                              {index + 1}. {questionTypeLabel(question.questionType)} ·{" "}
+                              {question.marks} mark{question.marks === 1 ? "" : "s"}
+                              {question.diagramUrl ? " · Has diagram" : ""}
+                            </p>
+                            <p className="line-clamp-2 whitespace-pre-wrap break-words text-sm text-slate-600">
+                              {question.questionText}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2">
+                          <label
+                            htmlFor={`assign-${question.id}`}
+                            className="mr-2 text-xs font-medium text-slate-600"
+                          >
+                            Section
+                          </label>
+                          <select
+                            id={`assign-${question.id}`}
+                            value={section.key}
+                            disabled={Boolean(generateStage) || savingDraft}
+                            onChange={(event) =>
+                              assignQuestionToSection(question.id, event.target.value)
+                            }
+                            className="min-h-[2.25rem] rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-[#1e3a8a] focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30"
+                          >
+                            {builderSections.map((candidate, candidateIndex) => (
+                              <option key={candidate.key} value={candidate.key}>
+                                {candidate.title || `Section ${candidateIndex + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -2824,6 +3086,98 @@ export default function QuestionPapers() {
               className={secondaryButtonClass}
             >
               Save draft
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {templatePicker && (
+        <Modal
+          title={`Questions in ${templatePicker.paper.title}`}
+          titleId="template-picker-title"
+          onClose={() => setTemplatePicker(null)}
+        >
+          <p className="mb-3 text-sm text-slate-600">
+            These are this paper&apos;s saved questions. Select the ones you want
+            in a new paper; the original paper is not changed.
+          </p>
+          {templatePicker.warning && (
+            <p
+              className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+              role="alert"
+            >
+              {templatePicker.warning}
+            </p>
+          )}
+          <ul className="mb-4 space-y-2">
+            {templatePicker.questions.map((question) => (
+              <li
+                key={question.id}
+                className="flex items-start gap-3 rounded-lg border border-slate-200 p-3"
+              >
+                <input
+                  type="checkbox"
+                  id={`template-pick-${question.id}`}
+                  checked={templatePicked.has(question.id)}
+                  onChange={() =>
+                    setTemplatePicked((current) => {
+                      const next = new Set(current);
+                      if (next.has(question.id)) next.delete(question.id);
+                      else next.add(question.id);
+                      return next;
+                    })
+                  }
+                  className="mt-1 h-5 w-5 rounded border-slate-300 text-[#1e3a8a] focus:ring-[#1e3a8a]"
+                />
+                <label
+                  htmlFor={`template-pick-${question.id}`}
+                  className="min-w-0 flex-1 cursor-pointer"
+                >
+                  <span className="block text-xs font-medium text-slate-600">
+                    {questionTypeLabel(question.questionType)} · {question.marks}{" "}
+                    mark{question.marks === 1 ? "" : "s"}
+                  </span>
+                  <span className="line-clamp-2 block break-words text-sm text-slate-800">
+                    {question.questionText}
+                  </span>
+                </label>
+              </li>
+            ))}
+            {templatePicker.unavailable.map((item, index) => (
+              <li
+                key={`unavailable-${index}`}
+                className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3"
+              >
+                <input
+                  type="checkbox"
+                  disabled
+                  aria-label="Unavailable question"
+                  className="mt-1 h-5 w-5 rounded border-slate-300"
+                />
+                <span className="min-w-0 flex-1 text-sm text-slate-500">
+                  Question {item.numberLabel ?? "?"}
+                  {item.sectionTitle ? ` (${item.sectionTitle})` : ""} is no longer
+                  available in the approved Question Bank and cannot be selected.
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={templatePicked.size === 0}
+              onClick={startCompositionFromPicked}
+              className={primaryButtonClass}
+            >
+              Use {templatePicked.size} selected question
+              {templatePicked.size === 1 ? "" : "s"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTemplatePicker(null)}
+              className={secondaryButtonClass}
+            >
+              Cancel
             </button>
           </div>
         </Modal>
@@ -3070,7 +3424,7 @@ function QuestionEditor({
           className={`${inputClass} break-words`}
         />
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor={`${idPrefix}-type`} className={labelClass}>
             Type
@@ -3106,20 +3460,6 @@ function QuestionEditor({
             disabled={disabled}
             onChange={(event) =>
               onChange({ ...draft, marks: Number(event.target.value) })
-            }
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label htmlFor={`${idPrefix}-section`} className={labelClass}>
-            Section
-          </label>
-          <input
-            id={`${idPrefix}-section`}
-            value={draft.sectionLabel}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange({ ...draft, sectionLabel: event.target.value })
             }
             className={inputClass}
           />

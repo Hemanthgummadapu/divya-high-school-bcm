@@ -3,6 +3,8 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseListQuery } from "../src/lib/question-bank-v2-review.mjs";
+import { suggestSourcePaperName } from "../src/lib/question-bank-v2-paper-ui.mjs";
 import {
   findDuplicatePaperNameWarning,
   parseGenerateRequest,
@@ -382,4 +384,65 @@ test("the UI exposes naming, drafts and templates without fake progress", () => 
   assert.match(pageSource, /resource=composition/);
   assert.match(pageSource, /action: "draft"/);
   assert.doesNotMatch(pageSource, /setTimeout\(\s*\(\)\s*=>\s*setProgress/);
+});
+
+test("saved-paper status filters separate Ready from PDF pending server-side", () => {
+  const ok = (status) =>
+    parseListQuery(
+      new URLSearchParams({ view: "saved", page: "1", pageSize: "20", status }),
+    );
+  for (const status of ["draft", "ready", "pdf_pending", "archived", "final"]) {
+    assert.equal(ok(status).ok, true, status);
+    assert.equal(ok(status).query.status, status);
+  }
+  assert.equal(ok("bogus").ok, false);
+
+  // The split is applied in the query, not on the current browser page.
+  assert.match(paperApi, /filters\.status === "ready"/);
+  assert.match(paperApi, /not\("pdf_storage_path", "is", null\)/);
+  assert.match(paperApi, /not\("pdf_sha256", "is", null\)/);
+  assert.match(paperApi, /filters\.status === "pdf_pending"/);
+  assert.match(paperApi, /pdf_storage_path\.is\.null,pdf_sha256\.is\.null/);
+  // Filtering happens before pagination.
+  assert.ok(
+    paperApi.indexOf('filters.status === "ready"') < paperApi.indexOf(".range(from, to)"),
+  );
+});
+
+test("sections belong to the prepared paper, not to bank questions", () => {
+  // The review editor no longer exposes a permanent Section field.
+  assert.doesNotMatch(pageSource, /htmlFor=\{`\$\{idPrefix\}-section`\}/);
+  // Builder assignment and bulk move exist instead.
+  assert.match(pageSource, /Move selected questions to…/);
+  assert.match(pageSource, /assignQuestionToSection/);
+  assert.match(pageSource, /moveSelectedQuestionsToSection/);
+  assert.match(pageSource, /addBuilderSection/);
+  assert.match(pageSource, /removeBuilderSection/);
+  // Empty sections are never saved and remaining sections are renumbered.
+  assert.match(pageSource, /\.filter\(\(section\) => section\.questionIds\.length > 0\)/);
+  // Node normalization refuses to persist a source section.
+  const extractSource = readFileSync(
+    join(root, "src/lib/question-bank-v2-extract.mjs"),
+    "utf8",
+  );
+  assert.match(extractSource, /const sectionLabel = null;/);
+});
+
+test("a previous paper's questions can be selected individually", () => {
+  assert.match(pageSource, /openTemplatePicker/);
+  assert.match(pageSource, /startCompositionFromPicked/);
+  assert.match(pageSource, /templatePicked/);
+  // Unavailable questions are shown but cannot be chosen.
+  assert.match(pageSource, /no longer\s+available in the approved Question Bank and cannot be selected/);
+  // Selection reuses the authorized composition endpoint, not client snapshots.
+  assert.match(pageSource, /resource=composition/);
+});
+
+test("source-paper name is suggested from class, subject and year", () => {
+  assert.equal(
+    suggestSourcePaperName({ grade: 10, subject: "Mathematics", academicYear: 2026 }),
+    "Class 10 Mathematics 2026",
+  );
+  assert.equal(suggestSourcePaperName({}), "");
+  assert.match(pageSource, /suggestSourcePaperName\(\{/);
 });

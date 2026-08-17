@@ -119,10 +119,11 @@ QUESTIONS — one printed question, one JSON question
 - For MCQ questions, list every printed option in printed order in "options", either as ["A) ...", "B) ...", ...] or as [{"label": "A", "text": "..."}, ...]. Keep the option text exactly as printed and keep its label.
 - "correctAnswer" must be null unless the answer is explicitly printed on this page. Never solve the question yourself and never guess.
 
-SECTIONS — per question, from the paper's own headings
-- Use the paper's printed section/part headings (for example "SECTION-I", "SECTION-II", "PART-A", "PART-B") as each question's "section" value.
-- A single page can contain more than one section. When a new section heading appears part-way down the page, the questions after that heading belong to the new section. Set every question's own "section" field to the heading it sits under; a page-level heading must never overwrite a different heading printed closer to the question.
-- If this page prints no section heading and the section is not clearly stated, omit the "section" field for those questions instead of guessing. Never use "UNKNOWN", "OTHER" or an exam code as a section.
+IGNORE the source paper's own structure
+- This paper is only a source of reusable questions. Its arrangement belongs to the old paper, not to the questions.
+- Do NOT output section or part headings ("PART-A", "PART-B", "SECTION-I", "SECTION-II" and similar), section instructions ("Answer all questions", "Answer any four"), time allocations, or marks-allocation headings ("Marks 6x2=12").
+- Do NOT output page headers, footers, page numbers, exam codes, continuation text ("Turn Over", "Contd., on 3rd page") or answer-space formatting such as blank boxes or answer brackets.
+- Use those headings only as evidence when deciding a question's own "type" and printed "marks". Never copy them into the output.
 
 TABLES — When you see a data table/grid in the question:
 - Extract it as a proper markdown table with header row and separator row.
@@ -142,11 +143,9 @@ DIAGRAMS — only when the figure is required
 
 OUTPUT — JSON only
 {
-  "section": "SECTION-I",
   "questions": [
     {
       "number": "1",
-      "section": "SECTION-I",
       "text": "Full question text exactly as printed",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
       "marks": 2,
@@ -155,7 +154,7 @@ OUTPUT — JSON only
     }
   ]
 }
-Include "options" only for MCQ questions. Include "diagram" and "diagramBox" only when a required printed figure exists. Return ONLY valid JSON, nothing else."""
+Include "options" only for MCQ questions. Include "diagram" and "diagramBox" only when a required printed figure exists. Do not include a "section" field. Return ONLY valid JSON, nothing else."""
 
 
 def classify_provider_error(error: Exception) -> str:
@@ -451,14 +450,17 @@ def normalize_page_questions(
     section: str,
     extractor: "QuestionExtractor",
 ) -> List[Dict[str, Any]] | None:
+    """Normalize one page of provider questions into bank-question rows.
+
+    Sections belong to a prepared paper, not to a reusable bank question, so
+    the source paper's own PART/SECTION arrangement is never carried through:
+    `section` is accepted only as legacy provider evidence for inferring
+    printed marks, and no section label is emitted.
+    """
     if len(questions) > MAX_QUESTIONS_PER_PAGE:
         return None
     normalized: List[Dict[str, Any]] = []
-    effective_section = section
-    if isinstance(effective_section, str) and re.match(
-        r"^JK-\d+$", effective_section.strip(), re.IGNORECASE
-    ):
-        effective_section = "SECTION-A"
+    marks_hint = section if isinstance(section, str) else ""
     for index, raw in enumerate(questions, start=1):
         if not isinstance(raw, dict):
             return None
@@ -472,7 +474,7 @@ def normalize_page_questions(
             return None
         marks = raw.get("marks")
         if marks is None:
-            marks = extractor.extract_marks(text, effective_section)
+            marks = extractor.extract_marks(text, marks_hint)
         try:
             marks = int(marks)
         except (TypeError, ValueError):
@@ -507,7 +509,9 @@ def normalize_page_questions(
                 "questionText": text,
                 "rawExtractedText": text,
                 "marks": marks,
-                "sectionLabel": raw.get("section") or effective_section,
+                # Sections are defined on the prepared paper, never on the
+                # reusable bank question.
+                "sectionLabel": None,
                 "options": cleaned_options if question_type == "MCQ" else [],
                 "correctAnswer": raw.get("correct_answer") or raw.get("correctAnswer"),
                 "diagram": diagram_description,

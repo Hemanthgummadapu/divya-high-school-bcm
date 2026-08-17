@@ -65,6 +65,16 @@ export const ALLOWED_REVIEW_STATUSES = Object.freeze([
   "archived",
 ]);
 
+// Saved-paper filters. "ready" and "pdf_pending" are both status = final and
+// are separated server-side by whether the PDF metadata is complete.
+export const ALLOWED_SAVED_PAPER_FILTERS = Object.freeze([
+  "draft",
+  "final",
+  "ready",
+  "pdf_pending",
+  "archived",
+]);
+
 export const ALLOWED_STATUS_TRANSITIONS = Object.freeze({
   needs_review: Object.freeze(["approved", "rejected"]),
   rejected: Object.freeze(["needs_review"]),
@@ -154,7 +164,7 @@ export function parseListQuery(searchParams) {
   } else if (view === "saved") {
     if (
       requestedStatus &&
-      !["draft", "final", "archived"].includes(requestedStatus)
+      !ALLOWED_SAVED_PAPER_FILTERS.includes(requestedStatus)
     ) {
       return { ok: false, status: 400, error: "Invalid status" };
     }

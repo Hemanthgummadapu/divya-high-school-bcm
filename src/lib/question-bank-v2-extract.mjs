@@ -191,9 +191,11 @@ export function normalizeExtractedQuestion(raw, pageNumber, sourceOrder) {
   if (!ALLOWED_LANGUAGES.includes(language)) {
     language = detectLanguage(questionText);
   }
-  const sectionRaw = boundedText(raw.sectionLabel ?? raw.section, 200);
-  const sectionLabel =
-    sectionRaw && sectionRaw.trim() !== "" ? sectionRaw.trim() : null;
+  // Sections belong to a prepared paper, not to a reusable bank question:
+  // the same question can sit in Section A of one paper and Section C of
+  // another. Any section the provider still reports for the *source* paper's
+  // own arrangement is dropped here rather than persisted.
+  const sectionLabel = null;
   let options = [];
   if (questionType === "MCQ") {
     options = normalizeMcqOptions(raw.options);

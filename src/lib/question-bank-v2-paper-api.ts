@@ -181,7 +181,17 @@ export async function listSavedPapers(filters: {
   if (filters.search) {
     query = query.ilike("title", `%${filters.search.replace(/[%_]/g, "\\$&")}%`);
   }
-  if (filters.status) {
+  // Ready and PDF pending are both status = final, split by whether the PDF
+  // metadata is complete. Applying that here keeps the filter authoritative
+  // across pagination instead of filtering only the current page.
+  if (filters.status === "ready") {
+    query = query
+      .eq("status", "final")
+      .not("pdf_storage_path", "is", null)
+      .not("pdf_sha256", "is", null);
+  } else if (filters.status === "pdf_pending") {
+    query = query.eq("status", "final").or("pdf_storage_path.is.null,pdf_sha256.is.null");
+  } else if (filters.status) {
     query = query.eq("status", filters.status);
   } else {
     query = query.in("status", ["draft", "final", "archived"]);
