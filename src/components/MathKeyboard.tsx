@@ -71,7 +71,7 @@ export default function MathKeyboard({ visible, onInsert, onClose }: MathKeyboar
   if (!visible) return null;
 
   return (
-    <div className="bg-white border-t border-gray-200 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] p-3 flex flex-col shrink-0">
+    <div className="relative isolate flex shrink-0 flex-col rounded-lg border border-gray-200 bg-slate-50 p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex flex-row gap-1 overflow-x-auto min-w-0">
           {TABS.map((t, i) => (

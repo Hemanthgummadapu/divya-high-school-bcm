@@ -665,3 +665,15 @@ test("paper builder groups selected questions by type and omits empty sections",
     /Source paper names are for finding\s+questions and are not printed/,
   );
 });
+
+test("math symbols open inside the question editor, not a page-bottom overlay", () => {
+  assert.match(pageSource, /id=\{\`\$\{idPrefix\}-math-keyboard\`\}/);
+  assert.match(pageSource, /<MathKeyboard/);
+  assert.match(pageSource, /max-h-\[calc\(100vh-8rem\)\]/);
+  assert.doesNotMatch(pageSource, /fixed inset-x-0 bottom-0/);
+  const keyboard = readFileSync(
+    join(root, "src/components/MathKeyboard.tsx"),
+    "utf8",
+  );
+  assert.doesNotMatch(keyboard, /fixed |sticky /);
+});

@@ -1671,7 +1671,13 @@ export default function QuestionPapers() {
                     draft={reviewDraft}
                     onChange={setReviewDraft}
                     disabled={mutating}
-                    onMath={() => setMathField("review")}
+                    mathOpen={mathField === "review"}
+                    onMath={() =>
+                      setMathField((current) =>
+                        current === "review" ? null : "review",
+                      )
+                    }
+                    onCloseMath={() => setMathField(null)}
                   />
                   {currentReview.rawExtractedText && (
                     <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50">
@@ -3187,7 +3193,11 @@ export default function QuestionPapers() {
         <Modal
           title="Add question"
           titleId="add-question-title"
-          onClose={() => !mutating && setAddOpen(false)}
+          onClose={() => {
+            if (mutating) return;
+            setAddOpen(false);
+            setMathField((current) => (current === "add" ? null : current));
+          }}
         >
           <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
@@ -3258,7 +3268,11 @@ export default function QuestionPapers() {
             draft={addDraft}
             onChange={setAddDraft}
             disabled={mutating}
-            onMath={() => setMathField("add")}
+            mathOpen={mathField === "add"}
+            onMath={() =>
+              setMathField((current) => (current === "add" ? null : "add"))
+            }
+            onCloseMath={() => setMathField(null)}
           />
           {addError && (
             <p className="mt-3 text-sm text-red-700" role="alert">
@@ -3290,14 +3304,22 @@ export default function QuestionPapers() {
         <Modal
           title="Edit question"
           titleId="edit-question-title"
-          onClose={() => !mutating && setEditQuestion(null)}
+          onClose={() => {
+            if (mutating) return;
+            setEditQuestion(null);
+            setMathField((current) => (current === "edit" ? null : current));
+          }}
         >
           <QuestionEditor
             idPrefix="edit"
             draft={editDraft}
             onChange={setEditDraft}
             disabled={mutating}
-            onMath={() => setMathField("edit")}
+            mathOpen={mathField === "edit"}
+            onMath={() =>
+              setMathField((current) => (current === "edit" ? null : "edit"))
+            }
+            onCloseMath={() => setMathField(null)}
           />
           {editQuestion.diagramUrl && (
             <figure className="mt-3">
@@ -3364,23 +3386,6 @@ export default function QuestionPapers() {
         </Modal>
       )}
 
-      {mathField && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white p-3">
-          <MathKeyboard
-            visible
-            onInsert={(symbol) => {
-              const apply = (draft: QuestionDraft) => ({
-                ...draft,
-                questionText: `${draft.questionText}${symbol}`,
-              });
-              if (mathField === "review") setReviewDraft(apply);
-              if (mathField === "edit") setEditDraft(apply);
-              if (mathField === "add") setAddDraft(apply);
-            }}
-            onClose={() => setMathField(null)}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -3391,12 +3396,16 @@ function QuestionEditor({
   onChange,
   disabled,
   onMath,
+  mathOpen,
+  onCloseMath,
 }: {
   idPrefix: string;
   draft: QuestionDraft;
   onChange: (draft: QuestionDraft) => void;
   disabled: boolean;
   onMath: () => void;
+  mathOpen: boolean;
+  onCloseMath: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -3409,6 +3418,8 @@ function QuestionEditor({
             type="button"
             className="mb-1.5 text-sm font-medium text-[#1e3a8a] underline underline-offset-2"
             onClick={onMath}
+            aria-expanded={mathOpen}
+            aria-controls={`${idPrefix}-math-keyboard`}
           >
             Math symbols
           </button>
@@ -3423,6 +3434,20 @@ function QuestionEditor({
           rows={6}
           className={`${inputClass} break-words`}
         />
+        {mathOpen ? (
+          <div id={`${idPrefix}-math-keyboard`} className="mt-2">
+            <MathKeyboard
+              visible
+              onInsert={(symbol) =>
+                onChange({
+                  ...draft,
+                  questionText: `${draft.questionText}${symbol}`,
+                })
+              }
+              onClose={onCloseMath}
+            />
+          </div>
+        ) : null}
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
@@ -3604,7 +3629,7 @@ function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         onKeyDown={handleKeyDown}
-        className="relative w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl sm:p-6"
+        className="relative flex max-h-[calc(100vh-8rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-xl sm:p-6"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-xl font-semibold text-slate-900">
@@ -3620,7 +3645,7 @@ function Modal({
             ×
           </button>
         </div>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
