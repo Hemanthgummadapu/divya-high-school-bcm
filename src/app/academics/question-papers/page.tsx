@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   createRetryClickLock,
   failedPageRetryLabel,
@@ -131,6 +139,8 @@ type BuilderSection = {
   questionIds: string[];
 };
 
+type UploadStage = "validating" | "uploading" | "extracting" | null;
+
 const EMPTY_DRAFT: QuestionDraft = {
   questionText: "",
   questionType: "Short",
@@ -143,9 +153,18 @@ const EMPTY_DRAFT: QuestionDraft = {
   topic: "",
 };
 
+const VIEW_NAMES: ViewName[] = ["review", "bank", "sources", "saved"];
+
 const inputClass =
-  "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
-const labelClass = "block text-sm font-medium text-gray-700 mb-2";
+  "w-full min-h-[2.75rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-[#1e3a8a] focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+const labelClass = "mb-1.5 block text-sm font-medium text-slate-700";
+const primaryButtonClass =
+  "inline-flex min-h-[2.75rem] items-center justify-center rounded-lg bg-[#1e3a8a] px-4 py-2 font-medium text-white transition-colors hover:bg-[#1e40af] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1e3a8a] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600";
+const secondaryButtonClass =
+  "inline-flex min-h-[2.75rem] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1e3a8a] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white";
+const dangerButtonClass =
+  "inline-flex min-h-[2.75rem] items-center justify-center rounded-lg border border-red-300 bg-white px-4 py-2 font-medium text-red-700 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white";
+const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6";
 
 function draftFromQuestion(question: BankQuestion): QuestionDraft {
   const optionTexts =
@@ -187,13 +206,13 @@ function renderQuestionText(text: string) {
         remarkPlugins={[remarkGfm]}
         components={{
           table: ({ ...props }) => (
-            <table className="border-collapse text-[13px] my-1.5" {...props} />
+            <table className="my-1.5 border-collapse text-[13px]" {...props} />
           ),
           th: ({ ...props }) => (
-            <th className="border border-gray-300 px-2 py-1 bg-gray-50" {...props} />
+            <th className="border border-slate-300 bg-slate-50 px-2 py-1" {...props} />
           ),
           td: ({ ...props }) => (
-            <td className="border border-gray-300 px-2 py-1" {...props} />
+            <td className="border border-slate-300 px-2 py-1" {...props} />
           ),
         }}
       >
@@ -211,8 +230,28 @@ function statusBadgeClass(status: string) {
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
+function paperStatusBadgeClass(pdfStatus: string) {
+  if (pdfStatus === "Ready") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+  if (pdfStatus === "PDF pending") return "bg-amber-50 text-amber-800 border-amber-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function noticeToneClass(kind: UploadNotice["kind"]) {
+  if (kind === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (kind === "partial") return "border-amber-200 bg-amber-50 text-amber-900";
+  if (kind === "failed") return "border-red-200 bg-red-50 text-red-900";
+  return "border-slate-200 bg-slate-50 text-slate-800";
+}
+
+function uploadStageText(stage: UploadStage) {
+  if (stage === "validating") return "Validating PDF…";
+  if (stage === "uploading") return "Uploading source…";
+  if (stage === "extracting") return "Extracting and saving questions…";
+  return "";
+}
+
 export default function QuestionPapers() {
-  const [view, setView] = useState<ViewName>("review");
+  const [view, setViewState] = useState<ViewName | null>(null);
   const [questions, setQuestions] = useState<BankQuestion[]>([]);
   const [sources, setSources] = useState<BankSource[]>([]);
   const [savedPapers, setSavedPapers] = useState<SavedPaper[]>([]);
@@ -236,7 +275,10 @@ export default function QuestionPapers() {
   const [generateStage, setGenerateStage] = useState<string | null>(null);
   const [creationKey, setCreationKey] = useState("");
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
   const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [sourcePdf, setSourcePdf] = useState<{
     url: string | null;
     displayName: string;
@@ -261,10 +303,12 @@ export default function QuestionPapers() {
     grade: "",
     year: String(new Date().getFullYear()),
   });
+  const lastNameSuggestionRef = useRef("");
   const [renamingSourceId, setRenamingSourceId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState<UploadStage>(null);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [retryingFailedPages, setRetryingFailedPages] = useState<number[]>([]);
   const [retryLockedIds, setRetryLockedIds] = useState<string[]>([]);
@@ -285,9 +329,11 @@ export default function QuestionPapers() {
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [diagramFor, setDiagramFor] = useState<"review" | "edit" | null>(null);
   const [mathField, setMathField] = useState<"review" | "edit" | "add" | null>(null);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const currentReview = questions[reviewIndex] ?? null;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const reviewPosition = (page - 1) * pageSize + reviewIndex + 1;
   const filterSubjects = filters.grade
     ? getSubjectsForGrade(parseInt(filters.grade, 10))
     : [];
@@ -295,7 +341,17 @@ export default function QuestionPapers() {
     ? getSubjectsForGrade(parseInt(addMeta.grade, 10))
     : [];
 
+  const selectView = useCallback((name: ViewName) => {
+    setViewState(name);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", name);
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, []);
+
   const fetchList = useCallback(async () => {
+    if (!view) return false;
     setLoading(true);
     setError(null);
     try {
@@ -349,26 +405,61 @@ export default function QuestionPapers() {
     }
   }, [filters, page, pageSize, sourceFilter, view]);
 
-  const fetchReviewCount = useCallback(async () => {
+  const fetchReviewCount = useCallback(async (): Promise<number> => {
     try {
       const response = await fetch(
         "/api/question-papers?view=review&page=1&pageSize=1",
       );
       const data = await response.json();
-      if (response.ok && data.success) setReviewTotal(data.total ?? 0);
+      if (response.ok && data.success) {
+        const count = data.total ?? 0;
+        setReviewTotal(count);
+        return count;
+      }
     } catch {
       /* keep the last known count */
     }
+    return 0;
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const explicit =
+      tab && (VIEW_NAMES as string[]).includes(tab) ? (tab as ViewName) : null;
+    if (explicit) setViewState(explicit);
+    let cancelled = false;
+    (async () => {
+      const count = await fetchReviewCount();
+      if (!cancelled && !explicit) {
+        setViewState(count > 0 ? "review" : "bank");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchReviewCount]);
+
+  useEffect(() => {
     fetchList();
-    fetchReviewCount();
-  }, [fetchList, fetchReviewCount]);
+  }, [fetchList]);
 
   useEffect(() => {
     setReviewIndex(0);
   }, [page, view, filters]);
+
+  useEffect(() => {
+    if (view !== "bank") return;
+    const trimmed = searchInput.trim();
+    if (trimmed === filters.q) return;
+    const timer = setTimeout(() => {
+      setFilters((current) =>
+        current.q === trimmed ? current : { ...current, q: trimmed },
+      );
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput, filters.q, view]);
 
   useEffect(() => {
     if (view !== "review" || !currentReview) {
@@ -406,12 +497,13 @@ export default function QuestionPapers() {
   }, [currentReview?.sourceId, view]);
 
   const handleUpload = async () => {
+    if (uploading) return;
     const gradeNum = uploadForm.grade ? parseInt(uploadForm.grade, 10) : 0;
     const named = validateDisplayName(uploadForm.displayName);
     if (!uploadForm.file || !uploadForm.subject || !uploadForm.grade || !uploadForm.year) {
       setUploadNotice({
         kind: "failed",
-        text: "Please choose a grade, subject, year, paper name, and PDF file.",
+        text: "Please choose a class, subject, academic year, paper name, and PDF file.",
         sourceId: null,
       });
       return;
@@ -428,13 +520,14 @@ export default function QuestionPapers() {
     if (!gradeNum || gradeNum < 1 || gradeNum > 10) {
       setUploadNotice({
         kind: "failed",
-        text: "Please select a valid grade (1–10).",
+        text: "Please select a valid class (1–10).",
         sourceId: null,
       });
       return;
     }
 
     setUploading(true);
+    setUploadStage("validating");
     setUploadNotice(null);
     try {
       const formData = new FormData();
@@ -443,11 +536,18 @@ export default function QuestionPapers() {
       formData.append("subject", uploadForm.subject);
       formData.append("grade", uploadForm.grade);
       formData.append("year", uploadForm.year);
-      const response = await fetch("/api/question-papers", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
+      setUploadStage("uploading");
+      const data = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/api/question-papers");
+          xhr.responseType = "json";
+          xhr.upload.onloadend = () => setUploadStage("extracting");
+          xhr.onload = () => resolve(xhr.response ?? {});
+          xhr.onerror = () => reject(new Error("upload_failed"));
+          xhr.send(formData);
+        },
+      );
       const notice = uploadResultMessage(data) as UploadNotice;
       setUploadNotice(notice);
       if (notice.kind === "completed" || notice.kind === "partial") {
@@ -458,12 +558,13 @@ export default function QuestionPapers() {
           grade: "",
           year: String(new Date().getFullYear()),
         });
+        lastNameSuggestionRef.current = "";
         setSourceFilter(notice.sourceId || "");
-        setView("review");
+        selectView("review");
         setPage(1);
         await fetchReviewCount();
       } else if (notice.kind === "duplicate" || notice.kind === "failed") {
-        setView("sources");
+        selectView("sources");
         setPage(1);
       }
     } catch {
@@ -474,6 +575,7 @@ export default function QuestionPapers() {
       });
     } finally {
       setUploading(false);
+      setUploadStage(null);
     }
   };
 
@@ -501,7 +603,7 @@ export default function QuestionPapers() {
   ) => {
     const notice = uploadResultMessage(data) as UploadNotice;
     setUploadNotice(notice);
-    setView("sources");
+    selectView("sources");
     setPage(1);
     const listReloaded = (await fetchList()) === true;
     if (listReloaded) {
@@ -509,7 +611,7 @@ export default function QuestionPapers() {
     }
     if (notice.kind === "completed" || notice.kind === "partial") {
       setSourceFilter(notice.sourceId || sourceId);
-      setView("review");
+      selectView("review");
     }
     return notice;
   };
@@ -584,12 +686,20 @@ export default function QuestionPapers() {
     if (!currentReview) return;
     setMutating(true);
     setReviewError(null);
+    setReviewNotice(null);
     const result = await patchQuestion(currentReview, reviewDraft, action);
     setMutating(false);
     if (!result.ok) {
       setReviewError(result.error);
       return;
     }
+    setReviewNotice(
+      action === "approve"
+        ? "Question approved."
+        : action === "reject"
+          ? "Question rejected."
+          : "Draft saved.",
+    );
     await fetchList();
     await fetchReviewCount();
     if (action === "approve") {
@@ -607,6 +717,11 @@ export default function QuestionPapers() {
     }
     setSelectedIds((current) => {
       const next = new Set(current);
+      next.delete(question.id);
+      return next;
+    });
+    setSelectedMap((current) => {
+      const next = new Map(current);
       next.delete(question.id);
       return next;
     });
@@ -650,7 +765,7 @@ export default function QuestionPapers() {
       setAddOpen(false);
       setAddDraft(EMPTY_DRAFT);
       setSourceFilter("");
-      setView(action === "approve" ? "bank" : "review");
+      selectView(action === "approve" ? "bank" : "review");
       setPage(1);
       await fetchReviewCount();
     } catch {
@@ -703,6 +818,7 @@ export default function QuestionPapers() {
       else next.set(question.id, question);
       return next;
     });
+    setSelectionNotice(null);
   };
 
   const builderOrder = builderSections.flatMap((section) => section.questionIds);
@@ -715,6 +831,13 @@ export default function QuestionPapers() {
   const selectionSummary = summarizeSelection(Array.from(selectedMap.values()));
 
   const openBuilder = () => {
+    if (!selectionConflict.ok) {
+      setSelectionNotice(
+        "A question paper can contain questions from only one class and subject.",
+      );
+      return;
+    }
+    setSelectionNotice(null);
     const selected = Array.from(selectedMap.values());
     setBuilderSections(groupQuestionsIntoSections(selected));
     setBuilderTitle("");
@@ -739,6 +862,17 @@ export default function QuestionPapers() {
         section.key === sectionKey ? { ...section, ...patch } : section,
       ),
     );
+  };
+
+  const moveBuilderSection = (index: number, direction: -1 | 1) => {
+    setBuilderSections((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      const [section] = next.splice(index, 1);
+      next.splice(target, 0, section);
+      return next;
+    });
   };
 
   const moveBuilderItem = (sectionKey: string, index: number, direction: -1 | 1) => {
@@ -780,6 +914,14 @@ export default function QuestionPapers() {
     setSelectedIds(new Set());
     setSelectedMap(new Map());
     setBuilderSections([]);
+    setSelectionNotice(null);
+  };
+
+  const resetFilters = () => {
+    setFilters({ subject: "", grade: "", year: "", type: "", marks: "", q: "" });
+    setSearchInput("");
+    setSourceFilter("");
+    setPage(1);
   };
 
   const handleGeneratePaper = async () => {
@@ -791,7 +933,7 @@ export default function QuestionPapers() {
       setBuilderError("Select at least one question");
       return;
     }
-    setGenerateStage("Saving paper");
+    setGenerateStage("Saving paper and creating the PDF");
     setBuilderError(null);
     try {
       const items = builderSections.flatMap((section, sectionIndex) =>
@@ -826,16 +968,21 @@ export default function QuestionPapers() {
         setBuilderError(data.error || "The paper could not be saved");
         return;
       }
-      setGenerateStage("Ready");
+      setGenerateStage(null);
       setSelectedIds(new Set());
       setSelectedMap(new Map());
       setBuilderSections([]);
       setBuilderOpen(false);
-      setView("saved");
+      selectView("saved");
       setPage(1);
       setSavedNotice(null);
       if (data.pdfUrl) {
+        setSavedSuccess(
+          "The paper was saved. Its PDF opened in a new tab and is available below.",
+        );
         window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setSavedSuccess("The paper was saved.");
       }
     } catch {
       setGenerateStage(null);
@@ -862,7 +1009,8 @@ export default function QuestionPapers() {
       }
       setBuilderOpen(false);
       setSavedNotice(null);
-      setView("saved");
+      setSavedSuccess("The PDF is ready.");
+      selectView("saved");
       await fetchList();
     } catch {
       setError("The PDF could not be created");
@@ -927,169 +1075,111 @@ export default function QuestionPapers() {
     [],
   );
 
+  const tabs = useMemo(
+    () =>
+      [
+        ["review", `Review${reviewTotal ? ` (${reviewTotal})` : ""}`],
+        ["bank", "Question Bank"],
+        ["sources", "Sources"],
+        ["saved", "Saved Papers"],
+      ] as const,
+    [reviewTotal],
+  );
+
+  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = Math.max(
+      0,
+      tabs.findIndex(([name]) => name === view),
+    );
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else {
+      nextIndex = tabs.length - 1;
+    }
+    const [nextName] = tabs[nextIndex];
+    tabRefs.current[nextIndex]?.focus();
+    activateTab(nextName);
+  };
+
+  const activateTab = (name: ViewName) => {
+    if (name === "sources" || name === "saved") setSourceFilter("");
+    selectView(name);
+    setPage(1);
+    setError(null);
+    if (name !== "saved") setSavedSuccess(null);
+  };
+
   return (
     <div className={`min-h-screen bg-slate-50 py-8 ${dmSans.className}`}>
-      <div className="container mx-auto px-4">
-        <div className="mb-8 flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <h1 className="text-4xl font-bold text-slate-900 text-center sm:text-left">
-            Question Bank
-          </h1>
+      <div className="mx-auto w-full max-w-6xl px-4">
+        <div className="mb-6 flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="text-center sm:text-left">
+            <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">
+              Question Bank
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Upload source papers, review extracted questions, and prepare
+              question papers.
+            </p>
+          </div>
           <PortalLogoutButton />
         </div>
 
-        <section className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-100">
-          <h2 className="text-2xl font-semibold text-slate-900 flex items-center gap-2 mb-4">
-            <span className="inline-block w-1 h-6 bg-blue-500 rounded-full" />
-            Upload PDF
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div>
-              <label htmlFor="upload-grade" className={labelClass}>
-                Grade <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="upload-grade"
-                value={uploadForm.grade}
-                onChange={(event) =>
-                  setUploadForm({
-                    ...uploadForm,
-                    grade: event.target.value,
-                    subject: "",
-                  })
-                }
-                className={inputClass}
-              >
-                <option value="">Select grade</option>
-                {ALL_GRADES.map((grade) => (
-                  <option key={grade} value={grade}>
-                    {grade}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="upload-subject" className={labelClass}>
-                Subject <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="upload-subject"
-                value={uploadForm.subject}
-                disabled={!uploadForm.grade}
-                onChange={(event) =>
-                  setUploadForm({ ...uploadForm, subject: event.target.value })
-                }
-                className={inputClass}
-              >
-                <option value="">Select subject</option>
-                {uploadForm.grade &&
-                  getSubjectsForGrade(parseInt(uploadForm.grade, 10)).map((subject) => (
-                    <option key={subject} value={subject}>
-                      {subject}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="upload-year" className={labelClass}>
-                Year <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="upload-year"
-                value={uploadForm.year}
-                onChange={(event) =>
-                  setUploadForm({ ...uploadForm, year: event.target.value })
-                }
-                className={inputClass}
-              >
-                {years.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="mb-4">
-            <label htmlFor="pdf-upload" className={labelClass}>
-              PDF File <span className="text-red-500">*</span>
-            </label>
-            <label htmlFor="pdf-upload">
-              <div className="relative flex flex-col items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/60 hover:border-blue-400 hover:bg-blue-50/40 cursor-pointer">
-                <p className="text-sm font-medium text-slate-900">
-                  {uploadForm.file ? uploadForm.file.name : "Click to upload a PDF"}
-                </p>
-                <p className="text-xs text-slate-500">PDF files only</p>
-              </div>
-            </label>
-            <input
-              id="pdf-upload"
-              type="file"
-              accept=".pdf,application/pdf"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file && file.type === "application/pdf") {
-                  setUploadForm({
-                    ...uploadForm,
-                    file,
-                    displayName: suggestPaperNameFromFilename(file.name),
-                  });
-                } else if (file) {
-                  setUploadNotice({
-                    kind: "failed",
-                    text: "Please select a PDF file.",
-                    sourceId: null,
-                  });
-                }
-              }}
-            />
-          </div>
-          <div className="mb-4">
-            <label htmlFor="upload-paper-name" className={labelClass}>
-              Paper name <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="upload-paper-name"
-              value={uploadForm.displayName}
-              maxLength={MAX_DISPLAY_NAME_LENGTH}
-              onChange={(event) =>
-                setUploadForm({ ...uploadForm, displayName: event.target.value })
-              }
-              className={inputClass}
-              placeholder="Class 10 Pre-Final Mathematics 2026"
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              A name for finding this paper later. The original filename is kept
-              separately.
-            </p>
-          </div>
-          {uploading && (
-            <p className="mb-3 text-sm text-slate-600" role="status">
-              Extracting questions from the PDF…
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={uploading}
-            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        <div className="mb-6 overflow-x-auto">
+          <div
+            role="tablist"
+            aria-label="Question bank views"
+            onKeyDown={handleTabKeyDown}
+            className="flex min-w-max gap-2 pb-1"
           >
-            {uploading ? "Uploading and extracting…" : "Upload and extract questions"}
-          </button>
-          {uploadNotice && (
-            <div
-              className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800"
-              role="status"
-            >
-              <p>{uploadNotice.text}</p>
+            {tabs.map(([name, label], index) => (
+              <button
+                key={name}
+                ref={(element) => {
+                  tabRefs.current[index] = element;
+                }}
+                type="button"
+                role="tab"
+                id={`tab-${name}`}
+                aria-selected={view === name}
+                aria-controls={`panel-${name}`}
+                tabIndex={view === name || (view === null && index === 0) ? 0 : -1}
+                className={`inline-flex min-h-[2.75rem] items-center whitespace-nowrap rounded-lg px-4 py-2 font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1e3a8a] ${
+                  view === name
+                    ? "bg-[#1e3a8a] text-white"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+                onClick={() => activateTab(name)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {uploadNotice && (
+          <div
+            className={`mb-6 rounded-lg border p-4 text-sm ${noticeToneClass(uploadNotice.kind)}`}
+            role={uploadNotice.kind === "failed" ? "alert" : "status"}
+          >
+            <p>{uploadNotice.text}</p>
+            <div className="mt-2 flex flex-wrap gap-3">
               {uploadNotice.sourceId && (
-                <div className="mt-2 flex flex-wrap gap-2">
+                <>
                   <button
                     type="button"
-                    className="text-blue-700 underline"
+                    className="font-medium text-[#1e3a8a] underline underline-offset-2"
                     onClick={() => {
                       setSourceFilter(uploadNotice.sourceId || "");
-                      setView("review");
+                      selectView("review");
                       setPage(1);
                     }}
                   >
@@ -1097,230 +1187,25 @@ export default function QuestionPapers() {
                   </button>
                   <button
                     type="button"
-                    className="text-blue-700 underline"
+                    className="font-medium text-[#1e3a8a] underline underline-offset-2"
                     onClick={() => {
-                      setView("sources");
+                      selectView("sources");
                       setPage(1);
                     }}
                   >
                     Open source
                   </button>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-
-        <div
-          role="tablist"
-          aria-label="Question bank views"
-          className="mb-6 flex flex-wrap gap-2"
-        >
-          {(
-            [
-              ["review", `Review${reviewTotal ? ` (${reviewTotal})` : ""}`],
-              ["bank", "Question Bank"],
-              ["sources", "Sources"],
-              ["saved", "Saved Papers"],
-            ] as const
-          ).map(([name, label]) => (
-            <button
-              key={name}
-              type="button"
-              role="tab"
-              aria-selected={view === name}
-              className={`px-4 py-2 rounded-lg font-medium focus:ring-2 focus:ring-blue-500 ${
-                view === name
-                  ? "bg-blue-600 text-white"
-                  : "bg-white text-slate-700 border border-slate-200"
-              }`}
-              onClick={() => {
-                if (name === "sources" || name === "saved") setSourceFilter("");
-                setView(name);
-                setPage(1);
-                setError(null);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {view !== "review" && (
-          <section className="bg-white rounded-2xl shadow-md p-6 mb-6 border border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-900 tracking-[0.18em] uppercase mb-4">
-              Filters
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label htmlFor="filter-grade" className={labelClass}>
-                  Class
-                </label>
-                <select
-                  id="filter-grade"
-                  value={filters.grade}
-                  onChange={(event) => {
-                    setFilters({ ...filters, grade: event.target.value, subject: "" });
-                    setPage(1);
-                  }}
-                  className={inputClass}
-                >
-                  <option value="">All classes</option>
-                  {ALL_GRADES.map((grade) => (
-                    <option key={grade} value={grade}>
-                      {grade}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="filter-subject" className={labelClass}>
-                  Subject
-                </label>
-                <select
-                  id="filter-subject"
-                  value={filters.subject}
-                  disabled={!filters.grade}
-                  onChange={(event) => {
-                    setFilters({ ...filters, subject: event.target.value });
-                    setPage(1);
-                  }}
-                  className={inputClass}
-                >
-                  <option value="">All subjects</option>
-                  {filterSubjects.map((subject) => (
-                    <option key={subject} value={subject}>
-                      {subject}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="filter-year" className={labelClass}>
-                  Academic year
-                </label>
-                <select
-                  id="filter-year"
-                  value={filters.year}
-                  onChange={(event) => {
-                    setFilters({ ...filters, year: event.target.value });
-                    setPage(1);
-                  }}
-                  className={inputClass}
-                >
-                  <option value="">All years</option>
-                  {years.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {view === "bank" && (
-                <>
-                  <div>
-                    <label htmlFor="filter-source" className={labelClass}>
-                      Source Paper
-                    </label>
-                    <select
-                      id="filter-source"
-                      value={sourceFilter}
-                      onChange={(event) => {
-                        setSourceFilter(event.target.value);
-                        setPage(1);
-                      }}
-                      className={inputClass}
-                    >
-                      <option value="">All source papers</option>
-                      {sourceOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="filter-type" className={labelClass}>
-                      Question Type
-                    </label>
-                    <select
-                      id="filter-type"
-                      value={filters.type}
-                      onChange={(event) => {
-                        setFilters({ ...filters, type: event.target.value });
-                        setPage(1);
-                      }}
-                      className={inputClass}
-                    >
-                      <option value="">All types</option>
-                      <option value="MCQ">MCQ</option>
-                      <option value="Short">Short Answer</option>
-                      <option value="Medium">Medium Answer</option>
-                      <option value="Long">Long Answer</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="filter-marks" className={labelClass}>
-                      Marks
-                    </label>
-                    <input
-                      id="filter-marks"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={filters.marks}
-                      onChange={(event) => {
-                        setFilters({ ...filters, marks: event.target.value });
-                        setPage(1);
-                      }}
-                      className={inputClass}
-                      placeholder="All marks"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="filter-search" className={labelClass}>
-                      Search
-                    </label>
-                    <input
-                      id="filter-search"
-                      value={searchInput}
-                      maxLength={200}
-                      onChange={(event) => setSearchInput(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          setFilters({ ...filters, q: searchInput.trim() });
-                          setPage(1);
-                        }
-                      }}
-                      className={inputClass}
-                      placeholder="Search question text"
-                    />
-                  </div>
                 </>
               )}
+              <button
+                type="button"
+                className="text-slate-600 underline underline-offset-2"
+                onClick={() => setUploadNotice(null)}
+              >
+                Dismiss
+              </button>
             </div>
-            {view === "bank" && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500"
-                  onClick={() => {
-                    setFilters({ ...filters, q: searchInput.trim() });
-                    setPage(1);
-                  }}
-                >
-                  Search
-                </button>
-                <button
-                  type="button"
-                  className="px-4 py-2 border border-slate-300 rounded-lg"
-                  onClick={() => setAddOpen(true)}
-                >
-                  Add question
-                </button>
-              </div>
-            )}
-          </section>
+          </div>
         )}
 
         {error && (
@@ -1329,17 +1214,36 @@ export default function QuestionPapers() {
           </p>
         )}
 
-        {view === "review" && (
-          <section className="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
-            <p className="mb-4 text-sm text-slate-600">
-              {sourceFilter ? total : reviewTotal} question
-              {(sourceFilter ? total : reviewTotal) === 1 ? "" : "s"} awaiting review
-              {sourceFilter ? " from this upload" : ""}
+        {view === null && (
+          <section className={cardClass}>
+            <p role="status" className="text-sm text-slate-600">
+              Loading…
             </p>
+          </section>
+        )}
+
+        {view === "review" && (
+          <section
+            role="tabpanel"
+            id="panel-review"
+            aria-labelledby="tab-review"
+            className={cardClass}
+          >
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-slate-600">
+                {total} question{total === 1 ? "" : "s"} awaiting review
+                {sourceFilter ? " from this upload" : ""}
+              </p>
+              {currentReview && (
+                <p className="text-sm font-medium text-slate-900">
+                  Question {reviewPosition} of {total}
+                </p>
+              )}
+            </div>
             {sourceFilter && (
               <button
                 type="button"
-                className="mb-4 text-sm text-blue-700 underline"
+                className="mb-4 text-sm font-medium text-[#1e3a8a] underline underline-offset-2"
                 onClick={() => {
                   setSourceFilter("");
                   setPage(1);
@@ -1349,23 +1253,33 @@ export default function QuestionPapers() {
               </button>
             )}
             {loading ? (
-              <p>Loading questions…</p>
+              <p role="status" className="text-sm text-slate-600">
+                Loading questions…
+              </p>
             ) : !currentReview ? (
-              <p>No questions are waiting for review.</p>
+              <div className="py-8 text-center">
+                <p className="text-slate-700">No questions are waiting for review.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Upload a source PDF from the Sources tab to extract more
+                  questions.
+                </p>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <div className="min-w-0">
-                  <p className="text-sm text-slate-900 font-medium mb-1 break-words">
+                  <h2 className="break-words text-base font-semibold text-slate-900">
                     {currentReview.sourceDisplayName ||
                       sourcePdf?.displayName ||
                       "Manual question"}
+                  </h2>
+                  <p className="mt-0.5 text-sm text-slate-600">
                     {currentReview.sourcePageNumber
-                      ? ` · page ${currentReview.sourcePageNumber}`
-                      : ""}
+                      ? `Source page ${currentReview.sourcePageNumber}`
+                      : "No source page"}
                     {sourcePdf?.statusLabel ? ` · ${sourcePdf.statusLabel}` : ""}
                   </p>
                   {currentReview.sourceFilename && (
-                    <p className="text-xs text-slate-500 mb-2 break-words">
+                    <p className="mb-2 mt-0.5 break-words text-xs text-slate-500">
                       File: {currentReview.sourceFilename}
                     </p>
                   )}
@@ -1374,19 +1288,19 @@ export default function QuestionPapers() {
                       <iframe
                         title="Source PDF"
                         src={`${sourcePdf.url}#page=${currentReview.sourcePageNumber || 1}`}
-                        className="hidden xl:block w-full h-[36rem] rounded-lg border border-slate-200"
+                        className="mt-2 hidden h-[36rem] w-full rounded-lg border border-slate-200 xl:block"
                       />
                       <a
                         href={`${sourcePdf.url}#page=${currentReview.sourcePageNumber || 1}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-block text-blue-700 underline"
+                        className="mt-2 inline-flex min-h-[2.75rem] items-center font-medium text-[#1e3a8a] underline underline-offset-2"
                       >
                         Open source PDF at page {currentReview.sourcePageNumber || 1}
                       </a>
                     </>
                   ) : (
-                    <p className="text-sm text-slate-500">
+                    <p className="mt-2 text-sm text-slate-500">
                       No retained source PDF is available for this question.
                     </p>
                   )}
@@ -1400,23 +1314,35 @@ export default function QuestionPapers() {
                     onMath={() => setMathField("review")}
                   />
                   {currentReview.rawExtractedText && (
-                    <div className="mt-4">
-                      <h3 className="text-sm font-semibold text-slate-700 mb-1">
-                        Original extracted text
-                      </h3>
-                      <p className="whitespace-pre-wrap break-words text-sm text-slate-600 border border-slate-200 rounded-lg p-3 bg-slate-50">
+                    <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50">
+                      <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-slate-700">
+                        View original extracted text
+                      </summary>
+                      <p className="whitespace-pre-wrap break-words border-t border-slate-200 p-3 text-sm text-slate-600">
                         {currentReview.rawExtractedText}
                       </p>
-                    </div>
+                    </details>
                   )}
                   {currentReview.diagramUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={currentReview.diagramUrl}
-                      alt="Question diagram"
-                      className="mt-3 max-w-full border border-slate-200 rounded"
-                    />
+                    <figure className="mt-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={currentReview.diagramUrl}
+                        alt="Question diagram"
+                        className="max-w-full rounded border border-slate-200"
+                      />
+                      <figcaption className="mt-1 text-xs text-slate-500">
+                        Question diagram
+                      </figcaption>
+                    </figure>
                   )}
+                  <div aria-live="polite">
+                    {reviewNotice && (
+                      <p className="mt-3 text-sm font-medium text-emerald-800" role="status">
+                        {reviewNotice}
+                      </p>
+                    )}
+                  </div>
                   {reviewError && (
                     <p className="mt-3 text-sm text-red-700" role="alert">
                       {reviewError}
@@ -1427,7 +1353,7 @@ export default function QuestionPapers() {
                       type="button"
                       disabled={mutating}
                       onClick={() => handleReviewAction("approve")}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+                      className={primaryButtonClass}
                     >
                       Approve & Next
                     </button>
@@ -1435,7 +1361,7 @@ export default function QuestionPapers() {
                       type="button"
                       disabled={mutating}
                       onClick={() => handleReviewAction("save")}
-                      className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
+                      className={secondaryButtonClass}
                     >
                       Save draft
                     </button>
@@ -1443,7 +1369,7 @@ export default function QuestionPapers() {
                       type="button"
                       disabled={mutating}
                       onClick={() => handleReviewAction("reject")}
-                      className="px-4 py-2 border border-red-300 text-red-700 rounded-lg disabled:text-gray-400"
+                      className={dangerButtonClass}
                     >
                       Reject
                     </button>
@@ -1451,7 +1377,7 @@ export default function QuestionPapers() {
                       type="button"
                       disabled={mutating}
                       onClick={() => setDiagramFor("review")}
-                      className="px-4 py-2 border border-slate-300 rounded-lg"
+                      className={secondaryButtonClass}
                     >
                       Edit diagram
                     </button>
@@ -1459,28 +1385,31 @@ export default function QuestionPapers() {
                   <div className="mt-4 flex gap-2">
                     <button
                       type="button"
-                      disabled={reviewIndex === 0 && page === 1}
+                      disabled={mutating || (reviewIndex === 0 && page === 1)}
                       onClick={() => {
+                        setReviewNotice(null);
                         if (reviewIndex > 0) setReviewIndex(reviewIndex - 1);
                         else if (page > 1) setPage(page - 1);
                       }}
-                      className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
+                      className={secondaryButtonClass}
                     >
                       Previous
                     </button>
                     <button
                       type="button"
                       disabled={
-                        reviewIndex >= questions.length - 1 && page >= totalPages
+                        mutating ||
+                        (reviewIndex >= questions.length - 1 && page >= totalPages)
                       }
                       onClick={() => {
+                        setReviewNotice(null);
                         if (reviewIndex < questions.length - 1) {
                           setReviewIndex(reviewIndex + 1);
                         } else if (page < totalPages) {
                           setPage(page + 1);
                         }
                       }}
-                      className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
+                      className={secondaryButtonClass}
                     >
                       Next
                     </button>
@@ -1492,317 +1421,722 @@ export default function QuestionPapers() {
         )}
 
         {view === "bank" && (
-          <section className="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
-            <div className="sticky top-[112px] z-20 mb-4 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm text-slate-700">
-                  <p className="font-medium text-slate-900">
-                    {selectionSummary.total} selected · {selectionSummary.marks} marks
-                  </p>
-                  <p className="mt-1 text-slate-600">
-                    MCQ {selectionSummary.mcq} · Short {selectionSummary.short} ·
-                    Medium {selectionSummary.medium} · Long {selectionSummary.long}
-                  </p>
+          <>
+            <section className={`${cardClass} mb-6`}>
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-900">
+                Filters
+              </h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label htmlFor="filter-grade" className={labelClass}>
+                    Class
+                  </label>
+                  <select
+                    id="filter-grade"
+                    value={filters.grade}
+                    onChange={(event) => {
+                      setFilters({ ...filters, grade: event.target.value, subject: "" });
+                      setPage(1);
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="">All classes</option>
+                    {ALL_GRADES.map((grade) => (
+                      <option key={grade} value={grade}>
+                        Class {grade}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={selectedCount === 0}
-                    onClick={clearSelection}
-                    className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
+                <div>
+                  <label htmlFor="filter-subject" className={labelClass}>
+                    Subject
+                  </label>
+                  <select
+                    id="filter-subject"
+                    value={filters.subject}
+                    disabled={!filters.grade}
+                    onChange={(event) => {
+                      setFilters({ ...filters, subject: event.target.value });
+                      setPage(1);
+                    }}
+                    className={inputClass}
                   >
-                    Clear selection
-                  </button>
-                  <button
-                    type="button"
-                    disabled={selectedCount === 0}
-                    onClick={openBuilder}
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white disabled:bg-gray-200 disabled:text-gray-600 disabled:cursor-not-allowed"
+                    <option value="">All subjects</option>
+                    {filterSubjects.map((subject) => (
+                      <option key={subject} value={subject}>
+                        {subject}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filter-year" className={labelClass}>
+                    Academic year
+                  </label>
+                  <select
+                    id="filter-year"
+                    value={filters.year}
+                    onChange={(event) => {
+                      setFilters({ ...filters, year: event.target.value });
+                      setPage(1);
+                    }}
+                    className={inputClass}
                   >
-                    Prepare Paper
-                  </button>
+                    <option value="">All years</option>
+                    {years.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filter-source" className={labelClass}>
+                    Source Paper
+                  </label>
+                  <select
+                    id="filter-source"
+                    value={sourceFilter}
+                    onChange={(event) => {
+                      setSourceFilter(event.target.value);
+                      setPage(1);
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="">All source papers</option>
+                    {sourceOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filter-type" className={labelClass}>
+                    Question Type
+                  </label>
+                  <select
+                    id="filter-type"
+                    value={filters.type}
+                    onChange={(event) => {
+                      setFilters({ ...filters, type: event.target.value });
+                      setPage(1);
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="">All types</option>
+                    <option value="MCQ">MCQ</option>
+                    <option value="Short">Short Answer</option>
+                    <option value="Medium">Medium Answer</option>
+                    <option value="Long">Long Answer</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filter-marks" className={labelClass}>
+                    Marks
+                  </label>
+                  <input
+                    id="filter-marks"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={filters.marks}
+                    onChange={(event) => {
+                      setFilters({ ...filters, marks: event.target.value });
+                      setPage(1);
+                    }}
+                    className={inputClass}
+                    placeholder="All marks"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="filter-search" className={labelClass}>
+                    Search
+                  </label>
+                  <input
+                    id="filter-search"
+                    value={searchInput}
+                    maxLength={200}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        setFilters({ ...filters, q: searchInput.trim() });
+                        setPage(1);
+                      }
+                    }}
+                    className={inputClass}
+                    placeholder="Search question text"
+                  />
                 </div>
               </div>
-            </div>
-            <p className="mb-4 text-sm text-slate-600">{total} approved questions</p>
-            {loading ? (
-              <p>Loading questions…</p>
-            ) : questions.length === 0 ? (
-              <p>No approved questions match these filters.</p>
-            ) : (
-              <ul className="space-y-3">
-                {questions.map((question) => (
-                  <li
-                    key={question.id}
-                    className="border border-slate-200 rounded-xl p-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        id={`select-${question.id}`}
-                        type="checkbox"
-                        checked={selectedIds.has(question.id)}
-                        onChange={() => toggleSelected(question)}
-                        className="mt-1"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="break-words text-slate-900">
-                          {renderQuestionText(question.questionText)}
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-800">
-                            {questionTypeLabel(question.questionType)}
-                          </span>
-                          <span>
-                            {question.marks} mark{question.marks === 1 ? "" : "s"}
-                          </span>
-                          {question.sourceDisplayName && (
-                            <span className="font-medium text-slate-800">
-                              {question.sourceDisplayName}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={secondaryButtonClass}
+                  onClick={resetFilters}
+                >
+                  Reset filters
+                </button>
+                <button
+                  type="button"
+                  className={secondaryButtonClass}
+                  onClick={() => setAddOpen(true)}
+                >
+                  Add question
+                </button>
+              </div>
+            </section>
+
+            <section
+              role="tabpanel"
+              id="panel-bank"
+              aria-labelledby="tab-bank"
+              className={cardClass}
+            >
+              <div className="sticky top-[112px] z-30 mb-4 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm text-slate-700">
+                    <p className="font-medium text-slate-900">
+                      {selectionSummary.total} selected · {selectionSummary.marks}{" "}
+                      marks
+                    </p>
+                    <p className="mt-1 text-slate-600">
+                      MCQ {selectionSummary.mcq} · Short {selectionSummary.short} ·
+                      Medium {selectionSummary.medium} · Long {selectionSummary.long}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={selectedCount === 0}
+                      onClick={clearSelection}
+                      className={secondaryButtonClass}
+                    >
+                      Clear selection
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedCount === 0}
+                      onClick={openBuilder}
+                      className={primaryButtonClass}
+                    >
+                      Prepare Paper
+                    </button>
+                  </div>
+                </div>
+                {(selectionNotice || !selectionConflict.ok) && selectedCount > 0 && (
+                  <p className="mt-2 text-sm text-red-700" role="alert">
+                    A question paper can contain questions from only one class and
+                    subject.
+                    {!selectionConflict.ok && selectionConflict.error
+                      ? ` ${selectionConflict.error}.`
+                      : ""}
+                  </p>
+                )}
+              </div>
+              <p className="mb-4 text-sm text-slate-600">{total} approved questions</p>
+              {loading ? (
+                <p role="status" className="text-sm text-slate-600">
+                  Loading questions…
+                </p>
+              ) : questions.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-slate-700">
+                    No approved questions match these filters.
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Approve questions from the Review tab, or adjust the filters
+                    above.
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {questions.map((question) => (
+                    <li
+                      key={question.id}
+                      className="rounded-xl border border-slate-200 p-3"
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          id={`select-${question.id}`}
+                          type="checkbox"
+                          aria-label="Select this question for the paper"
+                          checked={selectedIds.has(question.id)}
+                          onChange={() => toggleSelected(question)}
+                          className="mt-1.5 h-5 w-5 rounded border-slate-300 text-[#1e3a8a] focus:ring-[#1e3a8a]"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-3 break-words text-slate-900">
+                            {renderQuestionText(question.questionText)}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-800">
+                              {questionTypeLabel(question.questionType)}
                             </span>
-                          )}
-                          {question.sourcePageNumber != null && (
-                            <span>p. {question.sourcePageNumber}</span>
-                          )}
-                          {question.sectionLabel && (
-                            <span>{question.sectionLabel}</span>
-                          )}
+                            <span>
+                              {question.marks} mark{question.marks === 1 ? "" : "s"}
+                            </span>
+                            {question.diagramUrl && (
+                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
+                                Diagram
+                              </span>
+                            )}
+                            {question.sourceDisplayName && (
+                              <span className="break-words font-medium text-slate-800">
+                                {question.sourceDisplayName}
+                              </span>
+                            )}
+                            {question.sourcePageNumber != null && (
+                              <span>Page {question.sourcePageNumber}</span>
+                            )}
+                            {question.sectionLabel && (
+                              <span>{question.sectionLabel}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 border border-slate-300 rounded-lg"
-                        onClick={() => {
-                          setEditQuestion(question);
-                          setEditDraft(draftFromQuestion(question));
-                          setEditError(null);
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        disabled={mutating}
-                        className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
-                        onClick={() => handleArchive(question)}
-                      >
-                        Archive
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              onPage={setPage}
-            />
-          </section>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className={secondaryButtonClass}
+                          onClick={() => {
+                            setEditQuestion(question);
+                            setEditDraft(draftFromQuestion(question));
+                            setEditError(null);
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={mutating}
+                          className={secondaryButtonClass}
+                          onClick={() => handleArchive(question)}
+                        >
+                          Archive
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+            </section>
+          </>
         )}
 
         {view === "sources" && (
-          <section className="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
-            {loading ? (
-              <p>Loading sources…</p>
-            ) : sources.length === 0 ? (
-              <p>No uploaded PDFs yet.</p>
-            ) : (
-              <ul className="space-y-4">
-                {sources.map((source) => (
-                  <li
-                    key={source.id}
-                    className="border border-slate-200 rounded-xl p-4"
+          <div
+            role="tabpanel"
+            id="panel-sources"
+            aria-labelledby="tab-sources"
+          >
+            <section className={`${cardClass} mb-6`}>
+              <h2 className="mb-1 text-lg font-semibold text-slate-900">
+                Upload a source PDF
+              </h2>
+              <p className="mb-4 text-sm text-slate-600">
+                Questions are extracted from the PDF and placed in the review
+                queue.
+              </p>
+              <div className="mb-4">
+                <label htmlFor="upload-paper-name" className={labelClass}>
+                  Paper name <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="upload-paper-name"
+                  value={uploadForm.displayName}
+                  maxLength={MAX_DISPLAY_NAME_LENGTH}
+                  disabled={uploading}
+                  onChange={(event) =>
+                    setUploadForm({ ...uploadForm, displayName: event.target.value })
+                  }
+                  className={inputClass}
+                  aria-describedby="upload-paper-name-help"
+                />
+                <p id="upload-paper-name-help" className="mt-1 text-xs text-slate-500">
+                  Give this source paper a recognizable name so you can find its
+                  questions later. It appears in the Question Bank&apos;s Source
+                  Paper filter and is not the title of a generated question paper.
+                </p>
+              </div>
+              <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <label htmlFor="upload-grade" className={labelClass}>
+                    Class <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    id="upload-grade"
+                    value={uploadForm.grade}
+                    disabled={uploading}
+                    onChange={(event) =>
+                      setUploadForm({
+                        ...uploadForm,
+                        grade: event.target.value,
+                        subject: "",
+                      })
+                    }
+                    className={inputClass}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium text-slate-900 break-words">
-                          {source.displayName || source.filename}
-                        </p>
-                        <p className="text-xs text-slate-500 break-words">
-                          File: {source.filename}
-                        </p>
-                        <p className="text-sm text-slate-600">
-                          Class {source.grade} · {source.subject} · {source.academicYear}
-                        </p>
-                        <p className="text-sm text-slate-600">
-                          {source.processedPageCount} of {source.pageCount} pages
-                          extracted · {source.savedQuestionCount} questions saved
-                        </p>
-                        {source.failedPages.length > 0 && (
-                          <p className="text-sm text-amber-800">
-                            Failed pages: {source.failedPages.join(", ")}. Successful
-                            questions remain available.
+                    <option value="">Select class</option>
+                    {ALL_GRADES.map((grade) => (
+                      <option key={grade} value={grade}>
+                        Class {grade}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="upload-subject" className={labelClass}>
+                    Subject <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    id="upload-subject"
+                    value={uploadForm.subject}
+                    disabled={!uploadForm.grade || uploading}
+                    onChange={(event) =>
+                      setUploadForm({ ...uploadForm, subject: event.target.value })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Select subject</option>
+                    {uploadForm.grade &&
+                      getSubjectsForGrade(parseInt(uploadForm.grade, 10)).map(
+                        (subject) => (
+                          <option key={subject} value={subject}>
+                            {subject}
+                          </option>
+                        ),
+                      )}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="upload-year" className={labelClass}>
+                    Academic year <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    id="upload-year"
+                    value={uploadForm.year}
+                    disabled={uploading}
+                    onChange={(event) =>
+                      setUploadForm({ ...uploadForm, year: event.target.value })
+                    }
+                    className={inputClass}
+                  >
+                    {years.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="mb-4">
+                <label htmlFor="pdf-upload" className={labelClass}>
+                  PDF file <span className="text-red-600">*</span>
+                </label>
+                <label className="block cursor-pointer">
+                  <input
+                    id="pdf-upload"
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    className="sr-only"
+                    disabled={uploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file && file.type === "application/pdf") {
+                        const suggestion = suggestPaperNameFromFilename(file.name);
+                        setUploadForm((current) => ({
+                          ...current,
+                          file,
+                          displayName:
+                            current.displayName.trim() === "" ||
+                            current.displayName === lastNameSuggestionRef.current
+                              ? suggestion
+                              : current.displayName,
+                        }));
+                        lastNameSuggestionRef.current = suggestion;
+                      } else if (file) {
+                        setUploadNotice({
+                          kind: "failed",
+                          text: "Please select a PDF file.",
+                          sourceId: null,
+                        });
+                      }
+                    }}
+                  />
+                  <span className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 px-4 py-6 hover:border-[#1e3a8a] hover:bg-blue-50/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#1e3a8a]">
+                    <span className="break-words text-center text-sm font-medium text-slate-900">
+                      {uploadForm.file
+                        ? uploadForm.file.name
+                        : "Choose a PDF to upload"}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {uploadForm.file
+                        ? "Choose a different file to replace it"
+                        : "PDF files only"}
+                    </span>
+                  </span>
+                </label>
+              </div>
+              <div aria-live="polite">
+                {uploading && uploadStage && (
+                  <p className="mb-3 text-sm text-slate-700" role="status">
+                    {uploadStageText(uploadStage)}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleUpload}
+                disabled={uploading}
+                className={`${primaryButtonClass} w-full`}
+              >
+                {uploading ? "Working…" : "Upload and Extract Questions"}
+              </button>
+            </section>
+
+            <section className={cardClass}>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900">
+                Uploaded source papers
+              </h2>
+              {loading ? (
+                <p role="status" className="text-sm text-slate-600">
+                  Loading sources…
+                </p>
+              ) : sources.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-slate-700">No uploaded PDFs yet.</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Upload a source PDF above to extract questions.
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-4">
+                  {sources.map((source) => (
+                    <li
+                      key={source.id}
+                      className="rounded-xl border border-slate-200 p-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="break-words font-semibold text-slate-900">
+                            {source.displayName || source.filename}
                           </p>
-                        )}
-                        {source.possiblyInterrupted && (
-                          <p className="text-sm text-slate-700">
-                            This upload may have been interrupted. It will not retry
-                            automatically.
+                          <p className="break-words text-xs text-slate-500">
+                            File: {source.filename}
                           </p>
-                        )}
-                        <p className="text-xs text-slate-500 mt-1">
-                          Uploaded {new Date(source.createdAt).toLocaleString()}
-                        </p>
-                      </div>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${statusBadgeClass(source.status)}`}
-                      >
-                        {source.statusLabel}
-                      </span>
-                    </div>
-                    {renamingSourceId === source.id && (
-                      <div className="mt-3">
-                        <label htmlFor={`rename-${source.id}`} className={labelClass}>
-                          Paper name
-                        </label>
-                        <input
-                          id={`rename-${source.id}`}
-                          value={renameValue}
-                          maxLength={MAX_DISPLAY_NAME_LENGTH}
-                          onChange={(event) => setRenameValue(event.target.value)}
-                          className={inputClass}
-                        />
-                        {renameError && (
-                          <p className="mt-1 text-sm text-red-700" role="alert">
-                            {renameError}
+                          <p className="mt-1 text-sm text-slate-600">
+                            Class {source.grade} · {source.subject} ·{" "}
+                            {source.academicYear}
                           </p>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={mutating}
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
-                            onClick={() => handleRenameSource(source.id)}
-                          >
-                            Save name
-                          </button>
-                          <button
-                            type="button"
-                            disabled={mutating}
-                            className="px-3 py-1.5 border border-slate-300 rounded-lg"
-                            onClick={() => {
-                              setRenamingSourceId(null);
-                              setRenameError(null);
-                            }}
-                          >
-                            Cancel
-                          </button>
+                          <p className="text-sm text-slate-600">
+                            {source.processedPageCount} of {source.pageCount} pages
+                            extracted · {source.savedQuestionCount} question
+                            {source.savedQuestionCount === 1 ? "" : "s"} saved
+                          </p>
+                          {source.failedPages.length > 0 && (
+                            <p className="text-sm text-amber-800">
+                              Failed page
+                              {source.failedPages.length === 1 ? "" : "s"}:{" "}
+                              {source.failedPages.join(", ")}. Successful questions
+                              remain available.
+                            </p>
+                          )}
+                          {source.possiblyInterrupted && (
+                            <p className="text-sm text-slate-700">
+                              This upload may have been interrupted. It will not
+                              retry on its own.
+                            </p>
+                          )}
+                          <p className="mt-1 text-xs text-slate-500">
+                            Uploaded {new Date(source.createdAt).toLocaleString()}
+                          </p>
                         </div>
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(source.status)}`}
+                        >
+                          {source.statusLabel}
+                        </span>
                       </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <SourcePdfLink sourceId={source.id} />
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 border border-slate-300 rounded-lg"
-                        onClick={() => {
-                          setRenamingSourceId(source.id);
-                          setRenameValue(source.displayName || "");
-                          setRenameError(null);
-                        }}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg"
-                        onClick={() => {
-                          setSourceFilter(source.id);
-                          setView("review");
-                          setPage(1);
-                        }}
-                      >
-                        Review questions
-                      </button>
-                      {shouldRenderRetryButton(source, {
-                        retryingSourceId,
-                        lockedSourceIds: retryLockedIds,
-                      }) && (
+                      {renamingSourceId === source.id && (
+                        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <label htmlFor={`rename-${source.id}`} className={labelClass}>
+                            Paper name
+                          </label>
+                          <input
+                            id={`rename-${source.id}`}
+                            value={renameValue}
+                            maxLength={MAX_DISPLAY_NAME_LENGTH}
+                            disabled={mutating}
+                            onChange={(event) => setRenameValue(event.target.value)}
+                            className={inputClass}
+                          />
+                          {renameError && (
+                            <p className="mt-1 text-sm text-red-700" role="alert">
+                              {renameError}
+                            </p>
+                          )}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={mutating}
+                              className={primaryButtonClass}
+                              onClick={() => handleRenameSource(source.id)}
+                            >
+                              Save name
+                            </button>
+                            <button
+                              type="button"
+                              disabled={mutating}
+                              className={secondaryButtonClass}
+                              onClick={() => {
+                                setRenamingSourceId(null);
+                                setRenameError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <div className="mt-3 flex flex-wrap items-start gap-2">
+                        <SourcePdfLink sourceId={source.id} />
                         <button
                           type="button"
-                          disabled={retryingSourceId !== null}
-                          className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
-                          onClick={() => handleRetryExtraction(source.id)}
+                          className={secondaryButtonClass}
+                          onClick={() => {
+                            setSourceFilter(source.id);
+                            selectView("review");
+                            setPage(1);
+                          }}
                         >
-                          Retry Extraction
+                          Review questions
                         </button>
-                      )}
-                      {shouldRenderFailedPageRetryButton(source, {
-                        retryingSourceId,
-                        lockedSourceIds: retryLockedIds,
-                      }) && (
-                        <div>
+                        <button
+                          type="button"
+                          className={secondaryButtonClass}
+                          onClick={() => {
+                            setRenamingSourceId(source.id);
+                            setRenameValue(source.displayName || "");
+                            setRenameError(null);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        {shouldRenderRetryButton(source, {
+                          retryingSourceId,
+                          lockedSourceIds: retryLockedIds,
+                        }) && (
                           <button
                             type="button"
                             disabled={retryingSourceId !== null}
-                            className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
-                            onClick={() =>
-                              handleRetryFailedPages(source.id, source.failedPages)
-                            }
+                            className={secondaryButtonClass}
+                            onClick={() => handleRetryExtraction(source.id)}
                           >
-                            {failedPageRetryLabel(source.failedPages)}
+                            Retry Extraction
                           </button>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Only failed pages are rescanned. Previously saved
-                            questions are kept.
-                          </p>
-                        </div>
-                      )}
-                      {retryingSourceId === source.id &&
-                        retryingFailedPages.length > 0 && (
-                          <p className="text-sm text-slate-600" role="status">
-                            {failedPageRetryingLabel(retryingFailedPages)}
-                          </p>
                         )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              onPage={setPage}
-            />
-          </section>
+                        {shouldRenderFailedPageRetryButton(source, {
+                          retryingSourceId,
+                          lockedSourceIds: retryLockedIds,
+                        }) && (
+                          <div>
+                            <button
+                              type="button"
+                              disabled={retryingSourceId !== null}
+                              className={secondaryButtonClass}
+                              onClick={() =>
+                                handleRetryFailedPages(source.id, source.failedPages)
+                              }
+                            >
+                              {failedPageRetryLabel(source.failedPages)}
+                            </button>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Only failed pages are rescanned. Previously saved
+                              questions are kept.
+                            </p>
+                          </div>
+                        )}
+                        <div aria-live="polite">
+                          {retryingSourceId === source.id && (
+                            <p className="text-sm text-slate-600" role="status">
+                              {retryingFailedPages.length > 0
+                                ? failedPageRetryingLabel(retryingFailedPages)
+                                : "Retrying extraction…"}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+            </section>
+          </div>
         )}
 
         {view === "saved" && (
-          <section className="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
-            {savedNotice && (
-              <p className="mb-4 text-sm text-amber-800" role="status">
-                The paper was saved. You can retry the PDF from this list.
-              </p>
-            )}
+          <section
+            role="tabpanel"
+            id="panel-saved"
+            aria-labelledby="tab-saved"
+            className={cardClass}
+          >
+            <div aria-live="polite">
+              {savedSuccess && (
+                <p
+                  className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
+                  role="status"
+                >
+                  {savedSuccess}
+                </p>
+              )}
+              {savedNotice && (
+                <p
+                  className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                  role="status"
+                >
+                  The paper was saved. You can retry the PDF from this list.
+                </p>
+              )}
+            </div>
             {loading ? (
-              <p>Loading saved papers…</p>
+              <p role="status" className="text-sm text-slate-600">
+                Loading saved papers…
+              </p>
             ) : savedPapers.length === 0 ? (
-              <p>No saved papers yet.</p>
+              <div className="py-8 text-center">
+                <p className="text-slate-700">
+                  No saved papers yet. Select approved questions from the Question
+                  Bank to prepare one.
+                </p>
+              </div>
             ) : (
               <ul className="space-y-4">
                 {savedPapers.map((paper) => (
                   <li
                     key={paper.id}
-                    className="border border-slate-200 rounded-xl p-4"
+                    className="rounded-xl border border-slate-200 p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-medium text-slate-900 break-words">
+                        <p className="break-words font-semibold text-slate-900">
                           {paper.title}
                         </p>
-                        <p className="text-sm text-slate-600">
+                        <p className="mt-1 text-sm text-slate-600">
                           Class {paper.grade} · {paper.subject} · {paper.academicYear}
                           {paper.durationMinutes
                             ? ` · ${formatDuration(paper.durationMinutes)}`
                             : ""}
                           {` · ${paper.totalMarks} marks`}
                           {paper.itemCount != null
-                            ? ` · ${paper.itemCount} questions`
+                            ? ` · ${paper.itemCount} question${paper.itemCount === 1 ? "" : "s"}`
                             : ""}
                         </p>
-                        <p className="text-xs text-slate-500 mt-1">
+                        <p className="mt-1 text-xs text-slate-500">
                           {paper.finalizedAt
                             ? `Finalized ${new Date(paper.finalizedAt).toLocaleString()}`
                             : paper.createdAt
@@ -1810,7 +2144,9 @@ export default function QuestionPapers() {
                               : ""}
                         </p>
                       </div>
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border bg-slate-100 text-slate-700 border-slate-200">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${paperStatusBadgeClass(paper.pdfStatus)}`}
+                      >
                         {paper.pdfStatus}
                       </span>
                     </div>
@@ -1818,7 +2154,7 @@ export default function QuestionPapers() {
                       {paper.pdfAvailable ? (
                         <button
                           type="button"
-                          className="px-3 py-1.5 bg-blue-600 text-white rounded-lg"
+                          className={primaryButtonClass}
                           onClick={async () => {
                             const response = await fetch(
                               `/api/question-papers/${paper.id}?resource=paper`,
@@ -1831,13 +2167,13 @@ export default function QuestionPapers() {
                             }
                           }}
                         >
-                          Download
+                          Download PDF
                         </button>
                       ) : paper.status === "final" ? (
                         <button
                           type="button"
                           disabled={mutating}
-                          className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                          className={secondaryButtonClass}
                           onClick={() => handleRetryPdf(paper.id)}
                         >
                           Retry PDF
@@ -1848,24 +2184,25 @@ export default function QuestionPapers() {
                 ))}
               </ul>
             )}
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              onPage={setPage}
-            />
+            <Pagination page={page} totalPages={totalPages} onPage={setPage} />
           </section>
         )}
       </div>
 
       {builderOpen && (
-        <Modal title="Paper builder" onClose={() => !generateStage && setBuilderOpen(false)}>
+        <Modal
+          title="Paper builder"
+          titleId="paper-builder-title"
+          onClose={() => !generateStage && setBuilderOpen(false)}
+        >
           {!selectionConflict.ok && (
             <p className="mb-4 text-sm text-red-700" role="alert">
               {selectionConflict.error}. Remove the conflicting questions to continue.
             </p>
           )}
-          <p className="mb-3 text-sm text-slate-600">
-            {builderOrder.length} questions · {previewMarks(selectedQuestions)} marks
+          <p className="mb-1 text-sm text-slate-700">
+            {builderOrder.length} question{builderOrder.length === 1 ? "" : "s"} ·{" "}
+            {previewMarks(selectedQuestions)} marks
             {selectionConflict.ok && selectionConflict.grade
               ? ` · Class ${romanClass(selectionConflict.grade)} ${selectionConflict.subject || ""}`
               : ""}
@@ -1874,7 +2211,7 @@ export default function QuestionPapers() {
             Questions are grouped by type. Source paper names are for finding
             questions and are not printed on the generated paper.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="md:col-span-3">
               <label htmlFor="builder-title" className={labelClass}>
                 Paper title
@@ -1882,6 +2219,7 @@ export default function QuestionPapers() {
               <input
                 id="builder-title"
                 value={builderTitle}
+                disabled={Boolean(generateStage)}
                 onChange={(event) => setBuilderTitle(event.target.value)}
                 className={inputClass}
                 maxLength={300}
@@ -1894,6 +2232,7 @@ export default function QuestionPapers() {
               <select
                 id="builder-year"
                 value={builderYear}
+                disabled={Boolean(generateStage)}
                 onChange={(event) => setBuilderYear(event.target.value)}
                 className={inputClass}
               >
@@ -1914,18 +2253,45 @@ export default function QuestionPapers() {
                 min={1}
                 max={600}
                 value={builderDuration}
+                disabled={Boolean(generateStage)}
                 onChange={(event) => setBuilderDuration(event.target.value)}
                 className={inputClass}
               />
             </div>
           </div>
-          <div className="space-y-6 mb-4">
-            {builderSections.map((section) => (
+          <div className="mb-4 space-y-4">
+            {builderSections.map((section, sectionIndex) => (
               <section
                 key={section.key}
-                className="border border-slate-200 rounded-xl p-4"
+                className="rounded-xl border border-slate-200 p-4"
               >
-                <div className="grid grid-cols-1 gap-3 mb-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {section.title || `Section ${sectionIndex + 1}`}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={sectionIndex === 0 || Boolean(generateStage)}
+                      onClick={() => moveBuilderSection(sectionIndex, -1)}
+                      className={secondaryButtonClass}
+                    >
+                      Move section up
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        sectionIndex === builderSections.length - 1 ||
+                        Boolean(generateStage)
+                      }
+                      onClick={() => moveBuilderSection(sectionIndex, 1)}
+                      className={secondaryButtonClass}
+                    >
+                      Move section down
+                    </button>
+                  </div>
+                </div>
+                <div className="mb-3 grid grid-cols-1 gap-3">
                   <div>
                     <label
                       htmlFor={`builder-section-${section.key}`}
@@ -1936,6 +2302,7 @@ export default function QuestionPapers() {
                     <input
                       id={`builder-section-${section.key}`}
                       value={section.title}
+                      disabled={Boolean(generateStage)}
                       onChange={(event) =>
                         updateBuilderSection(section.key, {
                           title: event.target.value,
@@ -1954,6 +2321,7 @@ export default function QuestionPapers() {
                     <input
                       id={`builder-instructions-${section.key}`}
                       value={section.instructions}
+                      disabled={Boolean(generateStage)}
                       onChange={(event) =>
                         updateBuilderSection(section.key, {
                           instructions: event.target.value,
@@ -1970,23 +2338,22 @@ export default function QuestionPapers() {
                     return (
                       <li
                         key={question.id}
-                        className="border border-slate-200 rounded-lg p-3"
+                        className="rounded-lg border border-slate-200 p-3"
                       >
                         <p className="text-sm font-medium text-slate-700">
                           {index + 1}. {questionTypeLabel(question.questionType)} ·{" "}
-                          {question.marks} marks
+                          {question.marks} mark{question.marks === 1 ? "" : "s"}
+                          {question.diagramUrl ? " · Has diagram" : ""}
                         </p>
-                        <p className="text-sm text-slate-600 break-words whitespace-pre-wrap">
+                        <p className="line-clamp-2 whitespace-pre-wrap break-words text-sm text-slate-600">
                           {question.questionText}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
                             disabled={index === 0 || Boolean(generateStage)}
-                            onClick={() =>
-                              moveBuilderItem(section.key, index, -1)
-                            }
-                            className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                            onClick={() => moveBuilderItem(section.key, index, -1)}
+                            className={secondaryButtonClass}
                           >
                             Move up
                           </button>
@@ -1996,10 +2363,8 @@ export default function QuestionPapers() {
                               index === section.questionIds.length - 1 ||
                               Boolean(generateStage)
                             }
-                            onClick={() =>
-                              moveBuilderItem(section.key, index, 1)
-                            }
-                            className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                            onClick={() => moveBuilderItem(section.key, index, 1)}
+                            className={secondaryButtonClass}
                           >
                             Move down
                           </button>
@@ -2007,7 +2372,7 @@ export default function QuestionPapers() {
                             type="button"
                             disabled={Boolean(generateStage)}
                             onClick={() => removeBuilderItem(question.id)}
-                            className="px-3 py-1.5 border border-red-300 text-red-700 rounded-lg disabled:text-gray-400"
+                            className={dangerButtonClass}
                           >
                             Remove
                           </button>
@@ -2019,22 +2384,24 @@ export default function QuestionPapers() {
               </section>
             ))}
           </div>
-          {generateStage && (
-            <p className="mb-3 text-sm text-slate-700" role="status">
-              {generateStage}…
-            </p>
-          )}
+          <div aria-live="polite">
+            {generateStage && (
+              <p className="mb-3 text-sm text-slate-700" role="status">
+                {generateStage}…
+              </p>
+            )}
+          </div>
           {builderError && (
-            <p className="mb-3 text-sm text-red-700" role="alert">
-              {builderError}
+            <div className="mb-3 text-sm text-red-700" role="alert">
+              <p>{builderError}</p>
               {savedNotice && (
-                <>
+                <div className="mt-2 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    className="ml-2 text-blue-700 underline"
+                    className="font-medium text-[#1e3a8a] underline underline-offset-2"
                     onClick={() => {
                       setBuilderOpen(false);
-                      setView("saved");
+                      selectView("saved");
                       setPage(1);
                     }}
                   >
@@ -2042,15 +2409,15 @@ export default function QuestionPapers() {
                   </button>
                   <button
                     type="button"
-                    className="ml-2 text-blue-700 underline"
+                    className="font-medium text-[#1e3a8a] underline underline-offset-2"
                     disabled={mutating}
                     onClick={() => handleRetryPdf(savedNotice)}
                   >
                     Retry PDF
                   </button>
-                </>
+                </div>
               )}
-            </p>
+            </div>
           )}
           <button
             type="button"
@@ -2061,7 +2428,7 @@ export default function QuestionPapers() {
               !builderTitle.trim()
             }
             onClick={handleGeneratePaper}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+            className={primaryButtonClass}
           >
             Generate and save
           </button>
@@ -2069,24 +2436,29 @@ export default function QuestionPapers() {
       )}
 
       {addOpen && (
-        <Modal title="Add question" onClose={() => !mutating && setAddOpen(false)}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <Modal
+          title="Add question"
+          titleId="add-question-title"
+          onClose={() => !mutating && setAddOpen(false)}
+        >
+          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label htmlFor="add-grade" className={labelClass}>
-                Grade
+                Class
               </label>
               <select
                 id="add-grade"
                 value={addMeta.grade}
+                disabled={mutating}
                 onChange={(event) =>
                   setAddMeta({ ...addMeta, grade: event.target.value, subject: "" })
                 }
                 className={inputClass}
               >
-                <option value="">Select grade</option>
+                <option value="">Select class</option>
                 {ALL_GRADES.map((grade) => (
                   <option key={grade} value={grade}>
-                    {grade}
+                    Class {grade}
                   </option>
                 ))}
               </select>
@@ -2098,7 +2470,7 @@ export default function QuestionPapers() {
               <select
                 id="add-subject"
                 value={addMeta.subject}
-                disabled={!addMeta.grade}
+                disabled={!addMeta.grade || mutating}
                 onChange={(event) =>
                   setAddMeta({ ...addMeta, subject: event.target.value })
                 }
@@ -2114,11 +2486,12 @@ export default function QuestionPapers() {
             </div>
             <div>
               <label htmlFor="add-year" className={labelClass}>
-                Year
+                Academic year
               </label>
               <select
                 id="add-year"
                 value={addMeta.year}
+                disabled={mutating}
                 onChange={(event) =>
                   setAddMeta({ ...addMeta, year: event.target.value })
                 }
@@ -2149,7 +2522,7 @@ export default function QuestionPapers() {
               type="button"
               disabled={mutating}
               onClick={() => handleAddQuestion("save")}
-              className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
+              className={secondaryButtonClass}
             >
               Save for review
             </button>
@@ -2157,7 +2530,7 @@ export default function QuestionPapers() {
               type="button"
               disabled={mutating}
               onClick={() => handleAddQuestion("approve")}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+              className={primaryButtonClass}
             >
               Save and approve
             </button>
@@ -2166,7 +2539,11 @@ export default function QuestionPapers() {
       )}
 
       {editQuestion && (
-        <Modal title="Edit question" onClose={() => !mutating && setEditQuestion(null)}>
+        <Modal
+          title="Edit question"
+          titleId="edit-question-title"
+          onClose={() => !mutating && setEditQuestion(null)}
+        >
           <QuestionEditor
             idPrefix="edit"
             draft={editDraft}
@@ -2175,12 +2552,17 @@ export default function QuestionPapers() {
             onMath={() => setMathField("edit")}
           />
           {editQuestion.diagramUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={editQuestion.diagramUrl}
-              alt="Question diagram"
-              className="mt-3 max-w-full border border-slate-200 rounded"
-            />
+            <figure className="mt-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={editQuestion.diagramUrl}
+                alt="Question diagram"
+                className="max-w-full rounded border border-slate-200"
+              />
+              <figcaption className="mt-1 text-xs text-slate-500">
+                Question diagram
+              </figcaption>
+            </figure>
           )}
           {editError && (
             <p className="mt-3 text-sm text-red-700" role="alert">
@@ -2192,7 +2574,7 @@ export default function QuestionPapers() {
               type="button"
               disabled={mutating}
               onClick={handleEditSave}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+              className={primaryButtonClass}
             >
               Save
             </button>
@@ -2200,7 +2582,7 @@ export default function QuestionPapers() {
               type="button"
               disabled={mutating}
               onClick={() => setDiagramFor("edit")}
-              className="px-4 py-2 border border-slate-300 rounded-lg"
+              className={secondaryButtonClass}
             >
               Edit diagram
             </button>
@@ -2208,7 +2590,7 @@ export default function QuestionPapers() {
               type="button"
               disabled={mutating}
               onClick={() => setEditQuestion(null)}
-              className="px-4 py-2 border border-slate-300 rounded-lg"
+              className={secondaryButtonClass}
             >
               Cancel
             </button>
@@ -2217,7 +2599,11 @@ export default function QuestionPapers() {
       )}
 
       {diagramFor && (
-        <Modal title="Edit diagram" onClose={() => setDiagramFor(null)}>
+        <Modal
+          title="Edit diagram"
+          titleId="edit-diagram-title"
+          onClose={() => setDiagramFor(null)}
+        >
           <DiagramSketchTool
             onSave={handleDiagramSave}
             onCancel={() => setDiagramFor(null)}
@@ -2231,7 +2617,7 @@ export default function QuestionPapers() {
       )}
 
       {mathField && (
-        <div className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 p-3">
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white p-3">
           <MathKeyboard
             visible
             onInsert={(symbol) => {
@@ -2267,9 +2653,18 @@ function QuestionEditor({
   return (
     <div className="space-y-4">
       <div>
-        <label htmlFor={`${idPrefix}-text`} className={labelClass}>
-          Question text
-        </label>
+        <div className="flex items-end justify-between gap-2">
+          <label htmlFor={`${idPrefix}-text`} className={labelClass}>
+            Question text
+          </label>
+          <button
+            type="button"
+            className="mb-1.5 text-sm font-medium text-[#1e3a8a] underline underline-offset-2"
+            onClick={onMath}
+          >
+            Math symbols
+          </button>
+        </div>
         <textarea
           id={`${idPrefix}-text`}
           value={draft.questionText}
@@ -2280,15 +2675,8 @@ function QuestionEditor({
           rows={6}
           className={`${inputClass} break-words`}
         />
-        <button
-          type="button"
-          className="mt-2 text-sm text-blue-700 underline"
-          onClick={onMath}
-        >
-          Math symbols
-        </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <label htmlFor={`${idPrefix}-type`} className={labelClass}>
             Type
@@ -2344,27 +2732,36 @@ function QuestionEditor({
         </div>
       </div>
       {draft.questionType === "MCQ" && (
-        <fieldset>
-          <legend className={labelClass}>Options</legend>
-          {draft.options.map((option, index) => (
-            <div key={`${idPrefix}-option-${index}`} className="mb-2">
-              <label htmlFor={`${idPrefix}-option-${index}`} className="sr-only">
-                Option {String.fromCharCode(65 + index)}
-              </label>
-              <input
-                id={`${idPrefix}-option-${index}`}
-                value={option}
-                disabled={disabled}
-                onChange={(event) => {
-                  const options = [...draft.options];
-                  options[index] = event.target.value;
-                  onChange({ ...draft, options });
-                }}
-                className={inputClass}
-                placeholder={`Option ${String.fromCharCode(65 + index)}`}
-              />
-            </div>
-          ))}
+        <fieldset className="rounded-lg border border-slate-200 p-3">
+          <legend className="px-1 text-sm font-medium text-slate-700">
+            Options
+          </legend>
+          <div className="space-y-2">
+            {draft.options.map((option, index) => (
+              <div
+                key={`${idPrefix}-option-${index}`}
+                className="flex items-center gap-3"
+              >
+                <label
+                  htmlFor={`${idPrefix}-option-${index}`}
+                  className="w-6 shrink-0 text-sm font-medium text-slate-700"
+                >
+                  {String.fromCharCode(65 + index)}
+                </label>
+                <input
+                  id={`${idPrefix}-option-${index}`}
+                  value={option}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    const options = [...draft.options];
+                    options[index] = event.target.value;
+                    onChange({ ...draft, options });
+                  }}
+                  className={inputClass}
+                />
+              </div>
+            ))}
+          </div>
         </fieldset>
       )}
       <div>
@@ -2396,12 +2793,15 @@ function Pagination({
 }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="mt-6 flex items-center gap-3">
+    <nav
+      aria-label="Pagination"
+      className="mt-6 flex flex-wrap items-center gap-3"
+    >
       <button
         type="button"
         disabled={page <= 1}
         onClick={() => onPage(page - 1)}
-        className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+        className={secondaryButtonClass}
       >
         Previous page
       </button>
@@ -2412,40 +2812,76 @@ function Pagination({
         type="button"
         disabled={page >= totalPages}
         onClick={() => onPage(page + 1)}
-        className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+        className={secondaryButtonClass}
       >
         Next page
       </button>
-    </div>
+    </nav>
   );
 }
 
 function Modal({
   title,
+  titleId,
   onClose,
   children,
 }: {
   title: string;
+  titleId: string;
   onClose: () => void;
   children: ReactNode;
 }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const root = containerRef.current;
+    if (!root) return;
+    const focusable = root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 pb-8 pt-28">
+    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 pb-8 pt-24 sm:pt-28">
       <div
+        ref={containerRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
-        className="relative w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl"
+        aria-labelledby={titleId}
+        onKeyDown={handleKeyDown}
+        className="relative w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl sm:p-6"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 id="modal-title" className="text-xl font-semibold text-slate-900">
+          <h2 id={titleId} className="text-xl font-semibold text-slate-900">
             {title}
           </h2>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-lg font-semibold text-slate-700 hover:bg-slate-50"
+            aria-label="Close dialog"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 text-lg font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1e3a8a]"
           >
             ×
           </button>
@@ -2490,7 +2926,7 @@ function SourcePdfLink({ sourceId }: { sourceId: string }) {
         type="button"
         onClick={openPdf}
         disabled={loading}
-        className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+        className={secondaryButtonClass}
       >
         {loading ? "Opening PDF…" : "View PDF"}
       </button>
