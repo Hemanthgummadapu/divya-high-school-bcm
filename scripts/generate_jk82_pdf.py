@@ -272,29 +272,34 @@ def parse_table_in_text(text):
     return (before, tables, after)
 
 
-def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=None, is_mcq=False, same_line_y=None, reserve_diagram=False):
+def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=None, is_mcq=False, same_line_y=None, reserve_diagram=False, reserve_marks=0):
     """Draw question text; pipe-separated table blocks (3+ '|' per line) drawn with reportlab Table. Returns new y.
     When is_mcq=True, skip table parsing and render as plain text.
     When same_line_y is set, the first line of text is drawn at same_line_y (same line as question number).
-    When reserve_diagram=True, text uses 60% of content width so diagram sits alongside on the right."""
+    When reserve_diagram=True, text uses 60% of content width so diagram sits alongside on the right.
+    reserve_marks keeps a right-hand gutter clear so the marks label cannot be
+    overlapped by a long line of question text."""
     text = (text or "").replace("\\n", "\n")
     if reserve_diagram:
         base_avail = CONTENT_WIDTH * TEXT_WIDTH_RATIO_WITH_DIAGRAM - indent
     else:
-        base_avail = CONTENT_WIDTH - 30
+        base_avail = CONTENT_WIDTH - 30 - max(0, reserve_marks)
     avail_width = base_avail
     if is_mcq:
-        # Plain text only: each line wrapped and drawn, no table parsing
+        # Plain text only: each line wrapped and drawn, no table parsing.
+        # Uses the per-character fallback so mathematical symbols outside
+        # NotoSans (△ ∠ ∥ √ ≤ ≥) are drawn from the math/symbol fonts
+        # instead of silently disappearing.
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         first_done = False
         for line in lines:
             for ln in wrap_text(c, line, avail_width, size=FONT_BODY):
                 if same_line_y is not None and not first_done:
-                    c.drawString(CONTENT_LEFT + indent, same_line_y, ln)
+                    draw_text_with_fallback(c, ln, CONTENT_LEFT + indent, same_line_y, FONT_BODY)
                     first_done = True
                     y = same_line_y - line_height
                 else:
-                    c.drawString(CONTENT_LEFT + indent, y, ln)
+                    draw_text_with_fallback(c, ln, CONTENT_LEFT + indent, y, FONT_BODY)
                     y -= line_height
         return y
     before, tables, after = parse_table_in_text(text)
@@ -388,10 +393,12 @@ def load_diagram_image(diagram_base64=None, diagram_path=None):
                 pass
 
 
-def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page_cb=None, diagram_path=None):
+def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page_cb=None, diagram_path=None, top_limit=None):
     """Draw question diagram on the right, vertically centered with the question text block.
     y_text_top: first line of question text; y_text_bottom: after last line.
-    Max 130pt x 110pt, aspect ratio preserved. Returns y for next content (min of text bottom and diagram bottom)."""
+    top_limit keeps the diagram below the question's marks label so the two
+    cannot overlap. Max 130pt x 110pt, aspect ratio preserved.
+    Returns y for next content (min of text bottom and diagram bottom)."""
     try:
         img = load_diagram_image(diagram_base64, diagram_path)
         if img is None:
@@ -406,6 +413,8 @@ def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page
     h = ih * scale
     text_center_y = (y_text_top + y_text_bottom) / 2
     diagram_y_bottom = text_center_y - h / 2
+    if top_limit is not None and diagram_y_bottom + h > top_limit:
+        diagram_y_bottom = top_limit - h
     if new_page_cb and diagram_y_bottom < 2 * MARGIN:
         new_page_cb()
         diagram_y_bottom = PAGE_HEIGHT - MARGIN - h
@@ -498,7 +507,12 @@ def draw_header_with_logo(c, logo_path, school_name, location, exam_title, subje
     c.setFont(FONT_FAMILY_BOLD, 12)
     c.drawCentredString(text_center_x, y, exam_title or "PRE-FINAL EXAMINATIONS")
     y -= lead
-    # 4. Class | Max. Marks | Time — same line, bold, centered
+    # 4. Subject — a question paper must name its own subject
+    if subject:
+        c.setFont(FONT_FAMILY_BOLD, 11)
+        c.drawCentredString(text_center_x, y, f"Subject: {subject}")
+        y -= lead
+    # 5. Class | Max. Marks | Time — same line, bold, centered
     c.setFont(FONT_FAMILY_BOLD, 10)
     year_bit = f"    Year: {academic_year}" if academic_year else ""
     c.drawCentredString(text_center_x, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}{year_bit}")
@@ -549,8 +563,11 @@ def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
             marks = int(q.get("marks") or 0)
             c.setFont(FONT_FAMILY, FONT_BODY)
             c.drawString(CONTENT_LEFT, y, f"{number}.")
+            marks_reserve = 0
             if marks:
-                c.drawRightString(CONTENT_RIGHT, y, f"[{marks} m]")
+                marks_label = f"[{marks} m]"
+                c.drawRightString(CONTENT_RIGHT, y, marks_label)
+                marks_reserve = c.stringWidth(marks_label, FONT_FAMILY, FONT_BODY) + 8
             question_start_y = y
             has_diagram = q.get("diagramStatus") == "ok" and q.get("diagramPath")
             y = draw_question_content(
@@ -564,6 +581,7 @@ def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
                 is_mcq=q.get("type") == "MCQ",
                 same_line_y=y,
                 reserve_diagram=bool(has_diagram),
+                reserve_marks=marks_reserve,
             )
             if has_diagram:
                 y = draw_question_diagram(
@@ -573,6 +591,9 @@ def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
                     y,
                     new_page,
                     diagram_path=q.get("diagramPath"),
+                    top_limit=(
+                        question_start_y - line_height if marks_reserve else None
+                    ),
                 )
             elif q.get("diagramStatus") == "unavailable":
                 y = draw_diagram_placeholder(c, y)
@@ -765,6 +786,10 @@ def main():
         c.setFont(FONT_FAMILY_BOLD, 12)
         c.drawCentredString(PAGE_WIDTH / 2, y, exam_title or "PRE-FINAL EXAMINATIONS")
         y -= lead
+        if subject:
+            c.setFont(FONT_FAMILY_BOLD, 11)
+            c.drawCentredString(PAGE_WIDTH / 2, y, f"Subject: {subject}")
+            y -= lead
         c.setFont(FONT_FAMILY_BOLD, 10)
         year_bit = f"    Year: {academic_year}" if academic_year else ""
         c.drawCentredString(PAGE_WIDTH / 2, y, f"Class: {class_str}    Max. Marks: {max_marks}    Time: {time_str}{year_bit}")
