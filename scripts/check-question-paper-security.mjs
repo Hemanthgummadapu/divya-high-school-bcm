@@ -34,6 +34,7 @@ const dangerousMarkers = [
   "listSavedPapers(",
   "getSavedPaperDetail(",
   "saveFinalPaper(",
+  "saveQuestionPaper(",
   "generateAndStorePaperPdf(",
   "spawn(",
   "execFileAsync(",
@@ -356,7 +357,7 @@ assert.ok(
   canonicalHandler.source.indexOf("requireQuestionPaperApiAccess") <
     canonicalHandler.source.indexOf("request.json("),
 );
-assert.match(canonicalGenerate, /saveFinalPaper/);
+assert.match(canonicalGenerate, /saveQuestionPaper/);
 assert.match(canonicalGenerate, /generateAndStorePaperPdf/);
 assert.match(canonicalGenerate, /loadSavedPaperItems/);
 assert.doesNotMatch(canonicalGenerate, /generated_pdfs/);
