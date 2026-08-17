@@ -11,7 +11,11 @@ import { isAnthropicConfigured } from "@/lib/question-paper-provider-policy.mjs"
 import { getUploadLimits } from "@/lib/question-paper-upload-policy.mjs";
 import { isUuid } from "@/lib/question-bank-v2-review.mjs";
 import { computePdfSha256, parseValidatePdfPagesStdout } from "@/lib/question-bank-v2-extract.mjs";
-import { logExtractionStage } from "@/lib/question-bank-v2-diagnostics.mjs";
+import {
+  logExtractionStage,
+  logRetryRejection,
+} from "@/lib/question-bank-v2-diagnostics.mjs";
+import { runRetrySpendControl } from "@/lib/question-bank-v2-retry-run.mjs";
 import {
   runExtractAndPersist,
   resolveExtractPython,
@@ -55,180 +59,109 @@ export async function POST(
   let claimed = false;
 
   try {
-    if (!isAnthropicConfigured(process.env.ANTHROPIC_API_KEY)) {
-      logExtractionStage({
-        requestId,
+    const result = await runRetrySpendControl(
+      {
         sourceId,
-        stage: "anthropic_request",
-        errorCategory: "provider",
+        requestId,
         elapsedMs: Date.now() - startedAt,
-      });
-      return questionPaperServerError(requestId);
-    }
+      },
+      {
+        inspectRetryEligibility,
+        claimFailedSourceForRetry,
+        isAnthropicConfigured: () =>
+          isAnthropicConfigured(process.env.ANTHROPIC_API_KEY),
+        downloadSourcePdfBytes,
+        computePdfSha256,
+        createTempDir: async () => {
+          workDir = await mkdtemp(join(tmpdir(), `qb-retry-${requestId}-`));
+          return workDir;
+        },
+        writeSourcePdf: async (dir: string, bytes: Buffer) => {
+          await writeFile(join(dir, "original.pdf"), bytes);
+        },
+        validatePdfPages: async (dir: string) => {
+          const limits = getUploadLimits();
+          const validation = await execFileAsync(
+            resolveExtractPython(),
+            [
+              join(process.cwd(), "scripts", "validate_pdf_pages.py"),
+              "--pdf",
+              join(dir, "original.pdf"),
+              "--max-pages",
+              String(limits.maxPages),
+            ],
+            {
+              cwd: process.cwd(),
+              maxBuffer: 64 * 1024,
+              timeout: limits.pdfTimeoutMs,
+              killSignal: "SIGKILL",
+            },
+          );
+          return parseValidatePdfPagesStdout(validation.stdout);
+        },
+        runExtractAndPersist: async ({
+          source,
+          pageCount,
+          workDir: dir,
+        }: {
+          source: Record<string, unknown>;
+          pageCount: number;
+          workDir: string;
+        }) => {
+          const limits = getUploadLimits();
+          return await runExtractAndPersist({
+            sourceId,
+            pdfPath: join(dir, "original.pdf"),
+            workDir: dir,
+            outputPath: join(dir, "extract.json"),
+            subject: String(source.subject),
+            grade: String(source.grade),
+            year: String(source.academic_year),
+            pageCount,
+            requestId,
+            limits,
+            startedAt,
+          });
+        },
+        markSourceFailed,
+        logRetryRejection,
+      },
+    );
+    claimed = result.claimed;
+    if (result.workDir) workDir = result.workDir;
 
-    const inspected = await inspectRetryEligibility(sourceId);
-    if (!inspected.ok) {
-      logExtractionStage({
-        requestId,
-        sourceId,
-        stage: "retry_claim",
-        errorCategory: "validation",
-        elapsedMs: Date.now() - startedAt,
-      });
+    if (!result.ok) {
+      if (result.status === 500) {
+        logExtractionStage({
+          requestId,
+          sourceId,
+          stage: "anthropic_request",
+          errorCategory: "provider",
+          elapsedMs: Date.now() - startedAt,
+        });
+        return questionPaperServerError(requestId);
+      }
       return NextResponse.json(
         {
           success: false,
           error:
-            inspected.reason === "not_found"
+            result.reason === "not_found"
               ? "Source not found"
-              : "This source cannot be retried",
+              : result.reason === "conflict"
+                ? "This source is already being retried"
+                : result.reason === "download_failed"
+                  ? "The retained PDF could not be read"
+                  : result.reason === "checksum_mismatch" ||
+                      result.reason === "page_count_mismatch"
+                    ? "The retained PDF no longer matches the stored source"
+                    : "This source cannot be retried",
           requestId,
         },
-        { status: inspected.status, headers: { "Cache-Control": "no-store" } },
+        { status: result.status, headers: { "Cache-Control": "no-store" } },
       );
     }
 
-    const claimedRow = await claimFailedSourceForRetry(sourceId);
-    if (!claimedRow.ok) {
-      logExtractionStage({
-        requestId,
-        sourceId,
-        stage: "retry_claim",
-        errorCategory: "validation",
-        elapsedMs: Date.now() - startedAt,
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: "This source is already being retried",
-          requestId,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    claimed = true;
-    logExtractionStage({
-      requestId,
-      sourceId,
-      stage: "retry_claim",
-      elapsedMs: Date.now() - startedAt,
-    });
-
-    let downloaded: Buffer;
-    try {
-      downloaded = await downloadSourcePdfBytes(sourceId);
-    } catch {
-      await markSourceFailed(sourceId, "internal");
-      logExtractionStage({
-        requestId,
-        sourceId,
-        stage: "source_download",
-        errorCategory: "internal",
-        elapsedMs: Date.now() - startedAt,
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: "The retained PDF could not be read",
-          requestId,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-
-    const checksum = computePdfSha256(downloaded);
-    if (
-      checksum !== inspected.source.content_sha256 ||
-      downloaded.byteLength !== inspected.source.byte_size
-    ) {
-      await markSourceFailed(sourceId, "validation");
-      logExtractionStage({
-        requestId,
-        sourceId,
-        stage: "source_download",
-        errorCategory: "validation",
-        elapsedMs: Date.now() - startedAt,
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: "The retained PDF no longer matches the stored source",
-          requestId,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-
-    workDir = await mkdtemp(join(tmpdir(), `qb-retry-${requestId}-`));
-    const filepath = join(workDir, "original.pdf");
-    const tempOutputPath = join(workDir, "extract.json");
-    await writeFile(filepath, downloaded);
-
-    const limits = getUploadLimits();
-    const pythonCmd = resolveExtractPython();
-    const validateScript = join(process.cwd(), "scripts", "validate_pdf_pages.py");
-    let pageCount: number | null = null;
-    try {
-      const validation = await execFileAsync(
-        pythonCmd,
-        [
-          validateScript,
-          "--pdf",
-          filepath,
-          "--max-pages",
-          String(limits.maxPages),
-        ],
-        {
-          cwd: process.cwd(),
-          maxBuffer: 64 * 1024,
-          timeout: limits.pdfTimeoutMs,
-          killSignal: "SIGKILL",
-        },
-      );
-      pageCount = parseValidatePdfPagesStdout(validation.stdout);
-    } catch {
-      await markSourceFailed(sourceId, "validation");
-      return NextResponse.json(
-        {
-          success: false,
-          error: "The retained PDF could not be validated",
-          requestId,
-        },
-        { status: 422, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    if (!pageCount || pageCount !== inspected.source.page_count) {
-      await markSourceFailed(sourceId, "validation");
-      logExtractionStage({
-        requestId,
-        sourceId,
-        stage: "pdf_validation",
-        errorCategory: "validation",
-        elapsedMs: Date.now() - startedAt,
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: "The retained PDF no longer matches the stored source",
-          requestId,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-
-    return await runExtractAndPersist({
-      sourceId,
-      pdfPath: filepath,
-      workDir,
-      outputPath: tempOutputPath,
-      subject: String(inspected.source.subject),
-      grade: String(inspected.source.grade),
-      year: String(inspected.source.academic_year),
-      pageCount,
-      requestId,
-      limits,
-      startedAt,
-    });
+    return result.response as NextResponse;
   } catch {
     logExtractionStage({
       requestId,

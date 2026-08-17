@@ -210,6 +210,35 @@ test("search escaping and deterministic public payloads omit private paths", () 
     created_at: new Date().toISOString(),
   });
   assert.equal(failed.retryEligible, true);
+
+  const failedRow = {
+    id: SOURCE_ID,
+    original_filename: "exam.pdf",
+    grade: 10,
+    subject: "Mathematics",
+    academic_year: 2026,
+    page_count: 6,
+    extraction_status: "failed",
+    processed_page_count: 0,
+    failed_page_numbers: [],
+    extracted_question_count: 0,
+    created_at: new Date().toISOString(),
+  };
+  for (const status of ["completed", "partial", "processing", "archived"]) {
+    assert.equal(
+      publicSource({
+        ...failedRow,
+        extraction_status: status,
+        extracted_question_count: status === "partial" || status === "completed" ? 4 : 0,
+      }).retryEligible,
+      false,
+      status,
+    );
+  }
+  assert.equal(
+    publicSource({ ...failedRow, extracted_question_count: 2 }).retryEligible,
+    false,
+  );
 });
 
 test("signed PDF and diagram helpers reject arbitrary or mismatched paths", () => {

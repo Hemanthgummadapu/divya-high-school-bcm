@@ -37,6 +37,7 @@ const dangerousMarkers = [
   "spawn(",
   "execFileAsync(",
   "runExtractAndPersist(",
+  "runRetrySpendControl(",
   "claimFailedSourceForRetry(",
   "inspectRetryEligibility(",
   "downloadSourcePdfBytes(",

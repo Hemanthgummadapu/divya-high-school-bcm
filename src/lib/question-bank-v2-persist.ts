@@ -8,13 +8,18 @@ import {
   createPersistIdempotencyKey,
   diagramObjectKey,
   diagramStoragePath,
+  isCanonicalSourceStoragePath,
   isUniqueViolation,
   sourceObjectKey,
   sourceStoragePath,
   toRpcQuestions,
 } from "@/lib/question-bank-v2-extract.mjs";
 import { sanitizeRpcErrorCategory } from "@/lib/question-bank-v2-diagnostics.mjs";
-import { evaluateRetryClaim } from "@/lib/question-bank-v2-retry.mjs";
+import {
+  evaluateRetryEligibility,
+  isStoredChecksumValid,
+  isStoredPageCountValid,
+} from "@/lib/question-bank-v2-retry.mjs";
 
 type NormalizedQuestion = {
   source_page_number: number;
@@ -187,6 +192,15 @@ export async function getSourceForRetry(sourceId: string) {
   return data;
 }
 
+export async function sourcePdfObjectExists(sourceId: string) {
+  const { data, error } = await getSupabase()
+    .storage
+    .from(SOURCE_PDF_BUCKET)
+    .list(sourceId, { limit: 20, search: "original.pdf" });
+  if (error || !Array.isArray(data)) return false;
+  return data.some((item) => item?.name === "original.pdf");
+}
+
 export async function downloadSourcePdfBytes(sourceId: string) {
   const { data, error } = await getSupabase()
     .storage
@@ -202,14 +216,33 @@ export async function inspectRetryEligibility(sourceId: string) {
     return { ok: false as const, status: 404, reason: "not_found" };
   }
   const linkedQuestionCount = await countQuestionsForSource(sourceId);
-  const eligibility = evaluateRetryClaim({
+  const statusDecision = evaluateRetryEligibility({
     sourceStatus: source.extraction_status,
     extractedCount: source.extracted_question_count,
     linkedQuestionCount,
-    objectPresent: true,
-    checksumMatch: true,
-    pageCountMatch: true,
-    updatedRows: 1,
+    extractionRunning: source.extraction_status === "processing",
+  });
+  if (!statusDecision.ok) {
+    return {
+      ok: false as const,
+      status: statusDecision.status,
+      reason: statusDecision.reason,
+      source,
+    };
+  }
+  const objectPresent =
+    isCanonicalSourceStoragePath(sourceId, source.storage_path) &&
+    (await sourcePdfObjectExists(sourceId));
+  const storedChecksumValid = isStoredChecksumValid(source.content_sha256);
+  const storedPageCountValid = isStoredPageCountValid(source.page_count);
+  const eligibility = evaluateRetryEligibility({
+    sourceStatus: source.extraction_status,
+    extractedCount: source.extracted_question_count,
+    linkedQuestionCount,
+    objectPresent,
+    storedChecksumValid,
+    storedPageCountValid,
+    extractionRunning: source.extraction_status === "processing",
   });
   if (!eligibility.ok) {
     return {
@@ -219,7 +252,14 @@ export async function inspectRetryEligibility(sourceId: string) {
       source,
     };
   }
-  return { ok: true as const, source, linkedQuestionCount };
+  return {
+    ok: true as const,
+    source,
+    linkedQuestionCount,
+    objectPresent,
+    storedChecksumValid,
+    storedPageCountValid,
+  };
 }
 
 export async function claimFailedSourceForRetry(sourceId: string) {

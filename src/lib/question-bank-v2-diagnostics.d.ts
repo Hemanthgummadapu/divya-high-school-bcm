@@ -7,6 +7,7 @@ export interface ExtractionDiagnostic {
   pageNumber: number | null;
   errorCategory: string | null;
   classification: string | null;
+  retryRejectionReason: string | null;
   exitCode: number | null;
   signalName: string | null;
   providerHttpStatusClass: string | null;
@@ -24,6 +25,24 @@ export function sanitizeRpcErrorCategory(error: unknown): string;
 export function buildExtractionDiagnostic(
   input?: Record<string, unknown>,
 ): ExtractionDiagnostic;
+export function buildRetryRejectionLog(input?: Record<string, unknown>): {
+  requestId: string | null;
+  sourceId: string | null;
+  stage: string;
+  retryRejectionReason: string | null;
+  exitCode: number | null;
+  signalName: string | null;
+  elapsedMs: number | null;
+};
+export function logRetryRejection(input?: Record<string, unknown>): {
+  requestId: string | null;
+  sourceId: string | null;
+  stage: string;
+  retryRejectionReason: string | null;
+  exitCode: number | null;
+  signalName: string | null;
+  elapsedMs: number | null;
+};
 export function logExtractionStage(
   input?: Record<string, unknown>,
 ): ExtractionDiagnostic;

@@ -4,6 +4,7 @@ import {
   sanitizePythonClassification,
   sanitizeSignalName,
 } from "./question-bank-v2-python-child.mjs";
+import { sanitizeRetryRejectionReason } from "./question-bank-v2-retry.mjs";
 
 export const EXTRACTION_STAGES = Object.freeze([
   "authorization",
@@ -110,11 +111,30 @@ export function buildExtractionDiagnostic(input = {}) {
     pageNumber: sanitizePageNumber(input.pageNumber),
     errorCategory: sanitizeErrorCategory(input.errorCategory),
     classification: sanitizePythonClassification(input.classification),
+    retryRejectionReason: sanitizeRetryRejectionReason(input.retryRejectionReason),
     exitCode: sanitizeExitCode(input.exitCode),
     signalName: sanitizeSignalName(input.signalName),
     providerHttpStatusClass: sanitizeHttpStatusClass(input.providerHttpStatusClass),
     elapsedMs: sanitizeElapsedMs(input.elapsedMs),
   };
+}
+
+export function buildRetryRejectionLog(input = {}) {
+  return {
+    requestId: sanitizeRequestId(input.requestId),
+    sourceId: sanitizeSourceId(input.sourceId),
+    stage: sanitizeStage(input.stage),
+    retryRejectionReason: sanitizeRetryRejectionReason(input.retryRejectionReason),
+    exitCode: sanitizeExitCode(input.exitCode),
+    signalName: sanitizeSignalName(input.signalName),
+    elapsedMs: sanitizeElapsedMs(input.elapsedMs),
+  };
+}
+
+export function logRetryRejection(input = {}) {
+  const diagnostic = buildRetryRejectionLog(input);
+  console.warn("[question-paper-extract]", diagnostic);
+  return diagnostic;
 }
 
 export function logExtractionStage(input = {}) {

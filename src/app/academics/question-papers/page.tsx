@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createRetryClickLock,
+  shouldRenderRetryButton,
+} from "@/lib/question-bank-v2-retry.mjs";
 import { ALL_GRADES, ALL_YEARS, getSubjectsForGrade } from "@/lib/subjects";
 import { uploadResultMessage } from "@/lib/question-bank-v2-review-ui.mjs";
 import {
@@ -231,6 +235,8 @@ export default function QuestionPapers() {
   });
   const [uploading, setUploading] = useState(false);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
+  const [retryLockedIds, setRetryLockedIds] = useState<string[]>([]);
+  const retryLockRef = useRef(createRetryClickLock());
   const [uploadNotice, setUploadNotice] = useState<UploadNotice | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<QuestionDraft>(EMPTY_DRAFT);
@@ -282,7 +288,7 @@ export default function QuestionPapers() {
         setSources([]);
         setSavedPapers([]);
         setTotal(0);
-        return;
+        return false;
       }
       if (view === "sources") {
         setSources(data.sources ?? []);
@@ -298,8 +304,10 @@ export default function QuestionPapers() {
         setSavedPapers([]);
       }
       setTotal(data.total ?? 0);
+      return true;
     } catch {
       setError("The list could not be loaded");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -421,8 +429,18 @@ export default function QuestionPapers() {
   };
 
   const handleRetryExtraction = async (sourceId: string) => {
+    if (!retryLockRef.current.tryAcquire() || retryingSourceId) return;
     setRetryingSourceId(sourceId);
+    setRetryLockedIds((current) =>
+      current.includes(sourceId) ? current : [...current, sourceId],
+    );
+    setSources((current) =>
+      current.map((source) =>
+        source.id === sourceId ? { ...source, retryEligible: false } : source,
+      ),
+    );
     setUploadNotice(null);
+    let listReloaded = false;
     try {
       const response = await fetch(`/api/question-papers/${sourceId}/retry`, {
         method: "POST",
@@ -432,7 +450,10 @@ export default function QuestionPapers() {
       setUploadNotice(notice);
       setView("sources");
       setPage(1);
-      await fetchList();
+      listReloaded = (await fetchList()) === true;
+      if (listReloaded) {
+        setRetryLockedIds((current) => current.filter((id) => id !== sourceId));
+      }
       if (notice.kind === "completed" || notice.kind === "partial") {
         setSourceFilter(notice.sourceId || sourceId);
         setView("review");
@@ -444,6 +465,7 @@ export default function QuestionPapers() {
         sourceId,
       });
     } finally {
+      retryLockRef.current.release();
       setRetryingSourceId(null);
     }
   };
@@ -1372,16 +1394,17 @@ export default function QuestionPapers() {
                       >
                         Review questions
                       </button>
-                      {source.retryEligible && (
+                      {shouldRenderRetryButton(source, {
+                        retryingSourceId,
+                        lockedSourceIds: retryLockedIds,
+                      }) && (
                         <button
                           type="button"
-                          disabled={retryingSourceId === source.id}
+                          disabled={retryingSourceId !== null}
                           className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
                           onClick={() => handleRetryExtraction(source.id)}
                         >
-                          {retryingSourceId === source.id
-                            ? "Retrying…"
-                            : "Retry Extraction"}
+                          Retry Extraction
                         </button>
                       )}
                     </div>
