@@ -25,6 +25,7 @@ export interface ListQuery {
   year: number | null;
   subject: string;
   type: string;
+  marks: number | null;
   status: string;
   sourceId: string;
 }
@@ -33,6 +34,7 @@ export interface PublicQuestion {
   id: string;
   sourceId: string | null;
   sourcePageNumber: number | null;
+  sourceDisplayName: string | null;
   sourceFilename: string | null;
   grade: number;
   subject: string;
@@ -56,6 +58,7 @@ export interface PublicQuestion {
 
 export interface PublicSource {
   id: string;
+  displayName: string | null;
   filename: string;
   grade: number;
   subject: string;
@@ -113,6 +116,10 @@ export function uploadResultMessage(payload: {
 };
 export function publicQuestion(
   row: Record<string, unknown>,
-  extras?: { sourceFilename?: string | null; diagramUrl?: string | null },
+  extras?: {
+    sourceDisplayName?: string | null;
+    sourceFilename?: string | null;
+    diagramUrl?: string | null;
+  },
 ): PublicQuestion;
 export function publicSource(row: Record<string, unknown>): PublicSource;

@@ -247,11 +247,12 @@ test("canonical generate route is the only writer and retired routes return 410"
 
 test("UI builder and saved papers do not call legacy generate routes", () => {
   assert.match(pageSource, /view === "saved"/);
-  assert.match(pageSource, /Generate paper/);
+  assert.match(pageSource, /Prepare Paper/);
   assert.match(pageSource, /disabled=\{selectedCount === 0\}/);
   assert.match(pageSource, /Paper builder/);
   assert.match(pageSource, /Retry PDF/);
-  assert.match(pageSource, /This paper uses one section/);
+  assert.match(pageSource, /groupQuestionsIntoSections/);
+  assert.doesNotMatch(pageSource, /This paper uses one section/);
   assert.doesNotMatch(pageSource, /Generating/);
   assert.match(pageSource, /Saving paper/);
   assert.match(pageSource, /\/api\/question-papers\/generate/);

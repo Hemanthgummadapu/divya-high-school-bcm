@@ -37,8 +37,10 @@ import {
   type CreatedStorageObject,
 } from "@/lib/question-bank-v2-persist";
 import { parseListQuery } from "@/lib/question-bank-v2-review.mjs";
+import { validateDisplayName } from "@/lib/question-bank-v2-source-name.mjs";
 import {
   listV2Questions,
+  listV2SourceOptions,
   listV2Sources,
 } from "@/lib/question-bank-v2-review-api";
 import { listSavedPapers } from "@/lib/question-bank-v2-paper-api";
@@ -104,12 +106,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await listV2Questions(query as Parameters<typeof listV2Questions>[0]);
+    const [result, sourceOptions] = await Promise.all([
+      listV2Questions(query as Parameters<typeof listV2Questions>[0]),
+      listV2SourceOptions({
+        grade: query.grade,
+        subject: query.subject,
+        year: query.year,
+      }),
+    ]);
     return NextResponse.json(
       {
         success: true,
         view: query.view,
         questions: result.questions,
+        sourceOptions,
         page: result.page,
         pageSize: result.pageSize,
         total: result.total,
@@ -197,10 +207,17 @@ export async function POST(request: NextRequest) {
     const subject = formData.get("subject") as string;
     const gradeParam = formData.get("grade") as string;
     const year = formData.get("year") as string;
+    const named = validateDisplayName(formData.get("displayName"));
 
     if (!file || !subject || !gradeParam || !year) {
       return NextResponse.json(
         { success: false, error: "Missing required fields", requestId },
+        { status: 400 },
+      );
+    }
+    if (!named.ok) {
+      return NextResponse.json(
+        { success: false, error: named.error, requestId },
         { status: 400 },
       );
     }
@@ -345,6 +362,7 @@ export async function POST(request: NextRequest) {
       const created = await createProcessingSource({
         id: sourceId,
         originalFilename: sanitizeOriginalFilename(file.name),
+        displayName: named.displayName as string,
         contentSha256,
         byteSize: buffer.byteLength,
         pageCount,

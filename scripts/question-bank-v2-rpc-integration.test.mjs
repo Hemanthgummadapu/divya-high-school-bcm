@@ -94,6 +94,7 @@ async function insertProcessingSource(input) {
   const { error } = await service.from("question_sources").insert({
     id,
     original_filename: input.originalFilename ?? "synthetic.pdf",
+    display_name: input.displayName ?? "Synthetic paper",
     storage_path: sourceStoragePath(id),
     content_sha256: input.contentSha256,
     mime_type: "application/pdf",

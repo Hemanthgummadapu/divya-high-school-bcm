@@ -80,6 +80,7 @@ export async function uploadSourcePdf(
 export async function createProcessingSource(input: {
   id: string;
   originalFilename: string;
+  displayName: string;
   contentSha256: string;
   byteSize: number;
   pageCount: number;
@@ -90,6 +91,7 @@ export async function createProcessingSource(input: {
   const { error } = await getSupabase().from("question_sources").insert({
     id: input.id,
     original_filename: input.originalFilename,
+    display_name: input.displayName,
     storage_path: sourceStoragePath(input.id),
     content_sha256: input.contentSha256,
     mime_type: "application/pdf",

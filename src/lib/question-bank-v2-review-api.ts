@@ -28,6 +28,7 @@ type ListQuery = {
   year: number | null;
   subject: string;
   type: string;
+  marks: number | null;
   status: string;
   sourceId: string;
 };
@@ -41,7 +42,7 @@ const QUESTION_COLUMNS =
   "id, source_id, source_page_number, source_order, grade, subject, academic_year, chapter, topic, section_label, question_type, language, raw_extracted_text, question_text, options, correct_answer, marks, diagram_path, review_status, lock_version, created_at, updated_at, approved_at";
 
 const SOURCE_LIST_COLUMNS =
-  "id, original_filename, grade, subject, academic_year, page_count, extraction_status, processed_page_count, failed_page_numbers, extracted_question_count, created_at";
+  "id, original_filename, display_name, grade, subject, academic_year, page_count, extraction_status, processed_page_count, failed_page_numbers, extracted_question_count, created_at";
 
 type QuestionRow = Record<string, unknown> & {
   id: string;
@@ -102,34 +103,46 @@ async function signSourcePdfUrl(sourceId: string, storedPath: string | null) {
   return data.signedUrl;
 }
 
-async function sourceFilenames(sourceIds: string[]) {
+async function sourceMeta(sourceIds: string[]) {
   const unique = [...new Set(sourceIds.filter(Boolean))];
-  if (unique.length === 0) return new Map<string, string>();
+  if (unique.length === 0) {
+    return new Map<string, { filename: string; displayName: string | null }>();
+  }
   const { data, error } = await getSupabase()
     .from("question_sources")
-    .select("id, original_filename")
+    .select("id, original_filename, display_name")
     .in("id", unique);
-  if (error || !data) return new Map<string, string>();
+  if (error || !data) {
+    return new Map<string, { filename: string; displayName: string | null }>();
+  }
   return new Map(
-    data.map((row) => [row.id as string, row.original_filename as string]),
+    data.map((row) => [
+      row.id as string,
+      {
+        filename: row.original_filename as string,
+        displayName: (row.display_name as string | null) ?? null,
+      },
+    ]),
   );
 }
 
 async function toPublicQuestions(rows: QuestionRow[]): Promise<PublicQuestion[]> {
-  const [diagramUrls, filenames] = await Promise.all([
+  const [diagramUrls, sources] = await Promise.all([
     signDiagramUrls(rows),
-    sourceFilenames(
+    sourceMeta(
       rows
         .map((row) => row.source_id)
         .filter((id): id is string => typeof id === "string"),
     ),
   ]);
-  return rows.map((row) =>
-    publicQuestion(row, {
-      sourceFilename: row.source_id ? filenames.get(row.source_id) ?? null : null,
+  return rows.map((row) => {
+    const meta = row.source_id ? sources.get(row.source_id) : null;
+    return publicQuestion(row, {
+      sourceDisplayName: meta?.displayName ?? null,
+      sourceFilename: meta?.filename ?? null,
       diagramUrl: diagramUrls.get(row.id) ?? null,
-    }),
-  );
+    });
+  });
 }
 
 function applyQuestionFilters(query: any, filters: ListQuery) {
@@ -139,6 +152,7 @@ function applyQuestionFilters(query: any, filters: ListQuery) {
   if (filters.subject) next = next.eq("subject", filters.subject);
   if (filters.year != null) next = next.eq("academic_year", filters.year);
   if (filters.type) next = next.eq("question_type", filters.type);
+  if (filters.marks != null) next = next.eq("marks", filters.marks);
   if (filters.sourceId) next = next.eq("source_id", filters.sourceId);
   if (filters.search) {
     next = next.ilike("question_text", `%${escapeIlike(filters.search)}%`);
@@ -203,6 +217,43 @@ export async function listV2Sources(filters: ListQuery): Promise<{
     pageSize: filters.pageSize,
     total: count ?? 0,
   };
+}
+
+export async function listV2SourceOptions(filters: {
+  grade: number | null;
+  subject: string;
+  year: number | null;
+}): Promise<Array<{ id: string; displayName: string }>> {
+  requireSupabaseConfig();
+  let query = getSupabase()
+    .from("question_sources")
+    .select("id, display_name")
+    .neq("extraction_status", "archived");
+  if (filters.grade != null) query = query.eq("grade", filters.grade);
+  if (filters.subject) query = query.eq("subject", filters.subject);
+  if (filters.year != null) query = query.eq("academic_year", filters.year);
+  const { data, error } = await query
+    .order("display_name", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(200);
+  if (error) throw new Error("source_options_failed");
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    displayName: (row.display_name as string) || "",
+  }));
+}
+
+export async function renameV2Source(sourceId: string, displayName: string) {
+  requireSupabaseConfig();
+  const { data, error } = await getSupabase()
+    .from("question_sources")
+    .update({ display_name: displayName })
+    .eq("id", sourceId)
+    .select(SOURCE_LIST_COLUMNS)
+    .maybeSingle();
+  if (error) throw new Error("source_rename_failed");
+  if (!data) return null;
+  return publicSource(data);
 }
 
 export async function getV2SourceDetail(input: {

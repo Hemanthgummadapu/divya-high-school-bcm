@@ -10,8 +10,9 @@ import {
   isUuid,
   parsePositiveInt,
 } from "@/lib/question-bank-v2-review.mjs";
-import { getV2SourceDetail } from "@/lib/question-bank-v2-review-api";
+import { getV2SourceDetail, renameV2Source } from "@/lib/question-bank-v2-review-api";
 import { getSavedPaperDetail } from "@/lib/question-bank-v2-paper-api";
+import { validateDisplayName } from "@/lib/question-bank-v2-source-name.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,72 @@ export async function GET(
     console.warn("[question-paper-api]", {
       requestId,
       operation: "get_source",
+      outcome: "request_error",
+    });
+    return questionPaperServerError(requestId);
+  }
+}
+
+/**
+ * PATCH /api/question-papers/[id]
+ * Rename a source paper. Does not re-extract, change the PDF, or touch questions.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const authorization = await requireQuestionPaperApiAccess(request, {
+    mutation: true,
+  });
+  if (!authorization.ok) return authorization.response;
+  const { requestId } = authorization;
+  if (!isSafeQuestionPaperResourceId(params.id) || !isUuid(params.id)) {
+    return NextResponse.json(
+      { success: false, error: "Invalid resource identifier", requestId },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  try {
+    const body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid rename request", requestId },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const unexpected = Object.keys(body).filter(
+      (key) => key !== "displayName" && key !== "display_name",
+    );
+    if (unexpected.length > 0) {
+      return NextResponse.json(
+        { success: false, error: "Only the paper name can be changed", requestId },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const named = validateDisplayName(body.displayName ?? body.display_name);
+    if (!named.ok) {
+      return NextResponse.json(
+        { success: false, error: named.error, requestId },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    const source = await renameV2Source(params.id, named.displayName as string);
+    if (!source) {
+      return NextResponse.json(
+        { success: false, error: "Source not found", requestId },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return NextResponse.json(
+      { success: true, source, requestId },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch {
+    console.warn("[question-paper-api]", {
+      requestId,
+      operation: "rename_source",
       outcome: "request_error",
     });
     return questionPaperServerError(requestId);

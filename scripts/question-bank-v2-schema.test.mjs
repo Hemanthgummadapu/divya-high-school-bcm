@@ -122,6 +122,33 @@ test("forward persist ambiguity migration does not edit Phase 2B", () => {
   );
 });
 
+test("display_name forward migration backfills and stays off legacy tables", () => {
+  const forwardPath = join(
+    root,
+    "supabase/migrations/20260817000000_question_sources_display_name.sql",
+  );
+  const forward = readFileSync(forwardPath, "utf8");
+  const stripped = stripSql(forward);
+  assert.match(forward, /ADD COLUMN display_name text/);
+  assert.match(forward, /regexp_replace\(original_filename, '\\.pdf\$', '', 'i'\)/);
+  assert.match(forward, /ALTER COLUMN display_name SET NOT NULL/);
+  assert.match(forward, /char_length\(display_name\) BETWEEN 1 AND 160/);
+  assert.match(forward, /display_name = btrim\(display_name\)/);
+  assert.doesNotMatch(forward, /UNIQUE.*display_name|display_name.*UNIQUE/i);
+  assert.doesNotMatch(forward, /question_sources_content_sha256_key/);
+  assert.doesNotMatch(stripped, /\bCREATE POLICY\b/);
+  assert.doesNotMatch(stripped, /\bSECURITY DEFINER\b/);
+  assert.doesNotMatch(
+    stripped,
+    /\b(UPDATE|DELETE|ALTER TABLE|DROP TABLE)\s+(public\.)?(questions|question_papers|generated_pdfs|question_bank_questions)\b/i,
+  );
+  assert.doesNotMatch(forward, /GRANT|REVOKE/);
+  assert.doesNotMatch(
+    readFileSync(join(root, "supabase/migrations/20260816010000_question_bank_v2.sql"), "utf8"),
+    /display_name/,
+  );
+});
+
 test("setup documentation describes the unapplied Phase 2B foundation", () => {
   assert.match(setup, /20260816010000_question_bank_v2\.sql/);
   assert.match(setup, /question_sources/);

@@ -10,9 +10,17 @@ import { uploadResultMessage } from "@/lib/question-bank-v2-review-ui.mjs";
 import {
   detectSelectionConflicts,
   formatDuration,
+  groupQuestionsIntoSections,
   previewMarks,
+  questionTypeLabel,
   romanClass,
+  summarizeSelection,
 } from "@/lib/question-bank-v2-paper-ui.mjs";
+import {
+  MAX_DISPLAY_NAME_LENGTH,
+  suggestPaperNameFromFilename,
+  validateDisplayName,
+} from "@/lib/question-bank-v2-source-name.mjs";
 import DiagramSketchTool from "@/components/DiagramSketchTool";
 import PortalLogoutButton from "@/components/PortalLogoutButton";
 import MathKeyboard from "@/components/MathKeyboard";
@@ -32,6 +40,7 @@ type BankQuestion = {
   id: string;
   sourceId: string | null;
   sourcePageNumber: number | null;
+  sourceDisplayName: string | null;
   sourceFilename: string | null;
   grade: number;
   subject: string;
@@ -72,6 +81,7 @@ type SavedPaper = {
 
 type BankSource = {
   id: string;
+  displayName: string | null;
   filename: string;
   grade: number;
   subject: string;
@@ -103,6 +113,18 @@ type UploadNotice = {
   kind: "completed" | "partial" | "failed" | "duplicate";
   text: string;
   sourceId: string | null;
+};
+
+type SourceOption = {
+  id: string;
+  displayName: string;
+};
+
+type BuilderSection = {
+  key: string;
+  title: string;
+  instructions: string;
+  questionIds: string[];
 };
 
 const EMPTY_DRAFT: QuestionDraft = {
@@ -205,9 +227,7 @@ export default function QuestionPapers() {
   const [builderTitle, setBuilderTitle] = useState("");
   const [builderYear, setBuilderYear] = useState(String(new Date().getFullYear()));
   const [builderDuration, setBuilderDuration] = useState("180");
-  const [builderSectionTitle, setBuilderSectionTitle] = useState("SECTION-I");
-  const [builderSectionInstructions, setBuilderSectionInstructions] = useState("");
-  const [builderOrder, setBuilderOrder] = useState<string[]>([]);
+  const [builderSections, setBuilderSections] = useState<BuilderSection[]>([]);
   const [builderError, setBuilderError] = useState<string | null>(null);
   const [generateStage, setGenerateStage] = useState<string | null>(null);
   const [creationKey, setCreationKey] = useState("");
@@ -215,6 +235,7 @@ export default function QuestionPapers() {
   const [reviewIndex, setReviewIndex] = useState(0);
   const [sourcePdf, setSourcePdf] = useState<{
     url: string | null;
+    displayName: string;
     filename: string;
     statusLabel: string;
   } | null>(null);
@@ -223,16 +244,22 @@ export default function QuestionPapers() {
     grade: "",
     year: "",
     type: "",
+    marks: "",
     q: "",
   });
   const [searchInput, setSearchInput] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [sourceOptions, setSourceOptions] = useState<SourceOption[]>([]);
   const [uploadForm, setUploadForm] = useState({
     file: null as File | null,
+    displayName: "",
     subject: "",
     grade: "",
     year: String(new Date().getFullYear()),
   });
+  const [renamingSourceId, setRenamingSourceId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [retryLockedIds, setRetryLockedIds] = useState<string[]>([]);
@@ -277,8 +304,9 @@ export default function QuestionPapers() {
       if (filters.year) params.set("year", filters.year);
       if (view === "bank" || view === "review") {
         if (filters.type) params.set("type", filters.type);
+        if (filters.marks) params.set("marks", filters.marks);
         if (filters.q) params.set("q", filters.q);
-        if (view === "review" && sourceFilter) params.set("sourceId", sourceFilter);
+        if (sourceFilter) params.set("sourceId", sourceFilter);
       }
       const response = await fetch(`/api/question-papers?${params}`);
       const data = await response.json();
@@ -294,14 +322,17 @@ export default function QuestionPapers() {
         setSources(data.sources ?? []);
         setQuestions([]);
         setSavedPapers([]);
+        setSourceOptions([]);
       } else if (view === "saved") {
         setSavedPapers(data.papers ?? []);
         setQuestions([]);
         setSources([]);
+        setSourceOptions([]);
       } else {
         setQuestions(data.questions ?? []);
         setSources([]);
         setSavedPapers([]);
+        setSourceOptions(data.sourceOptions ?? []);
       }
       setTotal(data.total ?? 0);
       return true;
@@ -356,7 +387,8 @@ export default function QuestionPapers() {
         if (cancelled || !data.success) return;
         setSourcePdf({
           url: data.pdfUrl ?? null,
-          filename: data.source?.filename ?? "Source PDF",
+          displayName: data.source?.displayName ?? data.source?.filename ?? "Source PDF",
+          filename: data.source?.filename ?? "",
           statusLabel: data.source?.statusLabel ?? "",
         });
       })
@@ -370,14 +402,24 @@ export default function QuestionPapers() {
 
   const handleUpload = async () => {
     const gradeNum = uploadForm.grade ? parseInt(uploadForm.grade, 10) : 0;
+    const named = validateDisplayName(uploadForm.displayName);
     if (!uploadForm.file || !uploadForm.subject || !uploadForm.grade || !uploadForm.year) {
       setUploadNotice({
         kind: "failed",
-        text: "Please choose a grade, subject, year, and PDF file.",
+        text: "Please choose a grade, subject, year, paper name, and PDF file.",
         sourceId: null,
       });
       return;
     }
+    if (!named.ok) {
+      setUploadNotice({
+        kind: "failed",
+        text: named.error,
+        sourceId: null,
+      });
+      return;
+    }
+    const paperName = named.displayName;
     if (!gradeNum || gradeNum < 1 || gradeNum > 10) {
       setUploadNotice({
         kind: "failed",
@@ -392,6 +434,7 @@ export default function QuestionPapers() {
     try {
       const formData = new FormData();
       formData.append("file", uploadForm.file);
+      formData.append("displayName", paperName);
       formData.append("subject", uploadForm.subject);
       formData.append("grade", uploadForm.grade);
       formData.append("year", uploadForm.year);
@@ -405,6 +448,7 @@ export default function QuestionPapers() {
       if (notice.kind === "completed" || notice.kind === "partial") {
         setUploadForm({
           file: null,
+          displayName: "",
           subject: "",
           grade: "",
           year: String(new Date().getFullYear()),
@@ -505,6 +549,9 @@ export default function QuestionPapers() {
     }
     await fetchList();
     await fetchReviewCount();
+    if (action === "approve") {
+      setReviewIndex((current) => Math.max(0, current));
+    }
   };
 
   const handleArchive = async (question: BankQuestion) => {
@@ -600,6 +647,7 @@ export default function QuestionPapers() {
   };
 
   const toggleSelected = (question: BankQuestion) => {
+    if (question.reviewStatus !== "approved") return;
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(question.id)) next.delete(question.id);
@@ -614,43 +662,65 @@ export default function QuestionPapers() {
     });
   };
 
+  const builderOrder = builderSections.flatMap((section) => section.questionIds);
   const selectedQuestions = builderOrder
     .map((id) => selectedMap.get(id))
     .filter((question): question is BankQuestion => Boolean(question));
   const selectionConflict = detectSelectionConflicts(
     Array.from(selectedMap.values()),
   );
-  const marksPreview = previewMarks(Array.from(selectedMap.values()));
+  const selectionSummary = summarizeSelection(Array.from(selectedMap.values()));
 
   const openBuilder = () => {
-    const ids = Array.from(selectedIds);
-    setBuilderOrder(ids);
+    const selected = Array.from(selectedMap.values());
+    setBuilderSections(groupQuestionsIntoSections(selected));
     setBuilderTitle("");
     setBuilderYear(String(new Date().getFullYear()));
     setBuilderDuration("180");
-    setBuilderSectionTitle("SECTION-I");
-    setBuilderSectionInstructions("");
     setBuilderError(null);
     setGenerateStage(null);
     setCreationKey(
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
-        : `paper-${Date.now()}-${ids.length}`,
+        : `paper-${Date.now()}-${selected.length}`,
     );
     setBuilderOpen(true);
   };
 
-  const moveBuilderItem = (index: number, direction: -1 | 1) => {
-    const next = [...builderOrder];
-    const target = index + direction;
-    if (target < 0 || target >= next.length) return;
-    const [item] = next.splice(index, 1);
-    next.splice(target, 0, item);
-    setBuilderOrder(next);
+  const updateBuilderSection = (
+    sectionKey: string,
+    patch: Partial<Pick<BuilderSection, "title" | "instructions">>,
+  ) => {
+    setBuilderSections((current) =>
+      current.map((section) =>
+        section.key === sectionKey ? { ...section, ...patch } : section,
+      ),
+    );
+  };
+
+  const moveBuilderItem = (sectionKey: string, index: number, direction: -1 | 1) => {
+    setBuilderSections((current) =>
+      current.map((section) => {
+        if (section.key !== sectionKey) return section;
+        const next = [...section.questionIds];
+        const target = index + direction;
+        if (target < 0 || target >= next.length) return section;
+        const [item] = next.splice(index, 1);
+        next.splice(target, 0, item);
+        return { ...section, questionIds: next };
+      }),
+    );
   };
 
   const removeBuilderItem = (id: string) => {
-    setBuilderOrder((current) => current.filter((item) => item !== id));
+    setBuilderSections((current) =>
+      current
+        .map((section) => ({
+          ...section,
+          questionIds: section.questionIds.filter((item) => item !== id),
+        }))
+        .filter((section) => section.questionIds.length > 0),
+    );
     setSelectedIds((current) => {
       const next = new Set(current);
       next.delete(id);
@@ -661,6 +731,12 @@ export default function QuestionPapers() {
       next.delete(id);
       return next;
     });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectedMap(new Map());
+    setBuilderSections([]);
   };
 
   const handleGeneratePaper = async () => {
@@ -675,6 +751,15 @@ export default function QuestionPapers() {
     setGenerateStage("Saving paper");
     setBuilderError(null);
     try {
+      const items = builderSections.flatMap((section, sectionIndex) =>
+        section.questionIds.map((id, questionIndex) => ({
+          questionId: id,
+          sectionTitle: section.title,
+          sectionInstructions: section.instructions,
+          sectionOrder: sectionIndex + 1,
+          questionOrder: questionIndex + 1,
+        })),
+      );
       const response = await fetch("/api/question-papers/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -683,13 +768,7 @@ export default function QuestionPapers() {
           title: builderTitle,
           academicYear: Number(builderYear),
           durationMinutes: Number(builderDuration),
-          items: builderOrder.map((id, index) => ({
-            questionId: id,
-            sectionTitle: builderSectionTitle,
-            sectionInstructions: builderSectionInstructions,
-            sectionOrder: 1,
-            questionOrder: index + 1,
-          })),
+          items,
         }),
       });
       const data = await response.json();
@@ -707,7 +786,7 @@ export default function QuestionPapers() {
       setGenerateStage("Ready");
       setSelectedIds(new Set());
       setSelectedMap(new Map());
-      setBuilderOrder([]);
+      setBuilderSections([]);
       setBuilderOpen(false);
       setView("saved");
       setPage(1);
@@ -748,6 +827,56 @@ export default function QuestionPapers() {
       setMutating(false);
     }
   };
+
+  const handleRenameSource = async (sourceId: string) => {
+    const named = validateDisplayName(renameValue);
+    if (!named.ok) {
+      setRenameError(named.error);
+      return;
+    }
+    const paperName = named.displayName;
+    setMutating(true);
+    setRenameError(null);
+    try {
+      const response = await fetch(`/api/question-papers/${sourceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: paperName }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setRenameError(data.error || "The paper name could not be saved");
+        return;
+      }
+      setSources((current) =>
+        current.map((source) =>
+          source.id === sourceId
+            ? { ...source, displayName: data.source.displayName }
+            : source,
+        ),
+      );
+      setRenamingSourceId(null);
+    } catch {
+      setRenameError("The paper name could not be saved");
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view !== "bank" || !sourceFilter || loading) return;
+    if (!sourceOptions.some((option) => option.id === sourceFilter)) {
+      setSourceFilter("");
+    }
+  }, [view, sourceFilter, sourceOptions, loading]);
+
+  useEffect(() => {
+    if (questions.length === 0) {
+      setReviewIndex(0);
+      return;
+    }
+    setReviewIndex((current) => Math.min(current, questions.length - 1));
+  }, [questions]);
 
   const selectedCount = selectedIds.size;
   const years = useMemo(
@@ -857,7 +986,11 @@ export default function QuestionPapers() {
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file && file.type === "application/pdf") {
-                  setUploadForm({ ...uploadForm, file });
+                  setUploadForm({
+                    ...uploadForm,
+                    file,
+                    displayName: suggestPaperNameFromFilename(file.name),
+                  });
                 } else if (file) {
                   setUploadNotice({
                     kind: "failed",
@@ -867,6 +1000,25 @@ export default function QuestionPapers() {
                 }
               }}
             />
+          </div>
+          <div className="mb-4">
+            <label htmlFor="upload-paper-name" className={labelClass}>
+              Paper name <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="upload-paper-name"
+              value={uploadForm.displayName}
+              maxLength={MAX_DISPLAY_NAME_LENGTH}
+              onChange={(event) =>
+                setUploadForm({ ...uploadForm, displayName: event.target.value })
+              }
+              className={inputClass}
+              placeholder="Class 10 Pre-Final Mathematics 2026"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              A name for finding this paper later. The original filename is kept
+              separately.
+            </p>
           </div>
           {uploading && (
             <p className="mb-3 text-sm text-slate-600" role="status">
@@ -940,7 +1092,7 @@ export default function QuestionPapers() {
                   : "bg-white text-slate-700 border border-slate-200"
               }`}
               onClick={() => {
-                if (name !== "review") setSourceFilter("");
+                if (name === "sources" || name === "saved") setSourceFilter("");
                 setView(name);
                 setPage(1);
                 setError(null);
@@ -956,10 +1108,10 @@ export default function QuestionPapers() {
             <h2 className="text-sm font-semibold text-slate-900 tracking-[0.18em] uppercase mb-4">
               Filters
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label htmlFor="filter-grade" className={labelClass}>
-                  Grade
+                  Class
                 </label>
                 <select
                   id="filter-grade"
@@ -970,7 +1122,7 @@ export default function QuestionPapers() {
                   }}
                   className={inputClass}
                 >
-                  <option value="">All grades</option>
+                  <option value="">All classes</option>
                   {ALL_GRADES.map((grade) => (
                     <option key={grade} value={grade}>
                       {grade}
@@ -1002,7 +1154,7 @@ export default function QuestionPapers() {
               </div>
               <div>
                 <label htmlFor="filter-year" className={labelClass}>
-                  Year
+                  Academic year
                 </label>
                 <select
                   id="filter-year"
@@ -1024,8 +1176,29 @@ export default function QuestionPapers() {
               {view === "bank" && (
                 <>
                   <div>
+                    <label htmlFor="filter-source" className={labelClass}>
+                      Source Paper
+                    </label>
+                    <select
+                      id="filter-source"
+                      value={sourceFilter}
+                      onChange={(event) => {
+                        setSourceFilter(event.target.value);
+                        setPage(1);
+                      }}
+                      className={inputClass}
+                    >
+                      <option value="">All source papers</option>
+                      {sourceOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <label htmlFor="filter-type" className={labelClass}>
-                      Type
+                      Question Type
                     </label>
                     <select
                       id="filter-type"
@@ -1038,10 +1211,28 @@ export default function QuestionPapers() {
                     >
                       <option value="">All types</option>
                       <option value="MCQ">MCQ</option>
-                      <option value="Short">Short</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Long">Long</option>
+                      <option value="Short">Short Answer</option>
+                      <option value="Medium">Medium Answer</option>
+                      <option value="Long">Long Answer</option>
                     </select>
+                  </div>
+                  <div>
+                    <label htmlFor="filter-marks" className={labelClass}>
+                      Marks
+                    </label>
+                    <input
+                      id="filter-marks"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={filters.marks}
+                      onChange={(event) => {
+                        setFilters({ ...filters, marks: event.target.value });
+                        setPage(1);
+                      }}
+                      className={inputClass}
+                      placeholder="All marks"
+                    />
                   </div>
                   <div>
                     <label htmlFor="filter-search" className={labelClass}>
@@ -1121,13 +1312,20 @@ export default function QuestionPapers() {
             ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="min-w-0">
-                  <p className="text-sm text-slate-600 mb-2 break-words">
-                    {currentReview.sourceFilename || "Manual question"}
+                  <p className="text-sm text-slate-900 font-medium mb-1 break-words">
+                    {currentReview.sourceDisplayName ||
+                      sourcePdf?.displayName ||
+                      "Manual question"}
                     {currentReview.sourcePageNumber
                       ? ` · page ${currentReview.sourcePageNumber}`
                       : ""}
                     {sourcePdf?.statusLabel ? ` · ${sourcePdf.statusLabel}` : ""}
                   </p>
+                  {currentReview.sourceFilename && (
+                    <p className="text-xs text-slate-500 mb-2 break-words">
+                      File: {currentReview.sourceFilename}
+                    </p>
+                  )}
                   {sourcePdf?.url ? (
                     <>
                       <iframe
@@ -1185,18 +1383,18 @@ export default function QuestionPapers() {
                     <button
                       type="button"
                       disabled={mutating}
-                      onClick={() => handleReviewAction("save")}
-                      className="px-4 py-2 bg-slate-800 text-white rounded-lg disabled:bg-gray-400"
+                      onClick={() => handleReviewAction("approve")}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
                     >
-                      Save
+                      Approve & Next
                     </button>
                     <button
                       type="button"
                       disabled={mutating}
-                      onClick={() => handleReviewAction("approve")}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+                      onClick={() => handleReviewAction("save")}
+                      className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
                     >
-                      Save and approve
+                      Save draft
                     </button>
                     <button
                       type="button"
@@ -1252,32 +1450,50 @@ export default function QuestionPapers() {
 
         {view === "bank" && (
           <section className="bg-white rounded-2xl shadow-md p-6 border border-slate-100">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-slate-600">{total} approved questions</p>
-              <p className="text-sm text-slate-600">
-                {selectedCount} selected · {marksPreview} marks
-              </p>
+            <div className="sticky top-[112px] z-20 mb-4 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm text-slate-700">
+                  <p className="font-medium text-slate-900">
+                    {selectionSummary.total} selected · {selectionSummary.marks} marks
+                  </p>
+                  <p className="mt-1 text-slate-600">
+                    MCQ {selectionSummary.mcq} · Short {selectionSummary.short} ·
+                    Medium {selectionSummary.medium} · Long {selectionSummary.long}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={selectedCount === 0}
+                    onClick={clearSelection}
+                    className="px-4 py-2 border border-slate-300 rounded-lg disabled:text-gray-400"
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedCount === 0}
+                    onClick={openBuilder}
+                    className="px-4 py-2 rounded-lg bg-blue-600 text-white disabled:bg-gray-200 disabled:text-gray-600 disabled:cursor-not-allowed"
+                  >
+                    Prepare Paper
+                  </button>
+                </div>
+              </div>
             </div>
-            <button
-              type="button"
-              disabled={selectedCount === 0}
-              onClick={openBuilder}
-              className="mb-4 px-4 py-2 rounded-lg bg-blue-600 text-white disabled:bg-gray-200 disabled:text-gray-600 disabled:cursor-not-allowed"
-            >
-              Generate paper
-            </button>
+            <p className="mb-4 text-sm text-slate-600">{total} approved questions</p>
             {loading ? (
               <p>Loading questions…</p>
             ) : questions.length === 0 ? (
               <p>No approved questions match these filters.</p>
             ) : (
-              <ul className="space-y-4">
+              <ul className="space-y-3">
                 {questions.map((question) => (
                   <li
                     key={question.id}
-                    className="border border-slate-200 rounded-xl p-4"
+                    className="border border-slate-200 rounded-xl p-3"
                   >
-                    <div className="flex flex-wrap items-start gap-3">
+                    <div className="flex items-start gap-3">
                       <input
                         id={`select-${question.id}`}
                         type="checkbox"
@@ -1286,21 +1502,31 @@ export default function QuestionPapers() {
                         className="mt-1"
                       />
                       <div className="min-w-0 flex-1">
-                        <label
-                          htmlFor={`select-${question.id}`}
-                          className="block text-sm font-medium text-slate-500 mb-1"
-                        >
-                          Class {question.grade} · {question.subject} ·{" "}
-                          {question.academicYear} · {question.questionType} ·{" "}
-                          {question.marks} mark{question.marks === 1 ? "" : "s"}
-                          {question.sectionLabel ? ` · ${question.sectionLabel}` : ""}
-                        </label>
-                        <div className="break-words">
+                        <div className="break-words text-slate-900">
                           {renderQuestionText(question.questionText)}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-800">
+                            {questionTypeLabel(question.questionType)}
+                          </span>
+                          <span>
+                            {question.marks} mark{question.marks === 1 ? "" : "s"}
+                          </span>
+                          {question.sourceDisplayName && (
+                            <span className="font-medium text-slate-800">
+                              {question.sourceDisplayName}
+                            </span>
+                          )}
+                          {question.sourcePageNumber != null && (
+                            <span>p. {question.sourcePageNumber}</span>
+                          )}
+                          {question.sectionLabel && (
+                            <span>{question.sectionLabel}</span>
+                          )}
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-2 flex flex-wrap gap-2">
                       <button
                         type="button"
                         className="px-3 py-1.5 border border-slate-300 rounded-lg"
@@ -1349,7 +1575,10 @@ export default function QuestionPapers() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-medium text-slate-900 break-words">
-                          {source.filename}
+                          {source.displayName || source.filename}
+                        </p>
+                        <p className="text-xs text-slate-500 break-words">
+                          File: {source.filename}
                         </p>
                         <p className="text-sm text-slate-600">
                           Class {source.grade} · {source.subject} · {source.academicYear}
@@ -1381,8 +1610,59 @@ export default function QuestionPapers() {
                         {source.statusLabel}
                       </span>
                     </div>
+                    {renamingSourceId === source.id && (
+                      <div className="mt-3">
+                        <label htmlFor={`rename-${source.id}`} className={labelClass}>
+                          Paper name
+                        </label>
+                        <input
+                          id={`rename-${source.id}`}
+                          value={renameValue}
+                          maxLength={MAX_DISPLAY_NAME_LENGTH}
+                          onChange={(event) => setRenameValue(event.target.value)}
+                          className={inputClass}
+                        />
+                        {renameError && (
+                          <p className="mt-1 text-sm text-red-700" role="alert">
+                            {renameError}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg disabled:bg-gray-400"
+                            onClick={() => handleRenameSource(source.id)}
+                          >
+                            Save name
+                          </button>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className="px-3 py-1.5 border border-slate-300 rounded-lg"
+                            onClick={() => {
+                              setRenamingSourceId(null);
+                              setRenameError(null);
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="mt-3 flex flex-wrap gap-2">
                       <SourcePdfLink sourceId={source.id} />
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 border border-slate-300 rounded-lg"
+                        onClick={() => {
+                          setRenamingSourceId(source.id);
+                          setRenameValue(source.displayName || "");
+                          setRenameError(null);
+                        }}
+                      >
+                        Rename
+                      </button>
                       <button
                         type="button"
                         className="px-3 py-1.5 bg-blue-600 text-white rounded-lg"
@@ -1522,8 +1802,8 @@ export default function QuestionPapers() {
               : ""}
           </p>
           <p className="mb-4 text-sm text-slate-600">
-            This paper uses one section. Every selected question is placed in
-            the section below. Multiple sections are not edited in this screen.
+            Questions are grouped by type. Source paper names are for finding
+            questions and are not printed on the generated paper.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div className="md:col-span-3">
@@ -1569,67 +1849,107 @@ export default function QuestionPapers() {
                 className={inputClass}
               />
             </div>
-            <div>
-              <label htmlFor="builder-section" className={labelClass}>
-                Section title
-              </label>
-              <input
-                id="builder-section"
-                value={builderSectionTitle}
-                onChange={(event) => setBuilderSectionTitle(event.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="md:col-span-3">
-              <label htmlFor="builder-instructions" className={labelClass}>
-                Section instructions
-              </label>
-              <input
-                id="builder-instructions"
-                value={builderSectionInstructions}
-                onChange={(event) => setBuilderSectionInstructions(event.target.value)}
-                className={inputClass}
-              />
-            </div>
           </div>
-          <ol className="space-y-3 mb-4">
-            {selectedQuestions.map((question, index) => (
-              <li key={question.id} className="border border-slate-200 rounded-lg p-3">
-                <p className="text-sm font-medium text-slate-700">
-                  {index + 1}. {question.questionType} · {question.marks} marks
-                </p>
-                <p className="text-sm text-slate-600 break-words whitespace-pre-wrap">
-                  {question.questionText}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={index === 0 || Boolean(generateStage)}
-                    onClick={() => moveBuilderItem(index, -1)}
-                    className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
-                  >
-                    Move up
-                  </button>
-                  <button
-                    type="button"
-                    disabled={index === selectedQuestions.length - 1 || Boolean(generateStage)}
-                    onClick={() => moveBuilderItem(index, 1)}
-                    className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
-                  >
-                    Move down
-                  </button>
-                  <button
-                    type="button"
-                    disabled={Boolean(generateStage)}
-                    onClick={() => removeBuilderItem(question.id)}
-                    className="px-3 py-1.5 border border-red-300 text-red-700 rounded-lg disabled:text-gray-400"
-                  >
-                    Remove
-                  </button>
+          <div className="space-y-6 mb-4">
+            {builderSections.map((section) => (
+              <section
+                key={section.key}
+                className="border border-slate-200 rounded-xl p-4"
+              >
+                <div className="grid grid-cols-1 gap-3 mb-3">
+                  <div>
+                    <label
+                      htmlFor={`builder-section-${section.key}`}
+                      className={labelClass}
+                    >
+                      Section title
+                    </label>
+                    <input
+                      id={`builder-section-${section.key}`}
+                      value={section.title}
+                      onChange={(event) =>
+                        updateBuilderSection(section.key, {
+                          title: event.target.value,
+                        })
+                      }
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor={`builder-instructions-${section.key}`}
+                      className={labelClass}
+                    >
+                      Section instructions
+                    </label>
+                    <input
+                      id={`builder-instructions-${section.key}`}
+                      value={section.instructions}
+                      onChange={(event) =>
+                        updateBuilderSection(section.key, {
+                          instructions: event.target.value,
+                        })
+                      }
+                      className={inputClass}
+                    />
+                  </div>
                 </div>
-              </li>
+                <ol className="space-y-3">
+                  {section.questionIds.map((id, index) => {
+                    const question = selectedMap.get(id);
+                    if (!question) return null;
+                    return (
+                      <li
+                        key={question.id}
+                        className="border border-slate-200 rounded-lg p-3"
+                      >
+                        <p className="text-sm font-medium text-slate-700">
+                          {index + 1}. {questionTypeLabel(question.questionType)} ·{" "}
+                          {question.marks} marks
+                        </p>
+                        <p className="text-sm text-slate-600 break-words whitespace-pre-wrap">
+                          {question.questionText}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={index === 0 || Boolean(generateStage)}
+                            onClick={() =>
+                              moveBuilderItem(section.key, index, -1)
+                            }
+                            className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                          >
+                            Move up
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              index === section.questionIds.length - 1 ||
+                              Boolean(generateStage)
+                            }
+                            onClick={() =>
+                              moveBuilderItem(section.key, index, 1)
+                            }
+                            className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                          >
+                            Move down
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(generateStage)}
+                            onClick={() => removeBuilderItem(question.id)}
+                            className="px-3 py-1.5 border border-red-300 text-red-700 rounded-lg disabled:text-gray-400"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
             ))}
-          </ol>
+          </div>
           {generateStage && (
             <p className="mb-3 text-sm text-slate-700" role="status">
               {generateStage}…
@@ -1815,6 +2135,14 @@ export default function QuestionPapers() {
             >
               Edit diagram
             </button>
+            <button
+              type="button"
+              disabled={mutating}
+              onClick={() => setEditQuestion(null)}
+              className="px-4 py-2 border border-slate-300 rounded-lg"
+            >
+              Cancel
+            </button>
           </div>
         </Modal>
       )}
@@ -1909,9 +2237,9 @@ function QuestionEditor({
             className={inputClass}
           >
             <option value="MCQ">MCQ</option>
-            <option value="Short">Short</option>
-            <option value="Medium">Medium</option>
-            <option value="Long">Long</option>
+            <option value="Short">Short Answer</option>
+            <option value="Medium">Medium Answer</option>
+            <option value="Long">Long Answer</option>
           </select>
         </div>
         <div>
@@ -2033,12 +2361,12 @@ function Modal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4">
+    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 pb-8 pt-28">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl"
+        className="relative w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id="modal-title" className="text-xl font-semibold text-slate-900">
@@ -2047,9 +2375,10 @@ function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 border border-slate-300 rounded-lg"
+            aria-label="Close"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-lg font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Close
+            ×
           </button>
         </div>
         {children}

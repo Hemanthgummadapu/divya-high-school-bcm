@@ -135,6 +135,14 @@ export function parseListQuery(searchParams) {
     return { ok: false, status: 400, error: "Invalid question type" };
   }
 
+  const marks = parsePositiveInt(searchParams.get("marks"), null);
+  if (
+    searchParams.get("marks") &&
+    (marks == null || marks < 1 || marks > 100)
+  ) {
+    return { ok: false, status: 400, error: "Invalid marks" };
+  }
+
   const requestedStatus = searchParams.get("status") || "";
   if (view === "sources") {
     if (requestedStatus && !ALLOWED_SOURCE_STATUSES.includes(requestedStatus)) {
@@ -171,6 +179,7 @@ export function parseListQuery(searchParams) {
       year,
       subject: subjectFilter,
       type,
+      marks,
       status,
       sourceId,
     },
@@ -324,6 +333,7 @@ export function publicQuestion(row, extras = {}) {
     id: row.id,
     sourceId: row.source_id ?? null,
     sourcePageNumber: row.source_page_number ?? null,
+    sourceDisplayName: extras.sourceDisplayName ?? null,
     sourceFilename: extras.sourceFilename ?? null,
     grade: row.grade,
     subject: row.subject,
@@ -349,6 +359,7 @@ export function publicQuestion(row, extras = {}) {
 export function publicSource(row) {
   return {
     id: row.id,
+    displayName: row.display_name ?? null,
     filename: row.original_filename,
     grade: row.grade,
     subject: row.subject,
