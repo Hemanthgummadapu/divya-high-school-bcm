@@ -115,6 +115,8 @@ async function downloadPostgrest(destDir) {
 }
 
 const DISPLAY_NAME_MIGRATION = "20260817000000_question_sources_display_name.sql";
+const DISPLAY_NAME_REPAIR_MIGRATION =
+  "20260818010000_question_sources_display_name_repair.sql";
 
 function applyMigrations(psql, env) {
   const bootstrap = join(root, "scripts/question-bank-v2-rpc-integration-bootstrap.sql");
@@ -123,8 +125,15 @@ function applyMigrations(psql, env) {
   const files = readdirSync(migrationsDir)
     .filter((name) => name.endsWith(".sql"))
     .sort();
-  const prior = files.filter((name) => name !== DISPLAY_NAME_MIGRATION);
+  // The display_name migration is held back so its backfill can be proven
+  // against fixtures, and the repair is held back so it runs after the column
+  // exists and after the damaged fixtures are in place.
+  const prior = files.filter(
+    (name) =>
+      name !== DISPLAY_NAME_MIGRATION && name !== DISPLAY_NAME_REPAIR_MIGRATION,
+  );
   const displayName = files.find((name) => name === DISPLAY_NAME_MIGRATION);
+  const repair = files.find((name) => name === DISPLAY_NAME_REPAIR_MIGRATION);
   for (const file of prior) {
     run(psql, ["-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, file)], { env });
   }
@@ -155,6 +164,50 @@ function applyMigrations(psql, env) {
     { env },
   );
   process.stderr.write("display_name backfill verified\n");
+
+  if (!repair) {
+    throw new Error("display_name repair migration is missing");
+  }
+  const repairVerify = join(
+    root,
+    "scripts/question-bank-v2-display-name-repair-verify.sql",
+  );
+  const nameDigest = () =>
+    spawnSync(
+      psql,
+      [
+        "-t",
+        "-A",
+        "-c",
+        "SELECT md5(string_agg(display_name, '|' ORDER BY id)) FROM public.question_sources",
+      ],
+      { env, encoding: "utf8" },
+    ).stdout.trim();
+
+  // Damage the table the way the original un-hardened backfill could have,
+  // then prove the forward repair fixes every case.
+  run(
+    psql,
+    [
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-f",
+      join(root, "scripts/question-bank-v2-display-name-repair-fixtures.sql"),
+    ],
+    { env },
+  );
+  run(psql, ["-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, repair)], { env });
+  run(psql, ["-v", "ON_ERROR_STOP=1", "-f", repairVerify], { env });
+
+  // Re-running on already-valid data must change nothing.
+  const before = nameDigest();
+  run(psql, ["-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, repair)], { env });
+  const after = nameDigest();
+  if (!before || before !== after) {
+    throw new Error("display_name repair is not a no-op on valid data");
+  }
+  run(psql, ["-v", "ON_ERROR_STOP=1", "-f", repairVerify], { env });
+  process.stderr.write("display_name repair verified (idempotent)\n");
 }
 
 async function main() {
