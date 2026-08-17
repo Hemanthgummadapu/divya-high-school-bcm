@@ -253,6 +253,190 @@ class ExtractPdfV2Tests(unittest.TestCase):
             self.assertNotIn("pages=2-6", result.stderr)
             self.assertNotIn("sk-ant-", result.stderr)
 
+    def test_strict_json_parse_preserves_symbols_and_backslashes(self):
+        payload = {
+            "section": "SECTION-II",
+            "questions": [
+                {
+                    "number": "1",
+                    "section": "SECTION-II",
+                    "text": "In △ABC, ∠B = 90°, prove a² + b² = c² using √ and the path C:\\maths",
+                    "marks": 4,
+                    "type": "Medium",
+                }
+            ],
+        }
+        raw = json.dumps(payload, ensure_ascii=False)
+        parsed = extract.parse_model_json_response(raw, 1)
+        self.assertTrue(parsed["ok"])
+        text = parsed["questions"][0]["text"]
+        self.assertEqual(text, payload["questions"][0]["text"])
+        for symbol in ("△", "∠", "°", "²", "√"):
+            self.assertIn(symbol, text)
+        self.assertIn("C:\\maths", text)
+
+        fenced = "```json\n" + raw + "\n```"
+        fenced_parsed = extract.parse_model_json_response(fenced, 1)
+        self.assertTrue(fenced_parsed["ok"])
+        self.assertEqual(fenced_parsed["questions"][0]["text"], text)
+
+    def test_invalid_escape_repair_fallback(self):
+        raw = '{"section":"SECTION-I","questions":[{"text":"Simplify \\pi r^2","marks":2,"type":"Short"}]}'
+        parsed = extract.parse_model_json_response(raw, 1)
+        self.assertTrue(parsed["ok"])
+        self.assertEqual(parsed["questions"][0]["text"], "Simplify \\pi r^2")
+
+        truncated = raw[:-10]
+        self.assertFalse(extract.parse_model_json_response(truncated, 1)["ok"])
+
+    def test_single_provider_request_per_page(self):
+        source = (ROOT / "scripts" / "extract_pdf.py").read_text(encoding="utf-8")
+        self.assertNotIn("provider_retry", source)
+        self.assertNotIn("time.sleep(5)", source)
+        self.assertEqual(source.count("client.messages.create"), 1)
+
+    def test_crop_diagram_box_validation(self):
+        from PIL import Image
+
+        image = Image.new("RGB", (800, 600), "white")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            ref = extract.crop_diagram_from_page(
+                image, {"x": 100, "y": 100, "w": 200, "h": 150}, work
+            )
+            self.assertIsNotNone(ref)
+            self.assertRegex(ref, r"^crops/[0-9a-f-]{36}\.png$")
+            crop_file = work / ref
+            self.assertTrue(crop_file.exists())
+            header = crop_file.read_bytes()[:8]
+            self.assertEqual(header, b"\x89PNG\r\n\x1a\n")
+            with Image.open(crop_file) as crop:
+                # 200x150 box plus 12px padding on each side
+                self.assertEqual(crop.size, (224, 174))
+
+            for bad in (
+                None,
+                "not-a-box",
+                {"x": -1, "y": 0, "w": 100, "h": 100},
+                {"x": 0, "y": 0, "w": 10, "h": 10},
+                {"x": 700, "y": 0, "w": 200, "h": 100},
+                {"x": 0, "y": 0, "w": 800, "h": 600},
+                {"x": "a", "y": 0, "w": 100, "h": 100},
+            ):
+                self.assertIsNone(
+                    extract.crop_diagram_from_page(image, bad, work), bad
+                )
+
+    def test_attach_diagram_crops_keeps_description_on_bad_box(self):
+        from PIL import Image
+
+        image = Image.new("RGB", (800, 600), "white")
+        with tempfile.TemporaryDirectory() as tmp:
+            questions = [
+                {
+                    "text": "Good figure",
+                    "diagram": "right triangle",
+                    "diagramBox": {"x": 50, "y": 50, "w": 100, "h": 100},
+                },
+                {
+                    "text": "Bad box",
+                    "diagram": "unboxable figure",
+                    "diagramBox": {"x": -5, "y": 0, "w": 10, "h": 10},
+                },
+                {"text": "No figure"},
+            ]
+            extract.attach_diagram_crops(questions, image, Path(tmp))
+            self.assertIn("diagramCropRef", questions[0])
+            self.assertNotIn("diagramBox", questions[0])
+            self.assertNotIn("diagramCropRef", questions[1])
+            self.assertEqual(questions[1]["diagram"], "unboxable figure")
+            self.assertNotIn("diagramCropRef", questions[2])
+
+    def test_normalize_passes_diagram_fields_through(self):
+        questions = extract.normalize_page_questions(
+            [
+                {
+                    "text": "Figure question",
+                    "type": "Medium",
+                    "marks": 4,
+                    "diagram": "printed graph of y = x²",
+                    "diagramCropRef": "crops/12345678-1234-1234-1234-123456789012.png",
+                },
+                {"text": "Plain question", "type": "Short", "marks": 2},
+            ],
+            "SECTION-II",
+            FakeExtractor(),
+        )
+        self.assertEqual(
+            questions[0]["diagramCropRef"],
+            "crops/12345678-1234-1234-1234-123456789012.png",
+        )
+        self.assertEqual(questions[0]["diagram"], "printed graph of y = x²")
+        self.assertIsNone(questions[1]["diagram"])
+        self.assertIsNone(questions[1]["diagramCropRef"])
+
+    def test_per_question_section_survives_page_heading(self):
+        questions = extract.normalize_page_questions(
+            [
+                {"text": "Q1", "type": "Short", "marks": 2, "section": "SECTION-I"},
+                {"text": "Q2", "type": "Medium", "marks": 4, "section": "SECTION-II"},
+                {"text": "Q3", "type": "Medium", "marks": 4},
+            ],
+            "SECTION-II",
+            FakeExtractor(),
+        )
+        self.assertEqual(questions[0]["sectionLabel"], "SECTION-I")
+        self.assertEqual(questions[1]["sectionLabel"], "SECTION-II")
+        self.assertEqual(questions[2]["sectionLabel"], "SECTION-II")
+
+    def test_mocked_diagram_subprocess_writes_request_owned_crop(self):
+        with tempfile.TemporaryDirectory(prefix="qb-mock-diagram-") as tmp:
+            work = Path(tmp)
+            pdf = work / "original.pdf"
+            output = work / "extract.json"
+            self._write_blank_pdf(pdf, 1)
+            env = os.environ.copy()
+            env["QUESTION_PAPER_EXTRACT_MOCK"] = "diagram"
+            env.pop("ANTHROPIC_API_KEY", None)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "extract_pdf.py"),
+                    "--pdf",
+                    str(pdf),
+                    "--subject",
+                    "Mathematics",
+                    "--grade",
+                    "10",
+                    "--year",
+                    "2026",
+                    "--output",
+                    str(output),
+                    "--work-dir",
+                    str(work),
+                ],
+                cwd=str(ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            document = json.loads(output.read_text(encoding="utf-8"))
+            page = document["pages"][0]
+            self.assertEqual(page["status"], "succeeded")
+            boxed, unboxable = page["questions"][0], page["questions"][1]
+            self.assertRegex(boxed["diagramCropRef"], r"^crops/[0-9a-f-]{36}\.png$")
+            crop_file = work / boxed["diagramCropRef"]
+            self.assertTrue(crop_file.exists())
+            self.assertEqual(crop_file.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertIsNone(unboxable["diagramCropRef"])
+            self.assertEqual(
+                unboxable["diagram"], "Fixture figure the provider could not box"
+            )
+            # No base64 PNG payloads inside the extraction JSON
+            self.assertNotIn("diagramPngBase64", output.read_text(encoding="utf-8"))
+
     def test_mock_skips_provider_and_live_path_still_requires_key(self):
         self.assertEqual(extract.apply_extract_mock("completed", 1)["ok"], True)
         with self.assertRaises(ValueError):

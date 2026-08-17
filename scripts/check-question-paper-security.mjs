@@ -14,6 +14,7 @@ const sensitiveRoutes = [
   "src/app/api/questions/generate/route.ts",
   "src/app/api/questions/route.ts",
   "src/app/api/question-papers/[id]/retry/route.ts",
+  "src/app/api/question-papers/[id]/retry-failed-pages/route.ts",
 ];
 const mutationMethods = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 const protectedHandlerMarker =

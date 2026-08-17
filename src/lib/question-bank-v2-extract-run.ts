@@ -5,6 +5,7 @@ import { questionPaperServerError } from "@/lib/question-paper-auth";
 import {
   MAX_EXTRACT_RESULT_BYTES,
   buildPersistencePlan,
+  inlineDiagramCrops,
   userSafeUploadError,
   validateDocumentResult,
 } from "@/lib/question-bank-v2-extract.mjs";
@@ -213,6 +214,12 @@ export async function runExtractAndPersist(input: {
       { status: 422 },
     );
   }
+
+  await inlineDiagramCrops(
+    document.pages,
+    input.workDir,
+    input.limits.maxDiagramBytes,
+  );
 
   const plan = buildPersistencePlan(document.pages);
   if (!plan.ok || !Array.isArray(plan.questions)) {
