@@ -72,6 +72,7 @@ export interface PublicSource {
   createdAt: string;
   possiblyInterrupted: boolean;
   retryEligible: boolean;
+  failedPageRetryEligible: boolean;
 }
 
 export function parsePositiveInt(value: unknown, fallback?: number | null): number | null;

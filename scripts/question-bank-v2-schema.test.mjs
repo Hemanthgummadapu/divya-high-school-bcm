@@ -149,6 +149,34 @@ test("display_name forward migration backfills and stays off legacy tables", () 
   );
 });
 
+test("recovered failed-pages RPC is invoker-only and off legacy tables", () => {
+  const forwardPath = join(
+    root,
+    "supabase/migrations/20260818000000_persist_recovered_failed_pages.sql",
+  );
+  const forward = readFileSync(forwardPath, "utf8");
+  const stripped = stripSql(forward);
+  assert.match(forward, /CREATE OR REPLACE FUNCTION public\.persist_recovered_failed_pages/);
+  assert.match(forward, /SECURITY INVOKER/);
+  assert.match(forward, /current_user IS DISTINCT FROM 'service_role'/);
+  assert.match(forward, /REVOKE ALL ON FUNCTION public\.persist_recovered_failed_pages/);
+  assert.match(forward, /FROM PUBLIC, anon, authenticated/);
+  assert.match(forward, /GRANT EXECUTE ON FUNCTION public\.persist_recovered_failed_pages/);
+  assert.match(forward, /TO service_role/);
+  assert.match(forward, /source_not_processing/);
+  assert.match(forward, /failed_pages_mismatch/);
+  assert.match(forward, /page_outside_failed_set/);
+  assert.match(forward, /duplicate_question_position/);
+  assert.match(forward, /needs_review/);
+  assert.doesNotMatch(forward, /SECURITY DEFINER/);
+  assert.doesNotMatch(stripped, /persist_extracted_questions\s*\(/);
+  assert.doesNotMatch(
+    stripped,
+    /\b(UPDATE|DELETE|ALTER TABLE|DROP TABLE)\s+(public\.)?(questions|question_papers|generated_pdfs)\b/i,
+  );
+  assert.doesNotMatch(stripped, /\bCREATE POLICY\b/);
+});
+
 test("setup documentation describes the unapplied Phase 2B foundation", () => {
   assert.match(setup, /20260816010000_question_bank_v2\.sql/);
   assert.match(setup, /question_sources/);

@@ -264,6 +264,63 @@ test("page-result contract accepts complete success and rejects gaps", () => {
   );
 });
 
+test("selected-page validation keeps original numbers and rejects extras", () => {
+  const selected = validateDocumentResult(
+    {
+      schemaVersion: QUESTION_BANK_V2_RESULT_SCHEMA,
+      pageCount: 6,
+      pages: [
+        succeededPage(1, [{ text: "Recovered", type: "Short", marks: 2 }]),
+      ],
+    },
+    6,
+    { selectedPages: [1] },
+  );
+  assert.equal(selected.ok, true);
+  assert.equal(selected.pages.length, 1);
+  assert.equal(selected.pages[0].pageNumber, 1);
+
+  assert.equal(
+    validateDocumentResult(
+      {
+        schemaVersion: 1,
+        pageCount: 6,
+        pages: [
+          succeededPage(1, [{ text: "Q", type: "Short", marks: 1 }]),
+          succeededPage(2, [{ text: "Q2", type: "Short", marks: 1 }]),
+        ],
+      },
+      6,
+      { selectedPages: [1] },
+    ).reason,
+    "missing_page_result",
+  );
+  assert.equal(
+    validateDocumentResult(
+      {
+        schemaVersion: 1,
+        pageCount: 6,
+        pages: [succeededPage(2, [{ text: "Q", type: "Short", marks: 1 }])],
+      },
+      6,
+      { selectedPages: [1] },
+    ).reason,
+    "unexpected_page_result",
+  );
+  const allPages = validateDocumentResult(
+    {
+      schemaVersion: 1,
+      pageCount: 6,
+      pages: [1, 2, 3, 4, 5, 6].map((page) =>
+        succeededPage(page, [{ text: `Q${page}`, type: "Short", marks: 1 }]),
+      ),
+    },
+    6,
+  );
+  assert.equal(allPages.ok, true);
+  assert.equal(allPages.pages.length, 6);
+});
+
 test("one failed page and all-failed pages produce honest plans", () => {
   const partial = buildPersistencePlan([
     succeededPage(1, [
@@ -461,6 +518,21 @@ test("diagnosed persist failure is logged without payload or secrets", () => {
   assert.doesNotMatch(extractRunSource, /sk-ant-|ANTHROPIC_API_KEY present/);
   assert.match(persistSource, /class PersistRpcError/);
   assert.match(persistSource, /sanitizeRpcErrorCategory/);
+});
+
+test("page-selection mode is opt-in and keeps the all-pages contract", () => {
+  assert.match(extractPy, /--pages/);
+  assert.match(extractPy, /parse_selected_pages/);
+  assert.match(extractPy, /build_selected_document_pages/);
+  assert.match(extractPy, /_extract_selected_pages/);
+  assert.match(extractRunSource, /args\.push\("--pages", selectedPages\.join\(","\)\)/);
+  assert.match(extractRunSource, /recoveryMode/);
+  assert.match(extractRunSource, /persistRecoveredFailedPages/);
+  assert.match(extractRunSource, /restorePartialSource/);
+  assert.ok(
+    extractRunSource.indexOf("if (selectedPages && selectedPages.length > 0)") >
+      extractRunSource.indexOf("const args = ["),
+  );
 });
 
 test("six-page OCR timeout is long enough for render before provider work", () => {

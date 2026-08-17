@@ -220,6 +220,7 @@ test("search escaping and deterministic public payloads omit private paths", () 
   assert.equal(source.statusLabel, "Partially extracted");
   assert.deepEqual(source.failedPages, [4]);
   assert.equal(source.retryEligible, false);
+  assert.equal(source.failedPageRetryEligible, true);
   assert.equal("storage_path" in source, false);
 
   const failed = publicSource({
@@ -236,6 +237,7 @@ test("search escaping and deterministic public payloads omit private paths", () 
     created_at: new Date().toISOString(),
   });
   assert.equal(failed.retryEligible, true);
+  assert.equal(failed.failedPageRetryEligible, false);
 
   const failedRow = {
     id: SOURCE_ID,
@@ -263,6 +265,15 @@ test("search escaping and deterministic public payloads omit private paths", () 
   }
   assert.equal(
     publicSource({ ...failedRow, extracted_question_count: 2 }).retryEligible,
+    false,
+  );
+  assert.equal(
+    publicSource({
+      ...failedRow,
+      extraction_status: "partial",
+      extracted_question_count: 4,
+      failed_page_numbers: [],
+    }).failedPageRetryEligible,
     false,
   );
 });

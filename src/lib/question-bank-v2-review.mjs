@@ -7,7 +7,10 @@ import {
   normalizeMcqOptions,
 } from "./question-bank-v2-extract.mjs";
 import { isSupportedSubject, isValidSubjectForGrade } from "./subjects.mjs";
-import { canShowRetryExtraction } from "./question-bank-v2-retry.mjs";
+import {
+  canShowRetryExtraction,
+  canShowRetryFailedPages,
+} from "./question-bank-v2-retry.mjs";
 import {
   PROCESSING_STALE_MS,
   formatFailedPages,
@@ -375,5 +378,6 @@ export function publicSource(row) {
       row.extraction_status === "processing" &&
       isProcessingStale(row.created_at),
     retryEligible: canShowRetryExtraction(row),
+    failedPageRetryEligible: canShowRetryFailedPages(row),
   };
 }

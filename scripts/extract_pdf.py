@@ -482,6 +482,7 @@ class QuestionExtractor:
         self.work_dir = work_dir
         self.page_results: List[Dict[str, Any]] = []
         self._validated_page_count = validated_page_count
+        self._selected_pages = None
         self._extract_mock = (os.getenv("QUESTION_PAPER_EXTRACT_MOCK") or "").strip()
         self.claude_client = (
             None if self._extract_mock else Anthropic(api_key=require_anthropic_api_key())
@@ -500,6 +501,10 @@ class QuestionExtractor:
                 sys.exit(1)
 
             self._page_count = total_pages
+            selected_pages = self._selected_pages
+            if selected_pages is not None:
+                return self._extract_selected_pages(selected_pages, total_pages)
+
             page_results: List[Dict[str, Any]] = []
             batch_size = 8
             max_workers = 3
@@ -567,6 +572,55 @@ class QuestionExtractor:
         except Exception:
             print("Error during PDF processing", file=sys.stderr)
             sys.exit(1)
+
+    def _extract_selected_pages(
+        self,
+        selected_pages: List[int],
+        total_pages: int,
+    ) -> List[Dict[str, Any]]:
+        page_results: List[Dict[str, Any]] = []
+        for page_num in selected_pages:
+            print(
+                f"request pages={page_num}-{page_num}/{total_pages} outcome=batch_start",
+                file=sys.stderr,
+            )
+            try:
+                render_started = time.monotonic()
+                images = convert_from_path(
+                    self.pdf_path,
+                    dpi=EXTRACT_DPI,
+                    first_page=page_num,
+                    last_page=page_num,
+                )
+                render_ms = int((time.monotonic() - render_started) * 1000)
+                print(
+                    f"request stage=pdf_rendering pages={page_num}-{page_num} outcome=ok elapsed_ms={render_ms}",
+                    file=sys.stderr,
+                )
+            except Exception:
+                print(
+                    f"request stage=pdf_rendering pages={page_num}-{page_num} outcome=internal",
+                    file=sys.stderr,
+                )
+                page_results.append(failed_page(page_num, "internal"))
+                continue
+            if not images:
+                page_results.append(failed_page(page_num, "internal"))
+                continue
+            try:
+                page_results.append(
+                    process_one_page(
+                        self.pdf_path,
+                        self.claude_client,
+                        images[0],
+                        page_num,
+                        self.work_dir,
+                        self,
+                    )
+                )
+            except Exception:
+                page_results.append(failed_page(page_num, "internal"))
+        return build_selected_document_pages(page_results, selected_pages, total_pages)
     
     def _post_process_sections(self, questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fix section labels after parallel extraction."""
@@ -701,6 +755,58 @@ class QuestionExtractor:
         write_document_result(output_path, getattr(self, "_page_count", len(pages)), pages)
 
 
+def parse_selected_pages(raw: str, total_pages: int) -> List[int]:
+    """Parse a server-controlled comma-separated page list. Rejects duplicates."""
+    if not raw or not str(raw).strip():
+        raise ValueError("empty_selected_pages")
+    pages: List[int] = []
+    seen = set()
+    for part in str(raw).split(","):
+        token = part.strip()
+        if not token:
+            raise ValueError("invalid_selected_page")
+        try:
+            page_num = int(token, 10)
+        except ValueError as exc:
+            raise ValueError("invalid_selected_page") from exc
+        if page_num < 1 or page_num > total_pages:
+            raise ValueError("selected_page_out_of_range")
+        if page_num in seen:
+            raise ValueError("duplicate_selected_page")
+        seen.add(page_num)
+        pages.append(page_num)
+    if not pages:
+        raise ValueError("empty_selected_pages")
+    return pages
+
+
+def build_selected_document_pages(
+    page_results: List[Dict[str, Any]],
+    selected_pages: List[int],
+    total_pages: int,
+) -> List[Dict[str, Any]]:
+    """Keep original page numbers and exactly one result per requested page."""
+    by_number: Dict[int, Dict[str, Any]] = {}
+    selected = set(selected_pages)
+    for page in page_results:
+        page_num = page.get("pageNumber")
+        if not isinstance(page_num, int) or page_num not in selected:
+            continue
+        if page_num < 1 or page_num > total_pages:
+            continue
+        if page_num in by_number:
+            by_number[page_num] = failed_page(page_num, "internal")
+            continue
+        if page.get("status") not in ("succeeded", "failed"):
+            by_number[page_num] = failed_page(page_num, "internal")
+            continue
+        by_number[page_num] = page
+    pages = []
+    for page_num in selected_pages:
+        pages.append(by_number.get(page_num) or failed_page(page_num, "internal"))
+    return pages
+
+
 def build_document_pages(
     page_results: List[Dict[str, Any]],
     total_pages: int,
@@ -781,6 +887,11 @@ def main():
     parser.add_argument('--year', required=True, help='Year')
     parser.add_argument('--output', default='data/question-papers.json', help='Output JSON file')
     parser.add_argument('--work-dir', required=True, help='Request-scoped working directory')
+    parser.add_argument(
+        '--pages',
+        default=None,
+        help='Optional comma-separated 1-based page numbers selected by the server',
+    )
     
     args = parser.parse_args()
 
@@ -794,6 +905,13 @@ def main():
         sys.exit(1)
 
     validated_page_count = validate_pdf_page_count(args.pdf)
+    selected_pages = None
+    if args.pages is not None:
+        try:
+            selected_pages = parse_selected_pages(args.pages, validated_page_count)
+        except ValueError:
+            print("Error: selected pages are invalid", file=sys.stderr)
+            sys.exit(1)
     check_poppler_available(args.pdf)
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     
@@ -806,6 +924,7 @@ def main():
             validated_page_count,
             work_dir,
         )
+        extractor._selected_pages = selected_pages
     except ValueError:
         if not (os.getenv("QUESTION_PAPER_EXTRACT_MOCK") or "").strip():
             print("Error: extraction is not configured", file=sys.stderr)

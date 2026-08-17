@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   createRetryClickLock,
+  failedPageRetryLabel,
+  failedPageRetryingLabel,
+  shouldRenderFailedPageRetryButton,
   shouldRenderRetryButton,
 } from "@/lib/question-bank-v2-retry.mjs";
 import { ALL_GRADES, ALL_YEARS, getSubjectsForGrade } from "@/lib/subjects";
@@ -95,6 +98,7 @@ type BankSource = {
   createdAt: string;
   possiblyInterrupted: boolean;
   retryEligible: boolean;
+  failedPageRetryEligible: boolean;
 };
 
 type QuestionDraft = {
@@ -262,6 +266,7 @@ export default function QuestionPapers() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
+  const [retryingFailedPages, setRetryingFailedPages] = useState<number[]>([]);
   const [retryLockedIds, setRetryLockedIds] = useState<string[]>([]);
   const retryLockRef = useRef(createRetryClickLock());
   const [uploadNotice, setUploadNotice] = useState<UploadNotice | null>(null);
@@ -472,36 +477,51 @@ export default function QuestionPapers() {
     }
   };
 
-  const handleRetryExtraction = async (sourceId: string) => {
-    if (!retryLockRef.current.tryAcquire() || retryingSourceId) return;
+  const beginSourceRetry = (sourceId: string, failedPages: number[] = []) => {
+    if (!retryLockRef.current.tryAcquire() || retryingSourceId) return false;
     setRetryingSourceId(sourceId);
+    setRetryingFailedPages(failedPages);
     setRetryLockedIds((current) =>
       current.includes(sourceId) ? current : [...current, sourceId],
     );
     setSources((current) =>
       current.map((source) =>
-        source.id === sourceId ? { ...source, retryEligible: false } : source,
+        source.id === sourceId
+          ? { ...source, retryEligible: false, failedPageRetryEligible: false }
+          : source,
       ),
     );
     setUploadNotice(null);
-    let listReloaded = false;
+    return true;
+  };
+
+  const finishSourceRetry = async (
+    sourceId: string,
+    data: Record<string, unknown>,
+  ) => {
+    const notice = uploadResultMessage(data) as UploadNotice;
+    setUploadNotice(notice);
+    setView("sources");
+    setPage(1);
+    const listReloaded = (await fetchList()) === true;
+    if (listReloaded) {
+      setRetryLockedIds((current) => current.filter((id) => id !== sourceId));
+    }
+    if (notice.kind === "completed" || notice.kind === "partial") {
+      setSourceFilter(notice.sourceId || sourceId);
+      setView("review");
+    }
+    return notice;
+  };
+
+  const handleRetryExtraction = async (sourceId: string) => {
+    if (!beginSourceRetry(sourceId)) return;
     try {
       const response = await fetch(`/api/question-papers/${sourceId}/retry`, {
         method: "POST",
       });
       const data = await response.json();
-      const notice = uploadResultMessage(data) as UploadNotice;
-      setUploadNotice(notice);
-      setView("sources");
-      setPage(1);
-      listReloaded = (await fetchList()) === true;
-      if (listReloaded) {
-        setRetryLockedIds((current) => current.filter((id) => id !== sourceId));
-      }
-      if (notice.kind === "completed" || notice.kind === "partial") {
-        setSourceFilter(notice.sourceId || sourceId);
-        setView("review");
-      }
+      await finishSourceRetry(sourceId, data);
     } catch {
       setUploadNotice({
         kind: "failed",
@@ -511,6 +531,29 @@ export default function QuestionPapers() {
     } finally {
       retryLockRef.current.release();
       setRetryingSourceId(null);
+      setRetryingFailedPages([]);
+    }
+  };
+
+  const handleRetryFailedPages = async (sourceId: string, failedPages: number[]) => {
+    if (!beginSourceRetry(sourceId, failedPages)) return;
+    try {
+      const response = await fetch(
+        `/api/question-papers/${sourceId}/retry-failed-pages`,
+        { method: "POST" },
+      );
+      const data = await response.json();
+      await finishSourceRetry(sourceId, data);
+    } catch {
+      setUploadNotice({
+        kind: "failed",
+        text: "The failed pages could not be retried.",
+        sourceId,
+      });
+    } finally {
+      retryLockRef.current.release();
+      setRetryingSourceId(null);
+      setRetryingFailedPages([]);
     }
   };
 
@@ -1590,8 +1633,7 @@ export default function QuestionPapers() {
                         {source.failedPages.length > 0 && (
                           <p className="text-sm text-amber-800">
                             Failed pages: {source.failedPages.join(", ")}. Successful
-                            questions remain available. Failed pages can be uploaded
-                            later as a smaller PDF.
+                            questions remain available.
                           </p>
                         )}
                         {source.possiblyInterrupted && (
@@ -1687,6 +1729,33 @@ export default function QuestionPapers() {
                           Retry Extraction
                         </button>
                       )}
+                      {shouldRenderFailedPageRetryButton(source, {
+                        retryingSourceId,
+                        lockedSourceIds: retryLockedIds,
+                      }) && (
+                        <div>
+                          <button
+                            type="button"
+                            disabled={retryingSourceId !== null}
+                            className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:text-gray-400"
+                            onClick={() =>
+                              handleRetryFailedPages(source.id, source.failedPages)
+                            }
+                          >
+                            {failedPageRetryLabel(source.failedPages)}
+                          </button>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Only failed pages are rescanned. Previously saved
+                            questions are kept.
+                          </p>
+                        </div>
+                      )}
+                      {retryingSourceId === source.id &&
+                        retryingFailedPages.length > 0 && (
+                          <p className="text-sm text-slate-600" role="status">
+                            {failedPageRetryingLabel(retryingFailedPages)}
+                          </p>
+                        )}
                     </div>
                   </li>
                 ))}

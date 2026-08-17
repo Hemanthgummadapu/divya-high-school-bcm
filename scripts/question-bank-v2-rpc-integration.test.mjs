@@ -356,6 +356,148 @@ test("anonymous and authenticated roles cannot execute the RPC", async () => {
   assert.equal((await loadQuestions(sourceId)).length, 0);
 });
 
+async function recover(sourceId, expectedFailedPages, questions, extras = {}) {
+  return service.rpc("persist_recovered_failed_pages", {
+    p_source_id: sourceId,
+    p_expected_failed_pages: expectedFailedPages,
+    p_error_category: extras.errorCategory ?? "provider",
+    p_error_message: extras.errorMessage ?? "Failed pages could not be recovered",
+    p_questions: toRpcQuestions(questions),
+  });
+}
+
+async function seedPartialSource(sourceId, label) {
+  await insertProcessingSource({
+    id: sourceId,
+    contentSha256: sha(label),
+    pageCount: 6,
+  });
+  const plan = {
+    status: "partial",
+    processedPageCount: 5,
+    failedPageNumbers: [1],
+    errorCategory: "timeout",
+    questions: [
+      syntheticQuestion(2, 1),
+      syntheticQuestion(3, 1, { question_type: "Short", options: [], correct_answer: null, marks: 2 }),
+    ],
+  };
+  const first = await persist(sourceId, plan);
+  assert.equal(first.error, null, first.error?.message);
+  const { error: approveError } = await service
+    .from("question_bank_questions")
+    .update({ review_status: "approved", approved_at: new Date().toISOString() })
+    .eq("source_id", sourceId)
+    .eq("source_page_number", 2);
+  assert.equal(approveError, null, approveError?.message);
+  const { error: claimError } = await service
+    .from("question_sources")
+    .update({ extraction_status: "processing" })
+    .eq("id", sourceId)
+    .eq("extraction_status", "partial");
+  assert.equal(claimError, null, claimError?.message);
+  return sourceId;
+}
+
+test("recovered page 1 completes a partial source and keeps existing approvals", async () => {
+  const sourceId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  await seedPartialSource(sourceId, "recover-complete");
+  const before = await loadQuestions(sourceId);
+  assert.equal(before.length, 2);
+  assert.equal(before[0].review_status, "approved");
+  const recovered = await recover(sourceId, [1], [syntheticQuestion(1, 1)]);
+  assert.equal(recovered.error, null, recovered.error?.message);
+  assert.equal(recovered.data.extraction_status, "completed");
+  assert.equal(recovered.data.extracted_question_count, 3);
+  assert.deepEqual(recovered.data.failed_page_numbers, []);
+  const source = await loadSource(sourceId);
+  assert.equal(source.extraction_status, "completed");
+  assert.equal(source.processed_page_count, 6);
+  assert.deepEqual(source.failed_page_numbers, []);
+  assert.equal(source.extracted_question_count, 3);
+  const questions = await loadQuestions(sourceId);
+  assert.equal(questions.length, 3);
+  const approved = questions.find((row) => row.source_page_number === 2);
+  assert.equal(approved.review_status, "approved");
+  assert.equal(approved.id, before[0].id);
+  assert.equal(questions.find((row) => row.source_page_number === 1).review_status, "needs_review");
+});
+
+test("a recovered page with zero questions stays failed and partial", async () => {
+  const sourceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  await seedPartialSource(sourceId, "recover-empty");
+  const recovered = await recover(sourceId, [1], []);
+  assert.equal(recovered.error, null, recovered.error?.message);
+  assert.equal(recovered.data.extraction_status, "partial");
+  assert.deepEqual(recovered.data.failed_page_numbers, [1]);
+  assert.equal(recovered.data.extracted_question_count, 2);
+  const source = await loadSource(sourceId);
+  assert.equal(source.extraction_status, "partial");
+  assert.deepEqual(source.failed_page_numbers, [1]);
+  assert.equal(source.processed_page_count, 5);
+  assert.equal((await loadQuestions(sourceId)).length, 2);
+});
+
+test("recovered persist rejects pages outside the failed set and duplicate positions", async () => {
+  const outsideId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  await seedPartialSource(outsideId, "recover-outside");
+  const outside = await recover(outsideId, [1], [syntheticQuestion(2, 2)]);
+  assert.ok(outside.error);
+  assert.match(String(outside.error.message), /page_outside_failed_set/);
+  assert.equal((await loadSource(outsideId)).extraction_status, "processing");
+  assert.equal((await loadQuestions(outsideId)).length, 2);
+
+  const duplicateId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  await seedPartialSource(duplicateId, "recover-duplicate");
+  const duplicate = await recover(duplicateId, [1], [
+    syntheticQuestion(1, 1),
+    syntheticQuestion(1, 1, { question_text: "Synthetic duplicate recovered" }),
+  ]);
+  assert.ok(duplicate.error);
+  assert.match(String(duplicate.error.message), /duplicate_question_position/);
+  assert.equal((await loadQuestions(duplicateId)).length, 2);
+});
+
+test("recovered persist rejects completed sources and failed-page mismatches", async () => {
+  const completedId = "abababab-abab-4aba-8aba-abababababab";
+  await insertProcessingSource({
+    id: completedId,
+    contentSha256: sha("recover-completed"),
+    pageCount: 2,
+  });
+  const completed = await persist(
+    completedId,
+    completedPlan([syntheticQuestion(1, 1), syntheticQuestion(2, 1)]),
+  );
+  assert.equal(completed.error, null, completed.error?.message);
+  const rejected = await recover(completedId, [1], [syntheticQuestion(1, 2)]);
+  assert.ok(rejected.error);
+  assert.match(String(rejected.error.message), /source_not_processing/);
+
+  const mismatchId = "acacacac-acac-4aca-8aca-acacacacacac";
+  await seedPartialSource(mismatchId, "recover-mismatch");
+  const mismatch = await recover(mismatchId, [1, 2], [syntheticQuestion(1, 1)]);
+  assert.ok(mismatch.error);
+  assert.match(String(mismatch.error.message), /failed_pages_mismatch/);
+});
+
+test("anonymous and authenticated roles cannot execute recovered persist", async () => {
+  const sourceId = "adadadad-adad-4ada-8ada-adadadadadad";
+  await seedPartialSource(sourceId, "recover-denied");
+  const args = {
+    p_source_id: sourceId,
+    p_expected_failed_pages: [1],
+    p_error_category: null,
+    p_error_message: null,
+    p_questions: toRpcQuestions([syntheticQuestion(1, 1)]),
+  };
+  const anonResult = await anon.rpc("persist_recovered_failed_pages", args);
+  assertDenied(anonResult.error);
+  const authResult = await authenticated.rpc("persist_recovered_failed_pages", args);
+  assertDenied(authResult.error);
+  assert.equal((await loadQuestions(sourceId)).length, 2);
+});
+
 test("service role is allowed", async () => {
   const sourceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   await insertProcessingSource({

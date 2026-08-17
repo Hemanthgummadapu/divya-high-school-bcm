@@ -50,6 +50,11 @@ const KNOWN_RPC_EXCEPTIONS = Object.freeze([
   "client_supplied_storage_path_not_allowed",
   "invalid_mcq_options",
   "persist_rpc_failed",
+  "service_role_required",
+  "source_not_processing",
+  "failed_pages_mismatch",
+  "page_outside_failed_set",
+  "invalid_expected_failed_pages",
 ]);
 
 export function sanitizeRequestId(value) {

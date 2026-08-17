@@ -182,6 +182,77 @@ class ExtractPdfV2Tests(unittest.TestCase):
             # request-scoped cache files may exist during the run; the work dir is owned by the caller
             self.assertTrue(output.exists())
 
+    def test_selected_pages_keep_original_numbers_and_skip_others(self):
+        pages = extract.build_selected_document_pages(
+            [
+                extract.succeeded_page(1, [{"questionText": "Q1"}]),
+                extract.succeeded_page(2, [{"questionText": "should not appear"}]),
+            ],
+            [1],
+            6,
+        )
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0]["pageNumber"], 1)
+        self.assertEqual(pages[0]["status"], "succeeded")
+
+        parsed = extract.parse_selected_pages("1", 6)
+        self.assertEqual(parsed, [1])
+        with self.assertRaises(ValueError):
+            extract.parse_selected_pages("1,1", 6)
+        with self.assertRaises(ValueError):
+            extract.parse_selected_pages("2,7", 6)
+        with self.assertRaises(ValueError):
+            extract.parse_selected_pages("", 6)
+
+    def test_mocked_selected_page_subprocess_does_not_scan_other_pages(self):
+        with tempfile.TemporaryDirectory(prefix="qb-mock-page-") as tmp:
+            work = Path(tmp)
+            pdf = work / "original.pdf"
+            output = work / "extract.json"
+            self._write_blank_pdf(pdf, 6)
+            env = os.environ.copy()
+            env["QUESTION_PAPER_EXTRACT_MOCK"] = "completed"
+            env.pop("ANTHROPIC_API_KEY", None)
+            env.pop("GEMINI_API_KEY", None)
+            env.pop("GOOGLE_API_KEY", None)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "extract_pdf.py"),
+                    "--pdf",
+                    str(pdf),
+                    "--subject",
+                    "Mathematics",
+                    "--grade",
+                    "10",
+                    "--year",
+                    "2026",
+                    "--output",
+                    str(output),
+                    "--work-dir",
+                    str(work),
+                    "--pages",
+                    "1",
+                ],
+                cwd=str(ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            document = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(document["pageCount"], 6)
+            self.assertEqual(len(document["pages"]), 1)
+            self.assertEqual(document["pages"][0]["pageNumber"], 1)
+            self.assertEqual(
+                result.stderr.count("stage=anthropic_request"),
+                1,
+            )
+            self.assertNotIn("pages=2-2", result.stderr)
+            self.assertNotIn("pages=2-6", result.stderr)
+            self.assertNotIn("sk-ant-", result.stderr)
+
     def test_mock_skips_provider_and_live_path_still_requires_key(self):
         self.assertEqual(extract.apply_extract_mock("completed", 1)["ok"], True)
         with self.assertRaises(ValueError):

@@ -16,9 +16,11 @@ import {
 } from "@/lib/question-bank-v2-extract.mjs";
 import { sanitizeRpcErrorCategory } from "@/lib/question-bank-v2-diagnostics.mjs";
 import {
+  evaluateFailedPageRetryEligibility,
   evaluateRetryEligibility,
   isStoredChecksumValid,
   isStoredPageCountValid,
+  normalizeFailedPages,
 } from "@/lib/question-bank-v2-retry.mjs";
 
 type NormalizedQuestion = {
@@ -186,7 +188,7 @@ export async function getSourceForRetry(sourceId: string) {
   const { data, error } = await getSupabase()
     .from("question_sources")
     .select(
-      "id, extraction_status, extracted_question_count, page_count, content_sha256, byte_size, grade, subject, academic_year, storage_path",
+      "id, extraction_status, extracted_question_count, page_count, content_sha256, byte_size, grade, subject, academic_year, storage_path, failed_page_numbers",
     )
     .eq("id", sourceId)
     .maybeSingle();
@@ -261,6 +263,165 @@ export async function inspectRetryEligibility(sourceId: string) {
     objectPresent,
     storedChecksumValid,
     storedPageCountValid,
+  };
+}
+
+export async function countQuestionsOnPages(sourceId: string, pages: number[]) {
+  if (!Array.isArray(pages) || pages.length === 0) return 0;
+  const { count, error } = await getSupabase()
+    .from("question_bank_questions")
+    .select("id", { count: "exact", head: true })
+    .eq("source_id", sourceId)
+    .in("source_page_number", pages);
+  if (error) throw new Error("source_failed_page_question_count_failed");
+  return count ?? 0;
+}
+
+export async function inspectFailedPageRetryEligibility(sourceId: string) {
+  const source = await getSourceForRetry(sourceId);
+  if (!source) {
+    return { ok: false as const, status: 404, reason: "not_found" };
+  }
+  const linkedQuestionCount = await countQuestionsForSource(sourceId);
+  const failedPages = normalizeFailedPages(
+    source.failed_page_numbers,
+    source.page_count,
+  );
+  const statusDecision = evaluateFailedPageRetryEligibility({
+    sourceStatus: source.extraction_status,
+    extractedCount: source.extracted_question_count,
+    linkedQuestionCount,
+    failedPages: source.failed_page_numbers,
+    pageCount: source.page_count,
+    extractionRunning: source.extraction_status === "processing",
+  });
+  if (!statusDecision.ok) {
+    return {
+      ok: false as const,
+      status: statusDecision.status,
+      reason: statusDecision.reason,
+      source,
+    };
+  }
+  const questionsOnFailedPages = await countQuestionsOnPages(
+    sourceId,
+    failedPages ?? [],
+  );
+  const questionsDecision = evaluateFailedPageRetryEligibility({
+    sourceStatus: source.extraction_status,
+    extractedCount: source.extracted_question_count,
+    linkedQuestionCount,
+    failedPages: source.failed_page_numbers,
+    pageCount: source.page_count,
+    questionsOnFailedPages,
+    extractionRunning: source.extraction_status === "processing",
+  });
+  if (!questionsDecision.ok) {
+    return {
+      ok: false as const,
+      status: questionsDecision.status,
+      reason: questionsDecision.reason,
+      source,
+    };
+  }
+  const objectPresent =
+    isCanonicalSourceStoragePath(sourceId, source.storage_path) &&
+    (await sourcePdfObjectExists(sourceId));
+  const storedChecksumValid = isStoredChecksumValid(source.content_sha256);
+  const storedPageCountValid = isStoredPageCountValid(source.page_count);
+  const eligibility = evaluateFailedPageRetryEligibility({
+    sourceStatus: source.extraction_status,
+    extractedCount: source.extracted_question_count,
+    linkedQuestionCount,
+    failedPages: source.failed_page_numbers,
+    pageCount: source.page_count,
+    questionsOnFailedPages,
+    objectPresent,
+    storedChecksumValid,
+    storedPageCountValid,
+    extractionRunning: source.extraction_status === "processing",
+  });
+  if (!eligibility.ok) {
+    return {
+      ok: false as const,
+      status: eligibility.status,
+      reason: eligibility.reason,
+      source,
+    };
+  }
+  return {
+    ok: true as const,
+    source,
+    failedPages: failedPages ?? eligibility.failedPages ?? [],
+    linkedQuestionCount,
+    questionsOnFailedPages,
+    objectPresent,
+    storedChecksumValid,
+    storedPageCountValid,
+  };
+}
+
+export async function claimPartialSourceForFailedPageRetry(sourceId: string) {
+  const { data: claimed, error } = await getSupabase()
+    .from("question_sources")
+    .update({
+      extraction_status: "processing",
+      error_category: null,
+      error_message: null,
+    })
+    .eq("id", sourceId)
+    .eq("extraction_status", "partial")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error("failed_page_retry_claim_failed");
+  if (!claimed) {
+    return { ok: false as const, status: 409, reason: "conflict" };
+  }
+  return { ok: true as const };
+}
+
+export async function restorePartialSource(
+  sourceId: string,
+  errorCategory: string,
+) {
+  await getSupabase()
+    .from("question_sources")
+    .update({
+      extraction_status: "partial",
+      error_category: errorCategory,
+      error_message: "Failed-page retry did not complete",
+    })
+    .eq("id", sourceId)
+    .eq("extraction_status", "processing");
+}
+
+export async function persistRecoveredFailedPages(input: {
+  sourceId: string;
+  expectedFailedPages: number[];
+  questions: NormalizedQuestion[];
+  errorCategory: string | null;
+}) {
+  const { data, error } = await getSupabase().rpc(
+    "persist_recovered_failed_pages",
+    {
+      p_source_id: input.sourceId,
+      p_expected_failed_pages: input.expectedFailedPages,
+      p_error_category: input.errorCategory ?? null,
+      p_error_message:
+        input.questions.length > 0
+          ? "Some pages could not be extracted"
+          : "Failed pages could not be recovered",
+      p_questions: toRpcQuestions(input.questions),
+    },
+  );
+  if (error) throw new PersistRpcError(error);
+  return data as {
+    ok?: boolean;
+    source_id?: string;
+    extraction_status?: string;
+    extracted_question_count?: number;
+    processed_page_count?: number;
+    failed_page_numbers?: number[];
   };
 }
 

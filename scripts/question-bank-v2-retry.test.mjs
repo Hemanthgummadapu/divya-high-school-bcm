@@ -469,8 +469,8 @@ test("UI shows Retry Extraction only for authoritative failed zero-question sour
   assert.match(pageSource, /Retry Extraction/);
   assert.match(pageSource, /retryEligible: false/);
   assert.match(pageSource, /listReloaded = \(await fetchList\(\)\) === true/);
-  assert.doesNotMatch(pageSource, /Retrying…/);
-  assert.doesNotMatch(pageSource, />Retrying/);
+  assert.doesNotMatch(pageSource, />Retrying…</);
+  assert.match(pageSource, /Retry Extraction/);
   assert.equal(
     shouldRenderRetryButton({
       id: SOURCE_ID,

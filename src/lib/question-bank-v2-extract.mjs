@@ -225,7 +225,7 @@ export function normalizeExtractedQuestion(raw, pageNumber, sourceOrder) {
   };
 }
 
-export function validateDocumentResult(result, expectedPageCount) {
+export function validateDocumentResult(result, expectedPageCount, options = {}) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return { ok: false, reason: "invalid_document_result" };
   }
@@ -235,7 +235,28 @@ export function validateDocumentResult(result, expectedPageCount) {
   if (result.pageCount !== expectedPageCount) {
     return { ok: false, reason: "page_count_mismatch" };
   }
-  if (!Array.isArray(result.pages) || result.pages.length !== expectedPageCount) {
+
+  const selectedPages = Array.isArray(options.selectedPages)
+    ? options.selectedPages
+    : null;
+  const expectedPages = selectedPages
+    ? [...new Set(selectedPages)].sort((a, b) => a - b)
+    : null;
+  if (expectedPages) {
+    if (
+      expectedPages.length === 0 ||
+      expectedPages.length !== selectedPages.length ||
+      expectedPages.some(
+        (page) =>
+          !Number.isSafeInteger(page) || page < 1 || page > expectedPageCount,
+      )
+    ) {
+      return { ok: false, reason: "invalid_selected_pages" };
+    }
+    if (!Array.isArray(result.pages) || result.pages.length !== expectedPages.length) {
+      return { ok: false, reason: "missing_page_result" };
+    }
+  } else if (!Array.isArray(result.pages) || result.pages.length !== expectedPageCount) {
     return { ok: false, reason: "missing_page_result" };
   }
 
@@ -252,6 +273,9 @@ export function validateDocumentResult(result, expectedPageCount) {
       pageNumber > expectedPageCount
     ) {
       return { ok: false, reason: "out_of_range_page_number" };
+    }
+    if (expectedPages && !expectedPages.includes(pageNumber)) {
+      return { ok: false, reason: "unexpected_page_result" };
     }
     if (seen.has(pageNumber)) {
       return { ok: false, reason: "duplicate_page_result" };
@@ -282,7 +306,9 @@ export function validateDocumentResult(result, expectedPageCount) {
     });
   }
 
-  for (let pageNumber = 1; pageNumber <= expectedPageCount; pageNumber += 1) {
+  const requiredPages = expectedPages ??
+    Array.from({ length: expectedPageCount }, (_, index) => index + 1);
+  for (const pageNumber of requiredPages) {
     if (!seen.has(pageNumber)) {
       return { ok: false, reason: "missing_page_result" };
     }

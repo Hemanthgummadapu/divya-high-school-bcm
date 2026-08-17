@@ -19,6 +19,8 @@ import {
   deleteCreatedStorageObjects,
   markSourceFailed,
   persistExtractedQuestions,
+  persistRecoveredFailedPages,
+  restorePartialSource,
   type CreatedStorageObject,
 } from "@/lib/question-bank-v2-persist";
 
@@ -40,7 +42,21 @@ export async function runExtractAndPersist(input: {
     maxDiagramBytes: number;
   };
   startedAt: number;
+  selectedPages?: number[];
+  recoveryMode?: boolean;
 }) {
+  const selectedPages = Array.isArray(input.selectedPages)
+    ? input.selectedPages
+    : null;
+  const recoveryMode = input.recoveryMode === true;
+  const failSource = async (errorCategory: string) => {
+    if (recoveryMode) {
+      await restorePartialSource(input.sourceId, errorCategory);
+      return;
+    }
+    await markSourceFailed(input.sourceId, errorCategory);
+  };
+
   const pythonCmd = resolveExtractPython();
   const scriptPath = join(process.cwd(), "scripts", "extract_pdf.py");
   const args = [
@@ -58,6 +74,9 @@ export async function runExtractAndPersist(input: {
     "--work-dir",
     input.workDir,
   ];
+  if (selectedPages && selectedPages.length > 0) {
+    args.push("--pages", selectedPages.join(","));
+  }
 
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
@@ -96,7 +115,7 @@ export async function runExtractAndPersist(input: {
       signalName: spawned.signal,
       elapsedMs: Date.now() - input.startedAt,
     });
-    await markSourceFailed(input.sourceId, errorCategory);
+    await failSource(errorCategory);
     logExtractionStage({
       requestId: input.requestId,
       sourceId: input.sourceId,
@@ -111,7 +130,7 @@ export async function runExtractAndPersist(input: {
       {
         success: false,
         sourceId: input.sourceId,
-        status: "failed",
+        status: recoveryMode ? "partial" : "failed",
         error: userSafeUploadError("failed"),
         requestId: input.requestId,
       },
@@ -133,12 +152,12 @@ export async function runExtractAndPersist(input: {
       classification: "python_output_missing",
       elapsedMs: Date.now() - input.startedAt,
     });
-    await markSourceFailed(input.sourceId, "validation");
+    await failSource("validation");
     return NextResponse.json(
       {
         success: false,
         sourceId: input.sourceId,
-        status: "failed",
+        status: recoveryMode ? "partial" : "failed",
         error: userSafeUploadError("failed"),
         requestId: input.requestId,
       },
@@ -158,12 +177,12 @@ export async function runExtractAndPersist(input: {
       classification: "python_output_invalid",
       elapsedMs: Date.now() - input.startedAt,
     });
-    await markSourceFailed(input.sourceId, "parse");
+    await failSource("parse");
     return NextResponse.json(
       {
         success: false,
         sourceId: input.sourceId,
-        status: "failed",
+        status: recoveryMode ? "partial" : "failed",
         error: userSafeUploadError("failed"),
         requestId: input.requestId,
       },
@@ -171,7 +190,9 @@ export async function runExtractAndPersist(input: {
     );
   }
 
-  const document = validateDocumentResult(parsed, input.pageCount);
+  const document = validateDocumentResult(parsed, input.pageCount, {
+    selectedPages: selectedPages ?? undefined,
+  });
   if (!document.ok) {
     logExtractionStage({
       requestId: input.requestId,
@@ -180,12 +201,12 @@ export async function runExtractAndPersist(input: {
       errorCategory: "validation",
       elapsedMs: Date.now() - input.startedAt,
     });
-    await markSourceFailed(input.sourceId, "validation");
+    await failSource("validation");
     return NextResponse.json(
       {
         success: false,
         sourceId: input.sourceId,
-        status: "failed",
+        status: recoveryMode ? "partial" : "failed",
         error: userSafeUploadError("failed"),
         requestId: input.requestId,
       },
@@ -202,12 +223,12 @@ export async function runExtractAndPersist(input: {
       errorCategory: "validation",
       elapsedMs: Date.now() - input.startedAt,
     });
-    await markSourceFailed(input.sourceId, "validation");
+    await failSource("validation");
     return NextResponse.json(
       {
         success: false,
         sourceId: input.sourceId,
-        status: "failed",
+        status: recoveryMode ? "partial" : "failed",
         error: userSafeUploadError("failed"),
         requestId: input.requestId,
       },
@@ -228,6 +249,93 @@ export async function runExtractAndPersist(input: {
       errorCategory: plan.errorCategory ?? null,
     },
   };
+
+  if (recoveryMode) {
+    logExtractionStage({
+      requestId: input.requestId,
+      sourceId: input.sourceId,
+      stage: "node_normalization",
+      elapsedMs: Date.now() - input.startedAt,
+    });
+    let recovered: {
+      extracted_question_count?: number;
+      extraction_status?: string;
+      processed_page_count?: number;
+      failed_page_numbers?: number[];
+    };
+    try {
+      recovered = await persistRecoveredFailedPages({
+        sourceId: input.sourceId,
+        expectedFailedPages: selectedPages ?? [],
+        questions: persistableQuestions,
+        errorCategory: plan.errorCategory ?? null,
+      });
+    } catch (error) {
+      const persistError =
+        error instanceof PersistRpcError ? error : new PersistRpcError(error);
+      logExtractionStage({
+        requestId: input.requestId,
+        sourceId: input.sourceId,
+        stage: "persistence_rpc",
+        errorCategory: "internal",
+        providerHttpStatusClass: persistError.httpStatusClass ?? undefined,
+        elapsedMs: Date.now() - input.startedAt,
+      });
+      await restorePartialSource(input.sourceId, "internal");
+      return questionPaperServerError(input.requestId);
+    }
+
+    logExtractionStage({
+      requestId: input.requestId,
+      sourceId: input.sourceId,
+      stage: "persistence_rpc",
+      elapsedMs: Date.now() - input.startedAt,
+    });
+
+    if (persistableQuestions.length > 0) {
+      const diagramObjects: CreatedStorageObject[] = [];
+      try {
+        diagramObjects.push(
+          ...(await attachQuestionDiagrams({
+            sourceId: input.sourceId,
+            questions: persistableQuestions,
+            maxDiagramBytes: input.limits.maxDiagramBytes,
+          })),
+        );
+      } catch {
+        await deleteCreatedStorageObjects(diagramObjects);
+        console.warn("[question-paper-api]", {
+          requestId: input.requestId,
+          operation: "attach_diagrams",
+          outcome: "storage_error",
+        });
+      }
+    }
+
+    const recoveredStatus =
+      recovered.extraction_status === "completed" ||
+      recovered.extraction_status === "partial"
+        ? recovered.extraction_status
+        : persistableQuestions.length > 0
+          ? "partial"
+          : "partial";
+    const remainingFailed = Array.isArray(recovered.failed_page_numbers)
+      ? recovered.failed_page_numbers
+      : plan.failedPageNumbers ?? selectedPages ?? [];
+    return NextResponse.json({
+      success: true,
+      sourceId: input.sourceId,
+      status: recoveredStatus,
+      totalPages: input.pageCount,
+      processedPages: recovered.processed_page_count ?? plan.processedPageCount,
+      failedPages: remainingFailed,
+      savedQuestionCount: Number(recovered.extracted_question_count ?? 0),
+      requestId: input.requestId,
+      ...(recoveredStatus === "partial"
+        ? { warning: userSafeUploadError("partial") }
+        : {}),
+    });
+  }
 
   if (plan.status === "failed") {
     logExtractionStage({
