@@ -954,8 +954,8 @@ export default function DiagramSketchTool({ onSave, onCancel, existingImage }: D
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col max-w-full">
-        <div className="bg-slate-800 text-white px-4 py-3 flex flex-wrap items-center gap-3">
+      <div className="bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col max-w-full max-h-full">
+        <div className="bg-slate-800 text-white px-4 py-3 flex flex-wrap items-center gap-3 shrink-0">
           <span className="font-semibold text-sm">Tools</span>
           {tools.map((t) => (
             <button
@@ -1040,8 +1040,8 @@ export default function DiagramSketchTool({ onSave, onCancel, existingImage }: D
           style={{ display: "none" }}
           onChange={handleImageUpload}
         />
-        <div className="p-2 bg-slate-100">
-          <div className="flex items-start gap-2">
+        <div className="p-2 bg-slate-100 overflow-auto min-h-0">
+          <div className="flex flex-wrap items-start gap-2">
             <canvas
               ref={canvasRef}
               width={CANVAS_WIDTH}
@@ -1086,7 +1086,7 @@ export default function DiagramSketchTool({ onSave, onCancel, existingImage }: D
             </div>
           </div>
         </div>
-        <div className="px-4 py-3 border-t flex justify-end gap-3 bg-slate-50">
+        <div className="px-4 py-3 border-t flex justify-end gap-3 bg-slate-50 shrink-0">
           <button
             type="button"
             onClick={onCancel}
