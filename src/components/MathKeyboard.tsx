@@ -61,10 +61,17 @@ const SYMBOL_FONT =
 export interface MathKeyboardProps {
   visible: boolean;
   onInsert: (symbol: string) => void;
+  /** Convert the field's current selection to superscript or subscript. */
+  onTransform?: (mode: "sup" | "sub") => void;
   onClose: () => void;
 }
 
-export default function MathKeyboard({ visible, onInsert, onClose }: MathKeyboardProps) {
+export default function MathKeyboard({
+  visible,
+  onInsert,
+  onTransform,
+  onClose,
+}: MathKeyboardProps) {
   const [activeTab, setActiveTab] = useState(0);
   const tab = TABS[activeTab];
 
@@ -98,6 +105,33 @@ export default function MathKeyboard({ visible, onInsert, onClose }: MathKeyboar
           ×
         </button>
       </div>
+      {onTransform && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-blue-100 bg-blue-50/60 px-2 py-1.5">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onTransform("sup");
+            }}
+            className="min-h-[2.25rem] rounded border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-800 hover:bg-blue-600 hover:text-white"
+          >
+            Make power (x²)
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onTransform("sub");
+            }}
+            className="min-h-[2.25rem] rounded border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-800 hover:bg-blue-600 hover:text-white"
+          >
+            Make base (x₂)
+          </button>
+          <span className="text-[11px] leading-tight text-slate-600">
+            Select the value first — turns 2^p into 2ᵖ and log10 into log₁₀.
+          </span>
+        </div>
+      )}
       <div
         className="flex flex-wrap gap-1 overflow-y-auto overflow-x-auto max-h-[148px]"
         style={{ fontFamily: SYMBOL_FONT }}

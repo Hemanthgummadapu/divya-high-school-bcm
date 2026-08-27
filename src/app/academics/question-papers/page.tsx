@@ -35,6 +35,10 @@ import {
   suggestPaperNameFromFilename,
   validateDisplayName,
 } from "@/lib/question-bank-v2-source-name.mjs";
+import {
+  applyScriptTransform,
+  insertAtSelection,
+} from "@/lib/question-bank-v2-math-input.mjs";
 import DiagramSketchTool from "@/components/DiagramSketchTool";
 import PortalLogoutButton from "@/components/PortalLogoutButton";
 import MathKeyboard from "@/components/MathKeyboard";
@@ -3407,6 +3411,53 @@ function QuestionEditor({
   mathOpen: boolean;
   onCloseMath: () => void;
 }) {
+  /**
+   * Apply a keyboard action to whichever of this editor's text fields is
+   * focused (question text, an MCQ option or the correct answer), at the
+   * caret. The keyboard's buttons preventDefault on mousedown, so focus and
+   * selection are still on the field when this runs. Falls back to the
+   * question textarea when nothing in this editor has focus.
+   */
+  const applyToFocusedField = (
+    action: "insert" | "sup" | "sub",
+    symbol?: string,
+  ) => {
+    const active = document.activeElement;
+    const isOurs =
+      (active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLInputElement && active.type === "text")) &&
+      active.id.startsWith(`${idPrefix}-`);
+    const field = isOurs
+      ? (active as HTMLTextAreaElement | HTMLInputElement)
+      : (document.getElementById(`${idPrefix}-text`) as HTMLTextAreaElement | null);
+    if (!field || field.disabled) return;
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? start;
+    const result =
+      action === "insert"
+        ? insertAtSelection(field.value, start, end, symbol ?? "")
+        : applyScriptTransform(field.value, start, end, action);
+    if (!result) return;
+    // Write through the native setter so React's controlled onChange fires
+    // and the draft state stays the single source of truth.
+    const proto =
+      field instanceof HTMLTextAreaElement
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (!setter) return;
+    setter.call(field, result.value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.focus();
+    // React commits the dispatched event synchronously, so the caret can be
+    // placed right away; the frame callback re-asserts it in case a batched
+    // re-render moved it to the end.
+    field.setSelectionRange(result.selStart, result.selEnd);
+    requestAnimationFrame(() => {
+      field.setSelectionRange(result.selStart, result.selEnd);
+    });
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -3438,12 +3489,8 @@ function QuestionEditor({
           <div id={`${idPrefix}-math-keyboard`} className="mt-2">
             <MathKeyboard
               visible
-              onInsert={(symbol) =>
-                onChange({
-                  ...draft,
-                  questionText: `${draft.questionText}${symbol}`,
-                })
-              }
+              onInsert={(symbol) => applyToFocusedField("insert", symbol)}
+              onTransform={(mode) => applyToFocusedField(mode)}
               onClose={onCloseMath}
             />
           </div>

@@ -13,7 +13,7 @@
     "test:extract": "node --test scripts/question-bank-v2-extract.test.mjs scripts/question-bank-v2-diagram-crop.test.mjs && sh scripts/run-extract-python-tests.sh",
     "test:retry": "node --test scripts/question-bank-v2-retry.test.mjs scripts/question-bank-v2-failed-page-retry.test.mjs",
     "test:subjects": "node --test scripts/question-bank-v2-subjects.test.mjs",
-    "test:review": "node --test scripts/question-bank-v2-review.test.mjs",
+    "test:review": "node --test scripts/question-bank-v2-review.test.mjs scripts/question-bank-v2-math-input.test.mjs",
     "test:paper": "node --test scripts/question-bank-v2-paper.test.mjs scripts/question-bank-v2-drafts.test.mjs && ./venv/bin/python3 scripts/question-bank-v2-paper-pdf-fixtures.py",
     "test:e2e": "node --test scripts/question-bank-v2-end-to-end.test.mjs",
     "test:admin": "node --test scripts/admin-portal.test.mjs",

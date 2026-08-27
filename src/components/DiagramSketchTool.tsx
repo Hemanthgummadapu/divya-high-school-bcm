@@ -1033,8 +1033,10 @@ export default function DiagramSketchTool({ onSave, onCancel, existingImage }: D
         <input
           ref={fileInputRef}
           type="file"
+          // No `capture` attribute: on phones it forces the camera open and
+          // skips the photo gallery. Without it the browser offers the
+          // gallery, files and camera together.
           accept="image/*"
-          capture="environment"
           style={{ display: "none" }}
           onChange={handleImageUpload}
         />
