@@ -225,6 +225,91 @@ def draw_line(c, y, left=None, right=None):
 
 DOUBLE_PIPE_RE = re.compile(r"\|\|+")
 
+_LATEX_COMMANDS = (
+    (r"\Leftrightarrow", "⇔"),
+    (r"\rightarrow", "→"),
+    (r"\leftarrow", "←"),
+    (r"\therefore", "∴"),
+    (r"\because", "∵"),
+    (r"\infty", "∞"),
+    (r"\times", "×"),
+    (r"\cdot", "·"),
+    (r"\div", "÷"),
+    (r"\pm", "±"),
+    (r"\neq", "≠"),
+    (r"\approx", "≈"),
+    (r"\equiv", "≡"),
+    (r"\propto", "∝"),
+    (r"\leq", "≤"),
+    (r"\geq", "≥"),
+    (r"\ll", "≪"),
+    (r"\gg", "≫"),
+    (r"\subseteq", "⊆"),
+    (r"\supseteq", "⊇"),
+    (r"\subset", "⊂"),
+    (r"\supset", "⊃"),
+    (r"\notin", "∉"),
+    (r"\emptyset", "∅"),
+    (r"\varnothing", "∅"),
+    (r"\triangle", "△"),
+    (r"\angle", "∠"),
+    (r"\perp", "⊥"),
+    (r"\parallel", "∥"),
+    (r"\circ", "○"),
+    (r"\odot", "⊙"),
+    (r"\degree", "°"),
+    (r"\theta", "θ"),
+    (r"\Theta", "Θ"),
+    (r"\phi", "φ"),
+    (r"\Phi", "Φ"),
+    (r"\alpha", "α"),
+    (r"\beta", "β"),
+    (r"\gamma", "γ"),
+    (r"\delta", "δ"),
+    (r"\lambda", "λ"),
+    (r"\mu", "μ"),
+    (r"\pi", "π"),
+    (r"\sigma", "σ"),
+    (r"\Sigma", "Σ"),
+    (r"\omega", "ω"),
+    (r"\Omega", "Ω"),
+    (r"\cosec", "cosec"),
+    (r"\arcsin", "sin⁻¹"),
+    (r"\arccos", "cos⁻¹"),
+    (r"\arctan", "tan⁻¹"),
+    (r"\sin", "sin"),
+    (r"\cos", "cos"),
+    (r"\tan", "tan"),
+    (r"\cot", "cot"),
+    (r"\sec", "sec"),
+    (r"\csc", "csc"),
+    (r"\cup", "∪"),
+    (r"\cap", "∩"),
+    (r"\log", "log"),
+    (r"\ln", "ln"),
+    (r"\lim", "lim"),
+    (r"\in", "∈"),
+)
+
+
+def decode_latex_math(text):
+    """Turn extracted LaTeX tokens such as \\theta into Unicode θ."""
+    out = text or ""
+    if "\\" not in out and "$" not in out:
+        return out
+    out = out.replace("$$", "").replace("$", "")
+    for _ in range(8):
+        nxt = re.sub(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}", r"(\1)/(\2)", out)
+        if nxt == out:
+            break
+        out = nxt
+    out = re.sub(r"\\left\s*", "", out)
+    out = re.sub(r"\\right\s*", "", out)
+    out = out.replace(r"\,", " ").replace(r"\ ", " ")
+    for command, symbol in _LATEX_COMMANDS:
+        out = re.sub(re.escape(command) + r"(?![A-Za-z])", symbol, out)
+    return out
+
 
 def table_pipe_count(line):
     """Count pipes that could delimit a markdown table cell.
@@ -298,7 +383,7 @@ def draw_question_content(c, text, y, line_height, lead, indent=14, new_page_cb=
     When reserve_diagram=True, text uses 60% of content width so diagram sits alongside on the right.
     reserve_marks keeps a right-hand gutter clear so the marks label cannot be
     overlapped by a long line of question text."""
-    text = (text or "").replace("\\n", "\n")
+    text = decode_latex_math((text or "").replace("\\n", "\n"))
     if reserve_diagram:
         base_avail = CONTENT_WIDTH * TEXT_WIDTH_RATIO_WITH_DIAGRAM - indent
     else:
@@ -545,11 +630,11 @@ def option_lines(options):
         return []
     if isinstance(options[0], dict):
         return [
-            f"{item.get('label', '')}) {clean(item.get('text', ''))}".strip()
+            f"{item.get('label', '')}) {clean(decode_latex_math(item.get('text', '')))}".strip()
             for item in options
             if item.get("text")
         ]
-    return [f"{chr(65 + i)}) {clean(text)}" for i, text in enumerate(options) if text]
+    return [f"{chr(65 + i)}) {clean(decode_latex_math(text))}" for i, text in enumerate(options) if text]
 
 
 def render_v2_sections(c, sections, new_page, start_y, line_height, lead):

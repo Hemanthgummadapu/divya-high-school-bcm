@@ -37,6 +37,7 @@ import {
 } from "@/lib/question-bank-v2-source-name.mjs";
 import {
   applyScriptTransform,
+  decodeLatexMath,
   insertAtSelection,
 } from "@/lib/question-bank-v2-math-input.mjs";
 import DiagramSketchTool from "@/components/DiagramSketchTool";
@@ -179,16 +180,16 @@ const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:
 function draftFromQuestion(question: BankQuestion): QuestionDraft {
   const optionTexts =
     question.options.length > 0
-      ? question.options.map((option) => option.text)
+      ? question.options.map((option) => decodeLatexMath(option.text))
       : ["", "", "", ""];
   while (optionTexts.length < 2) optionTexts.push("");
   return {
-    questionText: question.questionText,
+    questionText: decodeLatexMath(question.questionText),
     questionType: question.questionType,
     marks: question.marks,
     sectionLabel: question.sectionLabel ?? "",
     options: optionTexts,
-    correctAnswer: question.correctAnswer ?? "",
+    correctAnswer: decodeLatexMath(question.correctAnswer ?? ""),
     language: question.language ?? "",
     chapter: question.chapter ?? "",
     topic: question.topic ?? "",
@@ -226,7 +227,7 @@ function renderQuestionText(text: string) {
           ),
         }}
       >
-        {text || ""}
+        {decodeLatexMath(text || "")}
       </ReactMarkdown>
     </div>
   );
@@ -2955,7 +2956,7 @@ export default function QuestionPapers() {
                               {question.diagramUrl ? " · Has diagram" : ""}
                             </p>
                             <p className="line-clamp-2 whitespace-pre-wrap break-words text-sm text-slate-600">
-                              {question.questionText}
+                              {decodeLatexMath(question.questionText)}
                             </p>
                           </div>
                         </div>
@@ -3148,7 +3149,7 @@ export default function QuestionPapers() {
                     mark{question.marks === 1 ? "" : "s"}
                   </span>
                   <span className="line-clamp-2 block break-words text-sm text-slate-800">
-                    {question.questionText}
+                    {decodeLatexMath(question.questionText)}
                   </span>
                 </label>
               </li>

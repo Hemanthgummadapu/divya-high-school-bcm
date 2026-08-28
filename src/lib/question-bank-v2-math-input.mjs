@@ -14,6 +14,107 @@ export const SUPERSCRIPT_MAP = Object.freeze({
   r: "ʳ", s: "ˢ", t: "ᵗ", u: "ᵘ", v: "ᵛ", w: "ʷ", x: "ˣ", y: "ʸ", z: "ᶻ",
 });
 
+// Longest LaTeX commands first so "\cosec" is not eaten as "\cos" + "ec".
+const LATEX_COMMANDS = Object.freeze([
+  ["\\Leftrightarrow", "⇔"],
+  ["\\rightarrow", "→"],
+  ["\\leftarrow", "←"],
+  ["\\therefore", "∴"],
+  ["\\because", "∵"],
+  ["\\infty", "∞"],
+  ["\\times", "×"],
+  ["\\cdot", "·"],
+  ["\\div", "÷"],
+  ["\\pm", "±"],
+  ["\\neq", "≠"],
+  ["\\approx", "≈"],
+  ["\\equiv", "≡"],
+  ["\\propto", "∝"],
+  ["\\leq", "≤"],
+  ["\\geq", "≥"],
+  ["\\ll", "≪"],
+  ["\\gg", "≫"],
+  ["\\subset", "⊂"],
+  ["\\supset", "⊃"],
+  ["\\subseteq", "⊆"],
+  ["\\supseteq", "⊇"],
+  ["\\notin", "∉"],
+  ["\\in", "∈"],
+  ["\\cup", "∪"],
+  ["\\cap", "∩"],
+  ["\\emptyset", "∅"],
+  ["\\varnothing", "∅"],
+  ["\\triangle", "△"],
+  ["\\angle", "∠"],
+  ["\\perp", "⊥"],
+  ["\\parallel", "∥"],
+  ["\\circ", "○"],
+  ["\\odot", "⊙"],
+  ["\\degree", "°"],
+  ["\\theta", "θ"],
+  ["\\Theta", "Θ"],
+  ["\\phi", "φ"],
+  ["\\Phi", "Φ"],
+  ["\\alpha", "α"],
+  ["\\beta", "β"],
+  ["\\gamma", "γ"],
+  ["\\delta", "δ"],
+  ["\\lambda", "λ"],
+  ["\\mu", "μ"],
+  ["\\pi", "π"],
+  ["\\sigma", "σ"],
+  ["\\Sigma", "Σ"],
+  ["\\omega", "ω"],
+  ["\\Omega", "Ω"],
+  ["\\cosec", "cosec"],
+  ["\\arcsin", "sin⁻¹"],
+  ["\\arccos", "cos⁻¹"],
+  ["\\arctan", "tan⁻¹"],
+  ["\\sin", "sin"],
+  ["\\cos", "cos"],
+  ["\\tan", "tan"],
+  ["\\cot", "cot"],
+  ["\\sec", "sec"],
+  ["\\csc", "csc"],
+  ["\\log", "log"],
+  ["\\ln", "ln"],
+  ["\\lim", "lim"],
+]);
+
+function replaceLatexFractions(text) {
+  let out = text;
+  for (let i = 0; i < 8; i += 1) {
+    const next = out.replace(
+      /\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g,
+      "($1)/($2)",
+    );
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/**
+ * Turn common extracted LaTeX tokens into the Unicode symbols the rest of
+ * the bank already uses (θ, not "\\theta"). Leaves ordinary text alone.
+ */
+export function decodeLatexMath(text) {
+  let out = String(text ?? "");
+  if (!out.includes("\\") && !out.includes("$")) return out;
+  out = out.replace(/\$\$([\s\S]+?)\$\$/g, "$1");
+  out = out.replace(/\$([^$]+)\$/g, "$1");
+  out = replaceLatexFractions(out);
+  out = out.replace(/\\left\s*/g, "");
+  out = out.replace(/\\right\s*/g, "");
+  out = out.replace(/\\,/g, " ");
+  out = out.replace(/\\ /g, " ");
+  for (const [command, symbol] of LATEX_COMMANDS) {
+    const escaped = command.replace(/\\/g, "\\\\");
+    out = out.replace(new RegExp(`${escaped}(?![A-Za-z])`, "g"), symbol);
+  }
+  return out;
+}
+
 export const SUBSCRIPT_MAP = Object.freeze({
   "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
   "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",

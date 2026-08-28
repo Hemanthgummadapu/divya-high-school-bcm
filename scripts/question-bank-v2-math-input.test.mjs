@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   applyScriptTransform,
+  decodeLatexMath,
   insertAtSelection,
   toScript,
 } from "../src/lib/question-bank-v2-math-input.mjs";
@@ -59,6 +60,19 @@ test("insertAtSelection replaces the selection and reports the new caret", () =>
   assert.equal(insertAtSelection("ab", 99, 99, "²").value, "ab²");
 });
 
+test("extracted LaTeX theta and fractions become the symbols the bank already uses", () => {
+  assert.equal(decodeLatexMath("find \\theta"), "find θ");
+  assert.equal(
+    decodeLatexMath(
+      "find the value of $\\frac{\\cos\\theta + \\sin\\theta}{\\sin\\theta - \\cos\\theta}$?",
+    ),
+    "find the value of (cosθ + sinθ)/(sinθ - cosθ)?",
+  );
+  assert.equal(decodeLatexMath("△ABC and θ are already symbols"), "△ABC and θ are already symbols");
+  assert.equal(decodeLatexMath("Explain the term."), "Explain the term.");
+  assert.equal(decodeLatexMath("\\therefore \\theta = 90\\degree"), "∴ θ = 90°");
+});
+
 test("the editors insert at the caret and the diagram upload opens the gallery", () => {
   const pageSource = readFileSync(
     join(root, "src/app/academics/question-papers/page.tsx"),
@@ -67,6 +81,7 @@ test("the editors insert at the caret and the diagram upload opens the gallery",
   assert.match(pageSource, /applyToFocusedField/);
   assert.match(pageSource, /insertAtSelection/);
   assert.match(pageSource, /applyScriptTransform/);
+  assert.match(pageSource, /decodeLatexMath\(question\.questionText\)/);
   // The old append-at-end insertion is gone.
   assert.doesNotMatch(
     pageSource,
