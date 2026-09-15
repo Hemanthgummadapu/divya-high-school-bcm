@@ -126,34 +126,98 @@ def choose_font_for_char(ch: str) -> str:
     # Geometric Shapes (△▲■□) — use NotoSansSymbols2
     if SYMBOL_FONT_LOADED and 0x25A0 <= code <= 0x25FF:
         return SYMBOL_FONT_FAMILY
+    # Combining marks for symbols (the \vec arrow U+20D7) — NotoSans has no
+    # glyph for these, NotoSansMath does. Plain combining marks (U+0300-036F,
+    # the \overline bar) stay in FONT_FAMILY, which carries them.
+    if MATH_FONT_LOADED and 0x20D0 <= code <= 0x20FF:
+        return MATH_FONT_FAMILY
     # Telugu
     if TELUGU_FONT_LOADED and 0x0C00 <= code <= 0x0C7F:
         return TELUGU_FONT_FAMILY
     return FONT_FAMILY
 
 
+def is_combining_mark(ch: str) -> bool:
+    """True for the zero-width marks decode_latex_math emits (\\overline, \\vec)."""
+    code = ord(ch)
+    return 0x0300 <= code <= 0x036F or 0x20D0 <= code <= 0x20FF
+
+
+OVERLINE_MARK = "̅"
+UNDERLINE_MARK = "̲"
+
+
 def draw_text_with_fallback(c, text: str, x: float, y: float, size: float = FONT_BODY):
-    """Draw text using per-character font fallback (e.g. NotoSans + NotoSansSymbols2)."""
+    """Draw text using per-character font fallback (e.g. NotoSans + NotoSansSymbols2).
+
+    Combining marks carry no advance width, so ReportLab would draw each one at
+    the pen position after its base letter — half a letter to the right of where
+    it belongs. Each mark is therefore positioned against its own base letter,
+    and the segment bars that decode_latex_math emits for \\overline are drawn as
+    a ruled line across the whole token: NotoSans's bar glyph is only 0.42em
+    wide, so tiling it over "AP" would leave a visible gap between the letters.
+    """
     if not text:
         return
-    run_font = None
-    run = ""
-    current_x = x
+
+    # Group into base letters, each carrying the marks that follow it.
+    cells = []
     for ch in text:
-        font_name = choose_font_for_char(ch)
+        if is_combining_mark(ch):
+            if cells:
+                cells[-1]["marks"].append(ch)
+            continue
+        cells.append({"ch": ch, "font": choose_font_for_char(ch), "marks": []})
+    if not cells:
+        return
+
+    # Draw the letters in same-font runs, recording where each one sits.
+    current_x = x
+    run = ""
+    run_font = None
+    run_x = x
+    for cell in cells:
         if run_font is None:
-            run_font = font_name
-        if font_name != run_font and run:
+            run_font = cell["font"]
+            run_x = current_x
+        if cell["font"] != run_font:
             c.setFont(run_font, size)
-            c.drawString(current_x, y, run)
-            current_x += c.stringWidth(run, run_font, size)
-            run = ch
-            run_font = font_name
-        else:
-            run += ch
+            c.drawString(run_x, y, run)
+            run = ""
+            run_font = cell["font"]
+            run_x = current_x
+        run += cell["ch"]
+        cell["x"] = current_x
+        cell["width"] = c.stringWidth(cell["ch"], cell["font"], size)
+        current_x += cell["width"]
     if run:
         c.setFont(run_font or FONT_FAMILY, size)
-        c.drawString(current_x, y, run)
+        c.drawString(run_x, y, run)
+
+    rules = {OVERLINE_MARK: [], UNDERLINE_MARK: []}
+    for cell in cells:
+        for mark in cell["marks"]:
+            if mark in rules:
+                rules[mark].append([cell["x"], cell["x"] + cell["width"]])
+            else:
+                # Hats and vector arrows are centred on their own origin.
+                c.setFont(choose_font_for_char(mark), size)
+                c.drawString(cell["x"] + cell["width"] / 2.0, y, mark)
+
+    if not rules[OVERLINE_MARK] and not rules[UNDERLINE_MARK]:
+        return
+    c.saveState()
+    c.setLineWidth(max(0.4, size * 0.071))
+    for mark, y_offset in ((OVERLINE_MARK, size * 0.80), (UNDERLINE_MARK, size * -0.14)):
+        merged = []
+        for start, end in sorted(rules[mark]):
+            if merged and start - merged[-1][1] < 0.25:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        for start, end in merged:
+            c.line(start, y + y_offset, end, y + y_offset)
+    c.restoreState()
 
 def wrap_text(c, text, width, font=None, size=FONT_BODY):
     """Return list of lines that fit in width."""
@@ -292,6 +356,124 @@ _LATEX_COMMANDS = (
 )
 
 
+# Accents that sit over the whole token: segment/ray bars, vectors, hats.
+# Longest command first so "\overline" is not matched as part of another name.
+# NotoSans carries U+0305/U+0332/U+0302; U+20D7 comes from NotoSansMath via
+# choose_font_for_char, so every mark below has a real glyph in the PDF.
+# "tile" repeats the mark on every character: adjacent bars join into one
+# continuous line over "AP". An arrow or a hat must not repeat \u2014 two arrows is
+# a different statement from one arrow over the pair \u2014 so it rides the last
+# character, which is the usual plain-text convention.
+_LATEX_ACCENTS = (
+    (r"\overrightarrow", "\u20D7", "last"),
+    (r"\overline", "\u0305", "tile"),
+    (r"\underline", "\u0332", "tile"),
+    (r"\widehat", "\u0302", "last"),
+    (r"\vec", "\u20D7", "last"),
+    (r"\bar", "\u0305", "tile"),
+    (r"\hat", "\u0302", "last"),
+)
+
+_SUPERSCRIPT_MAP = {
+    "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+    "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+    "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾",
+    "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ",
+    "h": "ʰ", "i": "ⁱ", "j": "ʲ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "n": "ⁿ",
+    "o": "ᵒ", "p": "ᵖ", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ", "v": "ᵛ",
+    "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ",
+}
+
+_SUBSCRIPT_MAP = {
+    "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+    "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+    "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎",
+    "a": "ₐ", "e": "ₑ", "h": "ₕ", "i": "ᵢ", "j": "ⱼ", "k": "ₖ", "l": "ₗ",
+    "m": "ₘ", "n": "ₙ", "o": "ₒ", "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ",
+    "u": "ᵤ", "v": "ᵥ", "x": "ₓ",
+}
+
+
+def _apply_combining_mark(text, mark, spread):
+    if spread == "tile":
+        return "".join(ch if ch.isspace() else ch + mark for ch in text)
+    chars = list(text)
+    last_visible = -1
+    for i, ch in enumerate(chars):
+        if not ch.isspace():
+            last_visible = i
+    if last_visible == -1:
+        return text
+    chars[last_visible] = chars[last_visible] + mark
+    return "".join(chars)
+
+
+def _replace_latex_accents(out):
+    for _ in range(8):
+        changed = False
+        for command, mark, spread in _LATEX_ACCENTS:
+            pattern = re.escape(command) + r"\s*\{([^{}]*)\}"
+            nxt = re.sub(
+                pattern,
+                lambda m, mark=mark, spread=spread: _apply_combining_mark(
+                    m.group(1), mark, spread
+                ),
+                out,
+            )
+            if nxt != out:
+                out = nxt
+                changed = True
+        if not changed:
+            break
+    return out
+
+
+def _to_script_strict(content, mode):
+    """Convert every character or return None.
+
+    A partly converted script would silently corrupt the formula, so a group
+    that cannot be fully mapped is left exactly as it was written.
+    """
+    table = _SUBSCRIPT_MAP if mode == "sub" else _SUPERSCRIPT_MAP
+    if not content:
+        return None
+    converted = []
+    for ch in content:
+        mapped = table.get(ch, table.get(ch.lower()))
+        if mapped is None:
+            return None
+        converted.append(mapped)
+    return "".join(converted)
+
+
+def _script_group(match):
+    mode = "sub" if match.group(1) == "_" else "sup"
+    return _to_script_strict(match.group(2), mode) or match.group(0)
+
+
+def _replace_latex_scripts(out):
+    # "^\circ" is the degree sign. It has to win before \circ becomes "○".
+    out = re.sub(r"\^\s*\{\s*\\circ\s*\}", "°", out)
+    out = re.sub(r"\^\s*\\circ(?![A-Za-z])", "°", out)
+    out = re.sub(r"([_^])\{([^{}]*)\}", _script_group, out)
+    out = re.sub(r"([_^])([A-Za-z0-9])", _script_group, out)
+    return out
+
+
+def _collapse_redundant_fraction_parens(out):
+    r"""Drop the outer pair left by "\left( \frac{a}{b} \right)".
+
+    It adds nothing once the fraction is bracketed, and doubled parentheses
+    are the hardest part of a scanned formula to read.
+    """
+    for _ in range(8):
+        nxt = re.sub(r"\(\s*(\([^()]*\)\s*/\s*\([^()]*\))\s*\)", r"\1", out)
+        if nxt == out:
+            break
+        out = nxt
+    return out
+
+
 def decode_latex_math(text):
     """Turn extracted LaTeX tokens such as \\theta into Unicode θ."""
     out = text or ""
@@ -303,9 +485,12 @@ def decode_latex_math(text):
         if nxt == out:
             break
         out = nxt
+    out = _replace_latex_accents(out)
     out = re.sub(r"\\left\s*", "", out)
     out = re.sub(r"\\right\s*", "", out)
+    out = _collapse_redundant_fraction_parens(out)
     out = out.replace(r"\,", " ").replace(r"\ ", " ")
+    out = _replace_latex_scripts(out)
     for command, symbol in _LATEX_COMMANDS:
         out = re.sub(re.escape(command) + r"(?![A-Za-z])", symbol, out)
     return out

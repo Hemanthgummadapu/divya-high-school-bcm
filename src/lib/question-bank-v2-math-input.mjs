@@ -94,6 +94,106 @@ function replaceLatexFractions(text) {
   return out;
 }
 
+// Accents that sit over the whole token: segment/ray bars, vectors, hats.
+// Longest command first so "\overline" is not matched as part of another name.
+// NotoSans (the question-paper PDF font) carries U+0305/U+0332/U+0302 and
+// NotoSansMath carries U+20D7, so every mark below survives into the PDF.
+// "tile" repeats the mark on every character: adjacent bars join into one
+// continuous line over "AP". An arrow or a hat must not repeat — two arrows
+// is a different statement from one arrow over the pair — so it rides the
+// last character, which is the usual plain-text convention.
+const LATEX_ACCENTS = Object.freeze([
+  ["overrightarrow", "⃗", "last"],
+  ["overline", "̅", "tile"],
+  ["underline", "̲", "tile"],
+  ["widehat", "̂", "last"],
+  ["vec", "⃗", "last"],
+  ["bar", "̅", "tile"],
+  ["hat", "̂", "last"],
+]);
+
+function applyCombiningMark(text, mark, spread) {
+  const chars = Array.from(String(text));
+  if (spread === "tile") {
+    return chars.map((ch) => (ch.trim() === "" ? ch : ch + mark)).join("");
+  }
+  let lastVisible = -1;
+  for (let i = 0; i < chars.length; i += 1) {
+    if (chars[i].trim() !== "") lastVisible = i;
+  }
+  if (lastVisible === -1) return chars.join("");
+  return chars.map((ch, i) => (i === lastVisible ? ch + mark : ch)).join("");
+}
+
+function replaceLatexAccents(text) {
+  let out = text;
+  for (let i = 0; i < 8; i += 1) {
+    let changed = false;
+    for (const [name, mark, spread] of LATEX_ACCENTS) {
+      const next = out.replace(
+        new RegExp(`\\\\${name}\\s*\\{([^{}]*)\\}`, "g"),
+        (_match, inner) => applyCombiningMark(inner, mark, spread),
+      );
+      if (next !== out) {
+        out = next;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
+/**
+ * Convert every character or return null. A partly converted script (say
+ * "f₁₀" losing a character that has no Unicode form) would silently corrupt
+ * the formula, so a group that cannot be fully mapped is left as written.
+ */
+function toScriptStrict(content, mode) {
+  const map = mapFor(mode);
+  const chars = Array.from(String(content));
+  if (chars.length === 0) return null;
+  const converted = [];
+  for (const ch of chars) {
+    const mapped = map[ch] ?? map[ch.toLowerCase()];
+    if (mapped === undefined) return null;
+    converted.push(mapped);
+  }
+  return converted.join("");
+}
+
+function replaceLatexScripts(text) {
+  let out = text;
+  // "^\circ" is the degree sign. It has to win before \circ becomes "○".
+  out = out.replace(/\^\s*\{\s*\\circ\s*\}/g, "°");
+  out = out.replace(/\^\s*\\circ(?![A-Za-z])/g, "°");
+  out = out.replace(/([_^])\{([^{}]*)\}/g, (match, marker, inner) => {
+    return toScriptStrict(inner, marker === "_" ? "sub" : "sup") ?? match;
+  });
+  out = out.replace(/([_^])([A-Za-z0-9])/g, (match, marker, ch) => {
+    return toScriptStrict(ch, marker === "_" ? "sub" : "sup") ?? match;
+  });
+  return out;
+}
+
+/**
+ * "\left( \frac{a}{b} \right)" decodes to "( (a)/(b) )". The outer pair adds
+ * nothing once the fraction is bracketed, and the doubled parentheses are the
+ * hardest part of a scanned formula to read.
+ */
+function collapseRedundantFractionParens(text) {
+  let out = text;
+  for (let i = 0; i < 8; i += 1) {
+    const next = out.replace(
+      /\(\s*(\([^()]*\)\s*\/\s*\([^()]*\))\s*\)/g,
+      "$1",
+    );
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
 /**
  * Turn common extracted LaTeX tokens into the Unicode symbols the rest of
  * the bank already uses (θ, not "\\theta"). Leaves ordinary text alone.
@@ -104,10 +204,13 @@ export function decodeLatexMath(text) {
   out = out.replace(/\$\$([\s\S]+?)\$\$/g, "$1");
   out = out.replace(/\$([^$]+)\$/g, "$1");
   out = replaceLatexFractions(out);
+  out = replaceLatexAccents(out);
   out = out.replace(/\\left\s*/g, "");
   out = out.replace(/\\right\s*/g, "");
+  out = collapseRedundantFractionParens(out);
   out = out.replace(/\\,/g, " ");
   out = out.replace(/\\ /g, " ");
+  out = replaceLatexScripts(out);
   for (const [command, symbol] of LATEX_COMMANDS) {
     const escaped = command.replace(/\\/g, "\\\\");
     out = out.replace(new RegExp(`${escaped}(?![A-Za-z])`, "g"), symbol);

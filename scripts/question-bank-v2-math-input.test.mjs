@@ -73,6 +73,35 @@ test("extracted LaTeX theta and fractions become the symbols the bank already us
   assert.equal(decodeLatexMath("\\therefore \\theta = 90\\degree"), "∴ θ = 90°");
 });
 
+test("scanned segment bars, scripts and fraction parentheses read like the source paper", () => {
+  // Tangent question: \overline used to leak through as literal LaTeX.
+  assert.equal(
+    decodeLatexMath(
+      "If \\overline{AP} and \\overline{AQ} are tangents, \\angle PAQ = 105^\\circ",
+    ),
+    "If A̅P̅ and A̅Q̅ are tangents, ∠ PAQ = 105°",
+  );
+  // Mode formula: real subscripts, and one pair of parentheses, not two.
+  assert.equal(
+    decodeLatexMath(
+      "Mode = l + \\left( \\frac{f_1 - f_0}{2f_1 - f_0 - f_2} \\right) \\times h",
+    ),
+    "Mode = l + (f₁ - f₀)/(2f₁ - f₀ - f₂) × h",
+  );
+  // A bar tiles into one continuous line; an arrow rides the last character
+  // only, because two arrows would say something the source never said.
+  assert.equal(decodeLatexMath("\\overline{AB}"), "A̅B̅");
+  assert.equal(decodeLatexMath("\\vec{AB}"), "AB⃗");
+  assert.equal(decodeLatexMath("\\hat{n} and \\bar{x}"), "n̂ and x̅");
+  // Braced and bare scripts both convert; ^\circ is degrees, never a ring.
+  assert.equal(decodeLatexMath("\\theta x^{2} + y_{10} + z_3"), "θ x² + y₁₀ + z₃");
+  // A group that cannot be fully mapped is left exactly as written rather
+  // than half-converted into a formula that means something else.
+  assert.equal(decodeLatexMath("\\theta x^{q+1}"), "θ x^{q+1}");
+  // Parentheses that are not a lone fraction keep their grouping.
+  assert.equal(decodeLatexMath("\\theta (a + (b)/(c))"), "θ (a + (b)/(c))");
+});
+
 test("the editors insert at the caret and the diagram upload opens the gallery", () => {
   const pageSource = readFileSync(
     join(root, "src/app/academics/question-papers/page.tsx"),
