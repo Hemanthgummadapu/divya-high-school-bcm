@@ -520,7 +520,18 @@ test("UI uses V2 views and does not present local-only or hard-delete success", 
   assert.match(pageSource, /No approved questions match these filters/);
   assert.match(pageSource, /No uploaded PDFs yet/);
   assert.doesNotMatch(pageSource, /Clear All Questions/);
-  assert.doesNotMatch(pageSource, /method:\s*["']DELETE["']/);
+  // Removing is allowed now, but only against the V2 question-papers route,
+  // only behind an explicit confirm, and it never claims a local-only success.
+  assert.match(pageSource, /method:\s*["']DELETE["']/);
+  assert.match(pageSource, /confirmRemoveId/);
+  assert.match(pageSource, /Yes, remove/);
+  assert.match(pageSource, /stay in the Question Bank/);
+  for (const call of pageSource.matchAll(/fetch\(\s*`([^`]+)`[\s\S]{0,120}?method:\s*"DELETE"/g)) {
+    assert.ok(
+      call[1].startsWith("/api/question-papers/"),
+      `DELETE must target the V2 route, saw ${call[1]}`,
+    );
+  }
   assert.doesNotMatch(pageSource, /\/api\/question-papers\/generate-pdf/);
   assert.doesNotMatch(pageSource, /\/api\/questions\/generate/);
   assert.doesNotMatch(pageSource, /data\.paper\.questions/);
@@ -555,8 +566,19 @@ test("legacy tables are not written or deleted by V2 review routes", () => {
     assert.doesNotMatch(source, /\.from\(\s*["']question_papers["']\)/);
     assert.doesNotMatch(source, /\.from\(\s*["']generated_pdfs["']\)/);
   }
+  // Bulk delete stays refused. The per-resource DELETE archives through the
+  // database routine and never hard-deletes a row or touches a legacy table.
   assert.match(handler(listRoute, "DELETE"), /status: 405/);
-  assert.match(handler(sourceRoute, "DELETE"), /status: 405/);
+  const sourceDelete = handler(sourceRoute, "DELETE");
+  assert.match(sourceDelete, /requireQuestionPaperApiAccess/);
+  assert.match(sourceDelete, /archiveV2Source/);
+  assert.match(sourceDelete, /archiveSavedPaper/);
+  assert.doesNotMatch(sourceDelete, /\.delete\(/);
+  assert.match(reviewApi, /archive_question_source/);
+  assert.doesNotMatch(
+    reviewApi.slice(reviewApi.indexOf("archiveV2Source")),
+    /\.delete\(|\.from\(\s*["']question_bank_questions["']\)/,
+  );
   assert.match(handler(sourceRoute, "POST"), /status: 410/);
   assert.doesNotMatch(handler(listRoute, "GET"), /from\("questions"\)/);
   assert.match(handler(listRoute, "GET"), /listV2Questions|listV2Sources/);

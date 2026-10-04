@@ -299,7 +299,8 @@ test("saved papers list drafts with filters and never leak storage paths", () =>
   assert.match(paperApi, /ilike\("title"/);
   assert.match(
     paperApi,
-    /\.in\(\s*["']status["'],\s*\[["']draft["'],\s*["']final["'],\s*["']archived["']\]/,
+    // Retired papers are archived, so the default list is drafts and finals.
+    /\.in\(\s*["']status["'],\s*\[["']draft["'],\s*["']final["']\]/,
   );
   const publicShape = publicSavedPaper({
     id: PAPER,

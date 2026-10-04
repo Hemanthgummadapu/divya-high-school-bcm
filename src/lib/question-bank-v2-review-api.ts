@@ -205,7 +205,10 @@ export async function listV2Sources(filters: ListQuery): Promise<{
   if (filters.grade != null) query = query.eq("grade", filters.grade);
   if (filters.subject) query = query.eq("subject", filters.subject);
   if (filters.year != null) query = query.eq("academic_year", filters.year);
+  // Archived sources are retired uploads: out of the list unless asked for
+  // by name, so retiring one actually clears it off the screen.
   if (filters.status) query = query.eq("extraction_status", filters.status);
+  else query = query.neq("extraction_status", "archived");
   const { data, error, count } = await query
     .order("created_at", { ascending: false })
     .order("id", { ascending: true })
@@ -394,4 +397,55 @@ export async function createManualV2Question(input: {
   if (error || !data) throw new Error("question_create_failed");
   const [question] = await toPublicQuestions([data as QuestionRow]);
   return question;
+}
+
+/**
+ * Retire an uploaded source: hide it from the Sources list and release the
+ * stored PDF. The questions extracted from it deliberately stay in the bank —
+ * they are the reason the file was uploaded, and question_bank_questions
+ * references the source with ON DELETE RESTRICT.
+ *
+ * The row is archived first and the object dropped second. If the drop fails
+ * the source is still gone from the list and the caller can repeat the
+ * request: the archive is idempotent and still reports the path, so a retry
+ * finishes the cleanup rather than reporting success over a stranded file.
+ */
+export async function archiveV2Source(sourceId: string): Promise<{
+  sourceId: string;
+  keptQuestionCount: number;
+  fileRemoved: boolean;
+}> {
+  requireSupabaseConfig();
+  const { data, error } = await getSupabase().rpc("archive_question_source", {
+    p_source_id: sourceId,
+  });
+  if (error) {
+    const message = String(error.message ?? "");
+    if (message.includes("source_not_found")) {
+      throw Object.assign(new Error("source_not_found"), { status: 404 });
+    }
+    if (message.includes("source_is_processing")) {
+      throw Object.assign(new Error("source_is_processing"), { status: 409 });
+    }
+    throw new Error("source_archive_failed");
+  }
+  const result = (data ?? {}) as {
+    storage_path?: string | null;
+    kept_question_count?: number | null;
+  };
+  const storedPath =
+    typeof result.storage_path === "string" ? result.storage_path : null;
+  const prefix = `${SOURCE_PDF_BUCKET}/`;
+  let fileRemoved = false;
+  if (storedPath && storedPath.startsWith(prefix)) {
+    const { error: removeError } = await getSupabase()
+      .storage.from(SOURCE_PDF_BUCKET)
+      .remove([storedPath.slice(prefix.length)]);
+    fileRemoved = !removeError;
+  }
+  return {
+    sourceId,
+    keptQuestionCount: Number(result.kept_question_count ?? 0),
+    fileRemoved,
+  };
 }

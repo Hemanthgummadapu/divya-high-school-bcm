@@ -340,6 +340,8 @@ export default function QuestionPapers() {
   const lastNameSuggestionRef = useRef("");
   const [renamingSourceId, setRenamingSourceId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState<UploadStage>(null);
@@ -1419,6 +1421,59 @@ export default function QuestionPapers() {
     }
   };
 
+  /**
+   * Retire an upload. The stored PDF goes and the source leaves this list;
+   * every question already extracted from it stays in the Question Bank, so
+   * this is a tidy-up rather than a loss of reviewed work.
+   */
+  const handleRemoveSource = async (sourceId: string) => {
+    setMutating(true);
+    setRemoveError(null);
+    try {
+      const response = await fetch(`/api/question-papers/${sourceId}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setRemoveError(data.error || "The paper could not be removed");
+        return;
+      }
+      setSources((current) =>
+        current.filter((source) => source.id !== sourceId),
+      );
+      setConfirmRemoveId(null);
+    } catch {
+      setRemoveError("The paper could not be removed");
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  /** Retire a saved paper and release its generated PDF. */
+  const handleRemovePaper = async (paperId: string) => {
+    setMutating(true);
+    setRemoveError(null);
+    try {
+      const response = await fetch(
+        `/api/question-papers/${paperId}?resource=paper`,
+        { method: "DELETE" },
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setRemoveError(data.error || "The paper could not be removed");
+        return;
+      }
+      setSavedPapers((current) =>
+        current.filter((paper) => paper.id !== paperId),
+      );
+      setConfirmRemoveId(null);
+    } catch {
+      setRemoveError("The paper could not be removed");
+    } finally {
+      setMutating(false);
+    }
+  };
+
   useEffect(() => {
     if (view !== "bank" || !sourceFilter || loading) return;
     if (!sourceOptions.some((option) => option.id === sourceFilter)) {
@@ -2400,6 +2455,52 @@ export default function QuestionPapers() {
                         >
                           Rename
                         </button>
+                        {confirmRemoveId === source.id ? (
+                          <>
+                            <span className="self-center text-sm text-slate-700">
+                              Remove this paper? Its{" "}
+                              {source.savedQuestionCount} question
+                              {source.savedQuestionCount === 1 ? "" : "s"}{" "}
+                              stay in the Question Bank.
+                            </span>
+                            <button
+                              type="button"
+                              disabled={mutating}
+                              className={primaryButtonClass}
+                              onClick={() => handleRemoveSource(source.id)}
+                            >
+                              Yes, remove
+                            </button>
+                            <button
+                              type="button"
+                              disabled={mutating}
+                              className={secondaryButtonClass}
+                              onClick={() => {
+                                setConfirmRemoveId(null);
+                                setRemoveError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            {removeError && (
+                              <span className="self-center text-sm text-rose-700">
+                                {removeError}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={secondaryButtonClass}
+                            onClick={() => {
+                              setConfirmRemoveId(source.id);
+                              setRemoveError(null);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
                         {shouldRenderRetryButton(source, {
                           retryingSourceId,
                           lockedSourceIds: retryLockedIds,
@@ -2686,6 +2787,50 @@ export default function QuestionPapers() {
                             View questions
                           </button>
                         </>
+                      )}
+                      {confirmRemoveId === paper.id ? (
+                        <>
+                          <span className="self-center text-sm text-slate-700">
+                            Remove this paper? Its questions stay in the
+                            Question Bank.
+                          </span>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={primaryButtonClass}
+                            onClick={() => handleRemovePaper(paper.id)}
+                          >
+                            Yes, remove
+                          </button>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={secondaryButtonClass}
+                            onClick={() => {
+                              setConfirmRemoveId(null);
+                              setRemoveError(null);
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          {removeError && (
+                            <span className="self-center text-sm text-rose-700">
+                              {removeError}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={mutating}
+                          className={secondaryButtonClass}
+                          onClick={() => {
+                            setConfirmRemoveId(paper.id);
+                            setRemoveError(null);
+                          }}
+                        >
+                          Remove
+                        </button>
                       )}
                     </div>
                   </li>

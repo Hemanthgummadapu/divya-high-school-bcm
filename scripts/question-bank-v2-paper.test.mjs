@@ -242,7 +242,8 @@ test("canonical generate route is the only writer and retired routes return 410"
   assert.match(paperApi, /diagramStatus/);
   assert.match(
     paperApi,
-    /\.in\(\s*["']status["'],\s*\[["']draft["'],\s*["']final["'],\s*["']archived["']\]/,
+    // Retired papers are archived, so the default list is drafts and finals.
+    /\.in\(\s*["']status["'],\s*\[["']draft["'],\s*["']final["']\]/,
   );
   assert.match(paperApi, /generatedPaperObjectKey/);
   assert.match(paperApi, /storedPath\.slice\(`\$\{GENERATED_PAPERS_BUCKET\}\/`/);

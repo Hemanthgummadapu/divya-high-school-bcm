@@ -194,7 +194,8 @@ export async function listSavedPapers(filters: {
   } else if (filters.status) {
     query = query.eq("status", filters.status);
   } else {
-    query = query.in("status", ["draft", "final", "archived"]);
+    // Archived papers are retired: visible only when asked for by name.
+    query = query.in("status", ["draft", "final"]);
   }
   // Drafts sort by their own recency; finalized papers by finalization.
   const { data, error, count } = await query
@@ -542,4 +543,44 @@ export async function getSavedPaperDetail(paperId: string) {
     }),
     pdfUrl,
   };
+}
+
+/**
+ * Retire a saved paper: hide it from Saved Papers and release its generated
+ * PDF. The paper's items are left in place, so the questions stay in the bank
+ * and the record of what the paper contained survives. A finalized paper may
+ * be retired this way but stays immutable in every way that changes what it
+ * says — the database refuses any archive that also edits its content.
+ */
+export async function archiveSavedPaper(paperId: string): Promise<{
+  paperId: string;
+  fileRemoved: boolean;
+}> {
+  requireSupabaseConfig();
+  const { data, error } = await getSupabase().rpc(
+    "archive_saved_question_paper",
+    { p_paper_id: paperId },
+  );
+  if (error) {
+    const message = String(error.message ?? "");
+    if (message.includes("paper_not_found")) {
+      throw Object.assign(new Error("paper_not_found"), { status: 404 });
+    }
+    if (message.includes("immutable")) {
+      throw Object.assign(new Error("paper_is_immutable"), { status: 409 });
+    }
+    throw new Error("paper_archive_failed");
+  }
+  const result = (data ?? {}) as { storage_path?: string | null };
+  const storedPath =
+    typeof result.storage_path === "string" ? result.storage_path : null;
+  const prefix = `${GENERATED_PAPERS_BUCKET}/`;
+  let fileRemoved = false;
+  if (storedPath && storedPath.startsWith(prefix)) {
+    const { error: removeError } = await getSupabase()
+      .storage.from(GENERATED_PAPERS_BUCKET)
+      .remove([storedPath.slice(prefix.length)]);
+    fileRemoved = !removeError;
+  }
+  return { paperId, fileRemoved };
 }

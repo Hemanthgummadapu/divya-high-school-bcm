@@ -10,8 +10,13 @@ import {
   isUuid,
   parsePositiveInt,
 } from "@/lib/question-bank-v2-review.mjs";
-import { getV2SourceDetail, renameV2Source } from "@/lib/question-bank-v2-review-api";
 import {
+  archiveV2Source,
+  getV2SourceDetail,
+  renameV2Source,
+} from "@/lib/question-bank-v2-review-api";
+import {
+  archiveSavedPaper,
   getPaperComposition,
   getSavedPaperDetail,
 } from "@/lib/question-bank-v2-paper-api";
@@ -246,7 +251,7 @@ export async function DELETE(
     mutation: true,
   });
   if (!authorization.ok) return authorization.response;
-  if (!isSafeQuestionPaperResourceId(params.id)) {
+  if (!isSafeQuestionPaperResourceId(params.id) || !isUuid(params.id)) {
     return NextResponse.json(
       {
         success: false,
@@ -256,12 +261,64 @@ export async function DELETE(
       { status: 422, headers: { "Cache-Control": "no-store" } },
     );
   }
-  return NextResponse.json(
-    {
-      success: false,
-      error: "Sources cannot be deleted from this screen",
-      requestId: authorization.requestId,
-    },
-    { status: 405, headers: { "Cache-Control": "no-store" } },
-  );
+  const { requestId } = authorization;
+  const resource = request.nextUrl.searchParams.get("resource");
+
+  try {
+    // Retiring, not erasing: the upload leaves the list and its stored file is
+    // released, while the questions it produced stay in the bank.
+    if (resource === "paper") {
+      const paper = await archiveSavedPaper(params.id);
+      return NextResponse.json(
+        {
+          success: true,
+          paperId: paper.paperId,
+          fileRemoved: paper.fileRemoved,
+          requestId,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const source = await archiveV2Source(params.id);
+    return NextResponse.json(
+      {
+        success: true,
+        sourceId: source.sourceId,
+        keptQuestionCount: source.keptQuestionCount,
+        fileRemoved: source.fileRemoved,
+        requestId,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    const code = String((error as Error)?.message ?? "");
+    if ((error as { status?: number })?.status === 404) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: resource === "paper" ? "Paper not found" : "Source not found",
+          requestId,
+        },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (code === "source_is_processing") {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "This upload is still being read. Wait for it to finish, then remove it.",
+          requestId,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (code === "paper_is_immutable") {
+      return NextResponse.json(
+        { success: false, error: "This paper cannot be removed.", requestId },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return questionPaperServerError(requestId);
+  }
 }

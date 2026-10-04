@@ -81,12 +81,26 @@ const LATEX_COMMANDS = Object.freeze([
   ["\\lim", "lim"],
 ]);
 
+// A single run of letters, digits, scripts, accents or dots ("n", "f₁",
+// "c.f.", "x̅") already binds tighter than the slash, so wrapping it would
+// only add noise: "n/2" reads, "(n)/(2)" does not. Anything carrying an
+// operator or a space keeps its parentheses, which is what holds
+// "(f₁ - f₀)/(2f₁ - f₀ - f₂)" together.
+const FRACTION_ATOM = /^[\p{L}\p{N}.̀-ͯ⃐-⃿⁰-ₜ]+$/u;
+
+function wrapFractionOperand(operand) {
+  const trimmed = operand.trim();
+  return FRACTION_ATOM.test(trimmed) ? trimmed : `(${trimmed})`;
+}
+
 function replaceLatexFractions(text) {
   let out = text;
+  // Innermost first, so "\frac{\frac{n}{2} - c.f.}{f}" resolves outwards.
   for (let i = 0; i < 8; i += 1) {
     const next = out.replace(
       /\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g,
-      "($1)/($2)",
+      (_match, numerator, denominator) =>
+        `${wrapFractionOperand(numerator)}/${wrapFractionOperand(denominator)}`,
     );
     if (next === out) break;
     out = next;
@@ -203,14 +217,18 @@ export function decodeLatexMath(text) {
   if (!out.includes("\\") && !out.includes("$")) return out;
   out = out.replace(/\$\$([\s\S]+?)\$\$/g, "$1");
   out = out.replace(/\$([^$]+)\$/g, "$1");
-  out = replaceLatexFractions(out);
+  // Accents and scripts resolve first so a fraction sees plain operands:
+  // "\frac{\bar{x}}{n}" has braces the fraction pattern cannot span, and
+  // "\frac{f_1}{f_2}" would otherwise be measured as "f_1" rather than "f₁"
+  // and pick up parentheses it does not need.
   out = replaceLatexAccents(out);
+  out = replaceLatexScripts(out);
+  out = replaceLatexFractions(out);
   out = out.replace(/\\left\s*/g, "");
   out = out.replace(/\\right\s*/g, "");
   out = collapseRedundantFractionParens(out);
   out = out.replace(/\\,/g, " ");
   out = out.replace(/\\ /g, " ");
-  out = replaceLatexScripts(out);
   for (const [command, symbol] of LATEX_COMMANDS) {
     const escaped = command.replace(/\\/g, "\\\\");
     out = out.replace(new RegExp(`${escaped}(?![A-Za-z])`, "g"), symbol);

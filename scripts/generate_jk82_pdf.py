@@ -460,6 +460,45 @@ def _replace_latex_scripts(out):
     return out
 
 
+def _is_fraction_atom(operand):
+    """True for a single run that already binds tighter than the slash.
+
+    "n", "f₁", "c.f." and "x̅" need no parentheses: "n/2" reads where
+    "(n)/(2)" does not. Anything carrying an operator or a space keeps them,
+    which is what holds "(f₁ - f₀)/(2f₁ - f₀ - f₂)" together.
+    """
+    if not operand:
+        return False
+    for ch in operand:
+        if ch.isalnum() or ch == ".":
+            continue
+        if 0x0300 <= ord(ch) <= 0x036F or 0x20D0 <= ord(ch) <= 0x20FF:
+            continue
+        return False
+    return True
+
+
+def _wrap_fraction_operand(operand):
+    trimmed = operand.strip()
+    return trimmed if _is_fraction_atom(trimmed) else "(" + trimmed + ")"
+
+
+def _replace_latex_fractions(out):
+    # Innermost first, so "\frac{\frac{n}{2} - c.f.}{f}" resolves outwards.
+    for _ in range(8):
+        nxt = re.sub(
+            r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}",
+            lambda m: _wrap_fraction_operand(m.group(1))
+            + "/"
+            + _wrap_fraction_operand(m.group(2)),
+            out,
+        )
+        if nxt == out:
+            break
+        out = nxt
+    return out
+
+
 def _collapse_redundant_fraction_parens(out):
     r"""Drop the outer pair left by "\left( \frac{a}{b} \right)".
 
@@ -480,17 +519,17 @@ def decode_latex_math(text):
     if "\\" not in out and "$" not in out:
         return out
     out = out.replace("$$", "").replace("$", "")
-    for _ in range(8):
-        nxt = re.sub(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}", r"(\1)/(\2)", out)
-        if nxt == out:
-            break
-        out = nxt
+    # Accents and scripts resolve first so a fraction sees plain operands:
+    # "\frac{\bar{x}}{n}" has braces the fraction pattern cannot span, and
+    # "\frac{f_1}{f_2}" would otherwise be measured as "f_1" rather than "f₁"
+    # and pick up parentheses it does not need.
     out = _replace_latex_accents(out)
+    out = _replace_latex_scripts(out)
+    out = _replace_latex_fractions(out)
     out = re.sub(r"\\left\s*", "", out)
     out = re.sub(r"\\right\s*", "", out)
     out = _collapse_redundant_fraction_parens(out)
     out = out.replace(r"\,", " ").replace(r"\ ", " ")
-    out = _replace_latex_scripts(out)
     for command, symbol in _LATEX_COMMANDS:
         out = re.sub(re.escape(command) + r"(?![A-Za-z])", symbol, out)
     return out

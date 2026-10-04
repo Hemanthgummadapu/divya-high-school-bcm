@@ -43,6 +43,8 @@ const dangerousMarkers = [
   "claimFailedSourceForRetry(",
   "inspectRetryEligibility(",
   "downloadSourcePdfBytes(",
+  "archiveV2Source(",
+  "archiveSavedPaper(",
 ];
 
 async function collectSourceFiles(directory) {
