@@ -16,7 +16,12 @@ import {
   shouldRenderFailedPageRetryButton,
   shouldRenderRetryButton,
 } from "@/lib/question-bank-v2-retry.mjs";
-import { ALL_GRADES, ALL_YEARS, getSubjectsForGrade } from "@/lib/subjects";
+import {
+  ALL_GRADES,
+  ALL_YEARS,
+  getSubjectsForGrade,
+  listSupportedSubjects,
+} from "@/lib/subjects";
 import { uploadResultMessage } from "@/lib/question-bank-v2-review-ui.mjs";
 import {
   detectSelectionConflicts,
@@ -370,9 +375,26 @@ export default function QuestionPapers() {
   const currentReview = questions[reviewIndex] ?? null;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const reviewPosition = (page - 1) * pageSize + reviewIndex + 1;
+  // Without a class the list used to offer no subjects at all, so the filter
+  // sat disabled while the list showed every subject mixed together. Subject
+  // now narrows on its own; picking a class just shortens the options.
   const filterSubjects = filters.grade
     ? getSubjectsForGrade(parseInt(filters.grade, 10))
-    : [];
+    : listSupportedSubjects();
+
+  /**
+   * A paper can hold one class and subject only. Once the first question is
+   * picked the bank narrows to match it, so the rest of the list cannot offer
+   * questions that would be refused later at Prepare Paper.
+   */
+  const selectionScope = useMemo(() => {
+    const picked = Array.from(selectedMap.values());
+    if (picked.length === 0) return null;
+    const grades = [...new Set(picked.map((question) => question.grade))];
+    const subjects = [...new Set(picked.map((question) => question.subject))];
+    if (grades.length !== 1 || subjects.length !== 1) return null;
+    return { grade: String(grades[0]), subject: subjects[0] };
+  }, [selectedMap]);
   const addSubjects = addMeta.grade
     ? getSubjectsForGrade(parseInt(addMeta.grade, 10))
     : [];
@@ -396,8 +418,13 @@ export default function QuestionPapers() {
         page: String(page),
         pageSize: String(pageSize),
       });
-      if (filters.subject) params.set("subject", filters.subject);
-      if (filters.grade) params.set("grade", filters.grade);
+      // The bank is the selection screen, so a live selection pins the class
+      // and subject there; every other view keeps the chosen filters.
+      const scope = view === "bank" ? selectionScope : null;
+      const scopedSubject = scope ? scope.subject : filters.subject;
+      const scopedGrade = scope ? scope.grade : filters.grade;
+      if (scopedSubject) params.set("subject", scopedSubject);
+      if (scopedGrade) params.set("grade", scopedGrade);
       if (filters.year) params.set("year", filters.year);
       if (view === "bank" || view === "review") {
         if (filters.type) params.set("type", filters.type);
@@ -443,7 +470,15 @@ export default function QuestionPapers() {
     } finally {
       setLoading(false);
     }
-  }, [filters, page, pageSize, savedStatusFilter, sourceFilter, view]);
+  }, [
+    filters,
+    page,
+    pageSize,
+    savedStatusFilter,
+    selectionScope,
+    sourceFilter,
+    view,
+  ]);
 
   const fetchReviewCount = useCallback(async (): Promise<number> => {
     try {
@@ -1859,7 +1894,8 @@ export default function QuestionPapers() {
                   </label>
                   <select
                     id="filter-grade"
-                    value={filters.grade}
+                    value={selectionScope ? selectionScope.grade : filters.grade}
+                    disabled={Boolean(selectionScope)}
                     onChange={(event) => {
                       setFilters({ ...filters, grade: event.target.value, subject: "" });
                       setPage(1);
@@ -1880,8 +1916,8 @@ export default function QuestionPapers() {
                   </label>
                   <select
                     id="filter-subject"
-                    value={filters.subject}
-                    disabled={!filters.grade}
+                    value={selectionScope ? selectionScope.subject : filters.subject}
+                    disabled={Boolean(selectionScope)}
                     onChange={(event) => {
                       setFilters({ ...filters, subject: event.target.value });
                       setPage(1);
@@ -2051,6 +2087,14 @@ export default function QuestionPapers() {
                     </button>
                   </div>
                 </div>
+                {selectionScope && (
+                  <p className="mt-2 text-sm text-slate-700">
+                    Showing Class {selectionScope.grade} ·{" "}
+                    {selectionScope.subject} to match the questions you have
+                    picked. A paper can hold one class and subject only — clear
+                    the selection to browse everything again.
+                  </p>
+                )}
                 {(selectionNotice || !selectionConflict.ok) && selectedCount > 0 && (
                   <p className="mt-2 text-sm text-red-700" role="alert">
                     A question paper can contain questions from only one class and
@@ -2610,7 +2654,6 @@ export default function QuestionPapers() {
                 <select
                   id="saved-subject"
                   value={filters.subject}
-                  disabled={!filters.grade}
                   onChange={(event) => {
                     setFilters({ ...filters, subject: event.target.value });
                     setPage(1);

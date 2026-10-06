@@ -35,6 +35,23 @@ export function isSupportedSubject(subject) {
   return ALL_GRADES.some((grade) => isValidSubjectForGrade(subject, grade));
 }
 
+/**
+ * Every subject offered by any class, in catalogue order. The filters use this
+ * when no class is chosen, so Subject can narrow a list on its own instead of
+ * sitting disabled while the list shows every subject at once.
+ */
+export function listSupportedSubjects() {
+  const seen = [];
+  for (const grade of ALL_GRADES) {
+    for (const subject of SUBJECTS_BY_GRADE[grade]) {
+      if (!EXCLUDED_RELEASE_SUBJECTS.includes(subject) && !seen.includes(subject)) {
+        seen.push(subject);
+      }
+    }
+  }
+  return seen;
+}
+
 export function listSupportedGradeSubjectPairs() {
   const pairs = [];
   for (const grade of ALL_GRADES) {

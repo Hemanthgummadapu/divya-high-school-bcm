@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync, existsSync } from "node:fs";
+import {
+  isSupportedSubject,
+  listSupportedSubjects,
+} from "../src/lib/subjects.mjs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -320,6 +324,45 @@ test("retry, signing, and generated-PDF bounds reject unsafe input", () => {
   assert.notEqual(pdfStatusLabel({ status: "final" }), "Generating");
   assert.equal(generatedPaperObjectKey(PAPER, EXPORT), `${PAPER}/${EXPORT}.pdf`);
   assert.doesNotMatch(generatedPaperObjectKey(PAPER, EXPORT), /^generated-papers\//);
+});
+
+test("selecting a question narrows the bank to its class and subject", () => {
+  const page = readFileSync(
+    join(root, "src/app/academics/question-papers/page.tsx"),
+    "utf8",
+  );
+  // The bank is the selection screen. A live selection pins class and subject
+  // there, so the list cannot keep offering questions a paper could not hold.
+  assert.match(page, /const selectionScope = useMemo/);
+  assert.match(page, /const scope = view === "bank" \? selectionScope : null/);
+  assert.match(page, /scope \? scope\.subject : filters\.subject/);
+  assert.match(page, /scope \? scope\.grade : filters\.grade/);
+  // The pinned filters are shown as pinned, with the way out spelled out.
+  assert.match(page, /disabled=\{Boolean\(selectionScope\)\}/);
+  assert.match(page, /to match the questions you have/);
+  // Subject no longer waits on a class: it used to sit disabled with no
+  // options while the list showed every subject at once.
+  assert.match(page, /: listSupportedSubjects\(\)/);
+  assert.doesNotMatch(page, /id="filter-subject"[\s\S]{0,120}disabled=\{!filters\.grade\}/);
+  assert.doesNotMatch(page, /id="saved-subject"[\s\S]{0,120}disabled=\{!filters\.grade\}/);
+});
+
+test("the subject catalogue offers every subject when no class is chosen", () => {
+  const all = listSupportedSubjects();
+  assert.deepEqual(all, [
+    "English",
+    "Mathematics",
+    "Science",
+    "Social Studies",
+    "Physics",
+    "Biology",
+  ]);
+  // Every one of them has to survive the server's own filter validation,
+  // otherwise choosing it would 400 instead of narrowing the list.
+  for (const subject of all) {
+    assert.ok(isSupportedSubject(subject), `${subject} must be filterable`);
+  }
+  assert.ok(!all.includes("Telugu"), "excluded subjects stay out");
 });
 
 test("mixed-class helper blocks the builder", () => {

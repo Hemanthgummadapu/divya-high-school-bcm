@@ -7,4 +7,5 @@ export {
   isSupportedSubject,
   isValidSubjectForGrade,
   listSupportedGradeSubjectPairs,
+  listSupportedSubjects,
 } from "./subjects.mjs";
