@@ -198,8 +198,10 @@ function replaceLatexScripts(text) {
 function collapseRedundantFractionParens(text) {
   let out = text;
   for (let i = 0; i < 8; i += 1) {
+    // Either side may now be a bare atom ("(a+b)/c"), so match a group or a
+    // single run on each side of the slash and nothing else inside the pair.
     const next = out.replace(
-      /\(\s*(\([^()]*\)\s*\/\s*\([^()]*\))\s*\)/g,
+      /\(\s*((?:\([^()]*\)|[^()\s/]+)\s*\/\s*(?:\([^()]*\)|[^()\s/]+))\s*\)/g,
       "$1",
     );
     if (next === out) break;
@@ -224,8 +226,11 @@ export function decodeLatexMath(text) {
   out = replaceLatexAccents(out);
   out = replaceLatexScripts(out);
   out = replaceLatexFractions(out);
-  out = out.replace(/\\left\s*/g, "");
-  out = out.replace(/\\right\s*/g, "");
+  // Only the sizing commands. Without the guard "\\rightarrow" lost its
+  // "\\right" and every reaction arrow in a chemistry paper was left reading
+  // as the bare word "arrow".
+  out = out.replace(/\\left(?![A-Za-z])\s*/g, "");
+  out = out.replace(/\\right(?![A-Za-z])\s*/g, "");
   out = collapseRedundantFractionParens(out);
   out = out.replace(/\\,/g, " ");
   out = out.replace(/\\ /g, " ");

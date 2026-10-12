@@ -365,6 +365,32 @@ test("the subject catalogue offers every subject when no class is chosen", () =>
   assert.ok(!all.includes("Telugu"), "excluded subjects stay out");
 });
 
+test("generated papers set options two to a row and give figures room", () => {
+  const generator = readFileSync(
+    join(root, "scripts/generate_jk82_pdf.py"),
+    "utf8",
+  );
+  // Options are laid A B / C D the way the printed papers set them, instead
+  // of one per line down the page.
+  assert.match(generator, /def draw_option_grid\(/);
+  assert.match(generator, /y = draw_option_grid\(/);
+  assert.doesNotMatch(
+    generator,
+    /for opt in option_lines\(q\.get\("options"\) or \[\]\):/,
+  );
+  // A long option keeps the full width and wraps rather than running under
+  // its neighbour.
+  assert.match(generator, /if not fits_two_up:/);
+  // Figures: the box is no longer a third of the page, and a small crop is
+  // allowed to grow instead of being drawn at its own pixel size.
+  assert.match(generator, /DIAGRAM_MAX_W = 170/);
+  assert.match(generator, /DIAGRAM_MAX_H = 140/);
+  assert.match(generator, /MAX_DIAGRAM_UPSCALE = 1\.5/);
+  assert.match(generator, /min\(max_w \/ iw, max_h \/ ih, MAX_DIAGRAM_UPSCALE\)/);
+  // Text beside a figure still has to fit next to the wider box.
+  assert.match(generator, /TEXT_WIDTH_RATIO_WITH_DIAGRAM = 0\.62/);
+});
+
 test("mixed-class helper blocks the builder", () => {
   const conflict = detectSelectionConflicts([
     { grade: 9, subject: "Mathematics" },

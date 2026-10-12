@@ -102,6 +102,20 @@ test("scanned segment bars, scripts and fraction parentheses read like the sourc
   assert.equal(decodeLatexMath("\\theta (a + (b)/(c))"), "θ (a + (b)/(c))");
 });
 
+test("reaction arrows survive the \\left and \\right strippers", () => {
+  // "\\rightarrow" used to lose its "\\right" and read as the bare word
+  // "arrow", so every chemical equation on a scanned paper was wrong.
+  assert.equal(
+    decodeLatexMath("X AgCl \\rightarrow Y Ag + Cl_2"),
+    "X AgCl → Y Ag + Cl₂",
+  );
+  assert.equal(decodeLatexMath("A \\leftarrow B"), "A ← B");
+  assert.equal(decodeLatexMath("A \\Leftrightarrow B"), "A ⇔ B");
+  // The sizing commands themselves are still removed.
+  assert.equal(decodeLatexMath("\\left( \\frac{a+b}{c} \\right)"), "(a+b)/c");
+  assert.equal(decodeLatexMath("\\left[ x \\right]"), "[ x ]");
+});
+
 test("the editors insert at the caret and the diagram upload opens the gallery", () => {
   const pageSource = readFileSync(
     join(root, "src/app/academics/question-papers/page.tsx"),

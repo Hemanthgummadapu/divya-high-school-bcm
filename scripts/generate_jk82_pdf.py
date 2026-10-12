@@ -42,10 +42,17 @@ CONTENT_LEFT = MARGIN
 CONTENT_RIGHT = PAGE_WIDTH - MARGIN
 FOOTER_Y = 15 * mm
 TURN_OVER_Y = 12 * mm
-# Diagram: inline right of question text; text uses 60% width when diagram present
-DIAGRAM_MAX_W = 130
-DIAGRAM_MAX_H = 110
-TEXT_WIDTH_RATIO_WITH_DIAGRAM = 0.6
+# Diagram: inline right of question text. The box was 130x110 and the scale was
+# capped at 1.0, so a crop smaller than the box was drawn at its own pixel size
+# and anything larger was shrunk to about a quarter of the page width — figures
+# arrived too small to read either way. The box is now a little over a third of
+# the content width and a small crop may grow by half: enough to read, without
+# letting a figure dominate its question or strand white space beside a short
+# one. 0.62 * 493pt of text + a 170pt figure leaves a 17pt gutter between them.
+DIAGRAM_MAX_W = 170
+DIAGRAM_MAX_H = 140
+MAX_DIAGRAM_UPSCALE = 1.5
+TEXT_WIDTH_RATIO_WITH_DIAGRAM = 0.62
 # Largest block reserved to keep a question with its options. Capped so a very
 # long question starts on a fresh page and then flows instead of looping.
 MAX_QUESTION_BLOCK_RESERVE = 260
@@ -130,6 +137,10 @@ def choose_font_for_char(ch: str) -> str:
     # glyph for these, NotoSansMath does. Plain combining marks (U+0300-036F,
     # the \overline bar) stay in FONT_FAMILY, which carries them.
     if MATH_FONT_LOADED and 0x20D0 <= code <= 0x20FF:
+        return MATH_FONT_FAMILY
+    # Arrows (→ ← ⇔). NotoSans carries none of this block, so a reaction arrow
+    # was decoded correctly and then drawn as nothing at all.
+    if MATH_FONT_LOADED and 0x2190 <= code <= 0x21FF:
         return MATH_FONT_FAMILY
     # Telugu
     if TELUGU_FONT_LOADED and 0x0C00 <= code <= 0x0C7F:
@@ -506,7 +517,13 @@ def _collapse_redundant_fraction_parens(out):
     are the hardest part of a scanned formula to read.
     """
     for _ in range(8):
-        nxt = re.sub(r"\(\s*(\([^()]*\)\s*/\s*\([^()]*\))\s*\)", r"\1", out)
+        # Either side may now be a bare atom ("(a+b)/c"), so match a group or
+        # a single run on each side of the slash and nothing else inside.
+        nxt = re.sub(
+            r"\(\s*((?:\([^()]*\)|[^()\s/]+)\s*/\s*(?:\([^()]*\)|[^()\s/]+))\s*\)",
+            r"\1",
+            out,
+        )
         if nxt == out:
             break
         out = nxt
@@ -526,8 +543,11 @@ def decode_latex_math(text):
     out = _replace_latex_accents(out)
     out = _replace_latex_scripts(out)
     out = _replace_latex_fractions(out)
-    out = re.sub(r"\\left\s*", "", out)
-    out = re.sub(r"\\right\s*", "", out)
+    # Only the sizing commands. Without the guard "\\rightarrow" lost its
+    # "\\right" and every reaction arrow in a chemistry paper was left reading
+    # as the bare word "arrow".
+    out = re.sub(r"\\left(?![A-Za-z])\s*", "", out)
+    out = re.sub(r"\\right(?![A-Za-z])\s*", "", out)
     out = _collapse_redundant_fraction_parens(out)
     out = out.replace(r"\,", " ").replace(r"\ ", " ")
     for command, symbol in _LATEX_COMMANDS:
@@ -736,7 +756,7 @@ def draw_question_diagram(c, diagram_base64, y_text_top, y_text_bottom, new_page
         return y_text_bottom
     max_w = DIAGRAM_MAX_W
     max_h = DIAGRAM_MAX_H
-    scale = min(max_w / iw, max_h / ih, 1.0)
+    scale = min(max_w / iw, max_h / ih, MAX_DIAGRAM_UPSCALE)
     w = iw * scale
     h = ih * scale
     text_center_y = (y_text_top + y_text_bottom) / 2
@@ -861,6 +881,59 @@ def option_lines(options):
     return [f"{chr(65 + i)}) {clean(decode_latex_math(text))}" for i, text in enumerate(options) if text]
 
 
+OPTION_INDENT = 25
+OPTION_COLUMN_GAP = 18
+
+
+def draw_option_grid(c, options, x_left, y, line_height, new_page):
+    """Lay MCQ options two to a row — A and B, then C and D — the way the
+    printed papers set them. One per line wasted most of the width and pushed
+    four-option questions down the page.
+
+    An option too wide for a half column keeps the full width on its own row
+    and wraps, so a long formula never runs under its neighbour.
+    """
+    lines = option_lines(options)
+    if not lines:
+        return y
+    avail = CONTENT_RIGHT - x_left
+    col_width = (avail - OPTION_COLUMN_GAP) / 2
+    # stringWidth measures one font while the text may switch fonts per
+    # character, so leave a little room before committing to two columns.
+    fits_two_up = all(
+        c.stringWidth(line, FONT_FAMILY, FONT_SMALL) <= col_width - 4
+        for line in lines
+    )
+
+    def ensure_room():
+        nonlocal y
+        if y < 2 * MARGIN + 16:
+            new_page()
+            y = PAGE_HEIGHT - MARGIN
+
+    if not fits_two_up:
+        for line in lines:
+            for piece in wrap_text(c, line, avail, size=FONT_SMALL):
+                ensure_room()
+                draw_text_with_fallback(c, piece, x_left, y, FONT_SMALL)
+                y -= line_height
+        return y
+
+    for index in range(0, len(lines), 2):
+        ensure_room()
+        draw_text_with_fallback(c, lines[index], x_left, y, FONT_SMALL)
+        if index + 1 < len(lines):
+            draw_text_with_fallback(
+                c,
+                lines[index + 1],
+                x_left + col_width + OPTION_COLUMN_GAP,
+                y,
+                FONT_SMALL,
+            )
+        y -= line_height
+    return y
+
+
 def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
     y = start_y
     for section in sections:
@@ -929,12 +1002,14 @@ def render_v2_sections(c, sections, new_page, start_y, line_height, lead):
                 )
             elif q.get("diagramStatus") == "unavailable":
                 y = draw_diagram_placeholder(c, y)
-            for opt in option_lines(q.get("options") or []):
-                if y < 2 * MARGIN + 16:
-                    new_page()
-                    y = PAGE_HEIGHT - MARGIN
-                draw_text_with_fallback(c, opt, CONTENT_LEFT + 25, y, FONT_SMALL)
-                y -= line_height
+            y = draw_option_grid(
+                c,
+                q.get("options") or [],
+                CONTENT_LEFT + OPTION_INDENT,
+                y,
+                line_height,
+                new_page,
+            )
             y -= lead
     return y
 
