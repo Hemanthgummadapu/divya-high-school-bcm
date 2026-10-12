@@ -7,7 +7,7 @@ export const MAX_EXTRACT_RESULT_BYTES = 2 * 1024 * 1024;
 export const MAX_QUESTIONS_PER_DOCUMENT = 200;
 export const MAX_QUESTIONS_PER_PAGE = 50;
 export const ALLOWED_QUESTION_TYPES = Object.freeze(["MCQ", "Short", "Medium", "Long"]);
-export const ALLOWED_LANGUAGES = Object.freeze(["en", "te", "mixed"]);
+export const ALLOWED_LANGUAGES = Object.freeze(["en", "te", "hi", "mixed"]);
 export const ALLOWED_ERROR_CATEGORIES = Object.freeze([
   "timeout",
   "provider",

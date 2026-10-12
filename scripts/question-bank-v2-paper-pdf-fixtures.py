@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "scripts" / "fixtures" / "paper-pdf"
-GENERATOR = ROOT / "scripts" / "generate_jk82_pdf.py"
+GENERATOR = ROOT / "scripts" / "generate_paper_html_pdf.py"
 
 
 def python_cmd() -> str:

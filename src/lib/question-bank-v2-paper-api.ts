@@ -398,7 +398,11 @@ export async function generateAndStorePaperPdf(input: {
       }),
     );
 
-    const scriptPath = join(process.cwd(), "scripts", "generate_jk82_pdf.py");
+    const scriptPath = join(
+      process.cwd(),
+      "scripts",
+      "generate_paper_html_pdf.py",
+    );
     await runPython(
       [
         scriptPath,

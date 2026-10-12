@@ -28,17 +28,21 @@ const pageSource = readFileSync(
   "utf8",
 );
 
-test("Telugu and Hindi are removed from every grade-to-subject list", () => {
+test("Telugu and Hindi are offered by every class", () => {
+  // They were held back while the paper generator drew glyphs without running
+  // a font's shaping tables, which broke Telugu conjuncts and put Devanagari
+  // vowel signs on the wrong side. Papers are laid out by a shaping engine
+  // now, so a first- or second-language paper can be built like any other.
   for (const grade of ALL_GRADES) {
     const subjects = getSubjectsForGrade(grade);
-    assert.equal(subjects.includes("Telugu"), false);
-    assert.equal(subjects.includes("Hindi"), false);
-    assert.equal(isValidSubjectForGrade("Telugu", grade), false);
-    assert.equal(isValidSubjectForGrade("Hindi", grade), false);
+    assert.equal(subjects.includes("Telugu"), true);
+    assert.equal(subjects.includes("Hindi"), true);
+    assert.equal(isValidSubjectForGrade("Telugu", grade), true);
+    assert.equal(isValidSubjectForGrade("Hindi", grade), true);
   }
-  assert.deepEqual(EXCLUDED_RELEASE_SUBJECTS, ["Telugu", "Hindi"]);
-  assert.equal(isSupportedSubject("Telugu"), false);
-  assert.equal(isSupportedSubject("Hindi"), false);
+  assert.deepEqual(EXCLUDED_RELEASE_SUBJECTS, []);
+  assert.equal(isSupportedSubject("Telugu"), true);
+  assert.equal(isSupportedSubject("Hindi"), true);
 });
 
 test("every remaining configured grade and subject is accepted", () => {
@@ -62,20 +66,23 @@ test("every remaining configured grade and subject is accepted", () => {
   }
 });
 
-test("server filters and create/upload paths reject Telugu and Hindi", () => {
-  assert.equal(parseListQuery(new URLSearchParams("subject=Telugu")).ok, false);
-  assert.equal(parseListQuery(new URLSearchParams("subject=Hindi")).ok, false);
+test("server filters and create/upload paths accept Telugu and Hindi", () => {
+  assert.equal(parseListQuery(new URLSearchParams("subject=Telugu")).ok, true);
+  assert.equal(parseListQuery(new URLSearchParams("subject=Hindi")).ok, true);
   assert.equal(
     parseListQuery(new URLSearchParams("grade=10&subject=Telugu")).ok,
-    false,
+    true,
   );
   assert.equal(
     parseListQuery(new URLSearchParams("grade=10&subject=Mathematics")).ok,
     true,
   );
-  const rejected = validateQuestionFields(
+  // A subject still has to belong to the class it is filed under, so an
+  // unknown subject is refused exactly as before.
+  assert.equal(parseListQuery(new URLSearchParams("subject=Sanskrit")).ok, false);
+  const accepted = validateQuestionFields(
     {
-      questionText: "Translate this sentence.",
+      questionText: "ఈ వాక్యాన్ని అనువదించండి.",
       questionType: "Short",
       marks: 2,
       grade: 10,
@@ -84,7 +91,7 @@ test("server filters and create/upload paths reject Telugu and Hindi", () => {
     },
     { requireClassification: true },
   );
-  assert.equal(rejected.ok, false);
+  assert.equal(accepted.ok, true);
   assert.match(uploadRoute, /isValidSubjectForGrade\(subject, gradeNum\)/);
   assert.match(questionCreate, /isValidSubjectForGrade\(subject, grade\)/);
   assert.match(pageSource, /getSubjectsForGrade/);
@@ -93,12 +100,16 @@ test("server filters and create/upload paths reject Telugu and Hindi", () => {
 
 test("class 1-7 keep Science and class 8-10 keep Physics and Biology", () => {
   assert.deepEqual(SUBJECTS_BY_GRADE[1], [
+    "Telugu",
+    "Hindi",
     "English",
     "Mathematics",
     "Science",
     "Social Studies",
   ]);
   assert.deepEqual(SUBJECTS_BY_GRADE[10], [
+    "Telugu",
+    "Hindi",
     "English",
     "Mathematics",
     "Physics",

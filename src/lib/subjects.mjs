@@ -1,14 +1,14 @@
 export const SUBJECTS_BY_GRADE = Object.freeze({
-  1: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  2: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  3: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  4: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  5: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  6: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  7: Object.freeze(["English", "Mathematics", "Science", "Social Studies"]),
-  8: Object.freeze(["English", "Mathematics", "Physics", "Biology", "Social Studies"]),
-  9: Object.freeze(["English", "Mathematics", "Physics", "Biology", "Social Studies"]),
-  10: Object.freeze(["English", "Mathematics", "Physics", "Biology", "Social Studies"]),
+  1: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  2: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  3: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  4: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  5: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  6: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  7: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Science", "Social Studies"]),
+  8: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Physics", "Biology", "Social Studies"]),
+  9: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Physics", "Biology", "Social Studies"]),
+  10: Object.freeze(["Telugu", "Hindi", "English", "Mathematics", "Physics", "Biology", "Social Studies"]),
 });
 
 export const ALL_GRADES = Object.freeze(
@@ -19,7 +19,13 @@ export const ALL_YEARS = Object.freeze(
   Array.from({ length: 7 }, (_, i) => 2020 + i),
 );
 
-export const EXCLUDED_RELEASE_SUBJECTS = Object.freeze(["Telugu", "Hindi"]);
+// Telugu and Hindi were held back while the paper generator could not render
+// them: it drew glyphs without running the fonts' shaping tables, so Telugu
+// conjuncts broke and Devanagari vowel signs landed on the wrong side. The
+// generator now lays papers out through a shaping engine, so both are real
+// subjects. Nothing is excluded today; the list stays as the seam for holding
+// a subject back again.
+export const EXCLUDED_RELEASE_SUBJECTS = Object.freeze([]);
 
 export function getSubjectsForGrade(grade) {
   return SUBJECTS_BY_GRADE[grade] ? [...SUBJECTS_BY_GRADE[grade]] : [];

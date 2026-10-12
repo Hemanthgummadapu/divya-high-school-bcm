@@ -1,6 +1,12 @@
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y python3 python3-pip poppler-utils && rm -rf /var/lib/apt/lists/*
+# WeasyPrint lays the question papers out; it renders text through Pango and
+# HarfBuzz, which is what shapes Telugu conjuncts and Devanagari vowel signs.
+RUN apt-get update && apt-get install -y \
+      python3 python3-pip poppler-utils \
+      libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libcairo2 \
+      libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

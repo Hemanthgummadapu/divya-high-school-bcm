@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync, existsSync } from "node:fs";
 import {
+  EXCLUDED_RELEASE_SUBJECTS,
+  getSubjectsForGrade,
   isSupportedSubject,
   listSupportedSubjects,
 } from "../src/lib/subjects.mjs";
+import { ALLOWED_LANGUAGES } from "../src/lib/question-bank-v2-extract.mjs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -350,6 +353,8 @@ test("selecting a question narrows the bank to its class and subject", () => {
 test("the subject catalogue offers every subject when no class is chosen", () => {
   const all = listSupportedSubjects();
   assert.deepEqual(all, [
+    "Telugu",
+    "Hindi",
     "English",
     "Mathematics",
     "Science",
@@ -357,12 +362,16 @@ test("the subject catalogue offers every subject when no class is chosen", () =>
     "Physics",
     "Biology",
   ]);
+  // Telugu and Hindi were held back while the generator could not shape them.
+  // They are real subjects now, so a first-language paper can be built.
+  assert.ok(all.includes("Telugu"));
+  assert.ok(all.includes("Hindi"));
   // Every one of them has to survive the server's own filter validation,
   // otherwise choosing it would 400 instead of narrowing the list.
   for (const subject of all) {
     assert.ok(isSupportedSubject(subject), `${subject} must be filterable`);
   }
-  assert.ok(!all.includes("Telugu"), "excluded subjects stay out");
+  assert.equal(EXCLUDED_RELEASE_SUBJECTS.length, 0, "nothing is held back today");
 });
 
 test("generated papers set options two to a row and give figures room", () => {
@@ -389,6 +398,43 @@ test("generated papers set options two to a row and give figures room", () => {
   assert.match(generator, /min\(max_w \/ iw, max_h \/ ih, MAX_DIAGRAM_UPSCALE\)/);
   // Text beside a figure still has to fit next to the wider box.
   assert.match(generator, /TEXT_WIDTH_RATIO_WITH_DIAGRAM = 0\.62/);
+});
+
+test("papers are laid out by a shaping engine so Telugu and Hindi are correct", () => {
+  const renderer = readFileSync(
+    join(root, "scripts/generate_paper_html_pdf.py"),
+    "utf8",
+  );
+  const api = readFileSync(
+    join(root, "src/lib/question-bank-v2-paper-api.ts"),
+    "utf8",
+  );
+  // The drawing generator mapped one codepoint to one glyph and never ran a
+  // font's shaping tables: Telugu conjuncts broke, "ప" came out as "వ", and
+  // Devanagari never reordered its i-matra. Papers go through WeasyPrint now.
+  assert.match(api, /generate_paper_html_pdf\.py/);
+  assert.doesNotMatch(api, /generate_jk82_pdf\.py/);
+  assert.match(renderer, /from weasyprint import HTML/);
+  // Symbol faces are pinned to the blocks they own, so a glyph is taken from
+  // the font that really has it rather than composed from a base plus a
+  // combining mark, which rendered correctly but broke the PDF's text layer.
+  assert.match(renderer, /unicode-range: U\+2190-21FF, U\+2200-22FF/);
+  // Options stay two to a row, and a question stays with its options.
+  assert.match(renderer, /grid-template-columns: 1fr 1fr/);
+  assert.match(renderer, /break-inside: avoid/);
+});
+
+test("Telugu and Hindi are offerable and extractable", () => {
+  for (const grade of [1, 8, 10]) {
+    const subjects = getSubjectsForGrade(grade);
+    assert.ok(subjects.includes("Telugu"), `class ${grade} offers Telugu`);
+    assert.ok(subjects.includes("Hindi"), `class ${grade} offers Hindi`);
+  }
+  assert.ok(isSupportedSubject("Telugu"));
+  assert.ok(isSupportedSubject("Hindi"));
+  // The extractor has to accept a Hindi paper as well as a Telugu one.
+  assert.ok(ALLOWED_LANGUAGES.includes("te"));
+  assert.ok(ALLOWED_LANGUAGES.includes("hi"));
 });
 
 test("mixed-class helper blocks the builder", () => {
