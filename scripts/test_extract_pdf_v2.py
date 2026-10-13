@@ -503,5 +503,128 @@ class ExtractPdfV2Tests(unittest.TestCase):
             extract.require_anthropic_api_key()
 
 
+class SharedPassageTests(unittest.TestCase):
+    """A comprehension question is unanswerable without its passage.
+
+    Pages are extracted independently and in parallel, so the page printing
+    "Q.No. (1 - 4) Read the following passage." is never the page printing
+    questions 1 to 4. These cover the join.
+    """
+
+    def _english_paper_pages(self):
+        return [
+            {
+                "pageNumber": 1,
+                "status": "succeeded",
+                "questions": [],
+                "passages": [{"from": 1, "to": 4, "text": "I saw it now."}],
+            },
+            {
+                "pageNumber": 2,
+                "status": "succeeded",
+                "questions": [],
+                "passages": [{"continuation": True, "text": "I laughed gently."}],
+            },
+            {
+                "pageNumber": 3,
+                "status": "succeeded",
+                "passages": [
+                    {"continuation": True, "text": "(Jamaican Fragment)"},
+                    {"from": 5, "to": 8, "text": "He came from a poor family."},
+                ],
+                "questions": [
+                    {"number": "1", "text": "Why does he smile ?"},
+                    {"number": "5", "text": "How was Murthy ahead ?"},
+                ],
+            },
+        ]
+
+    def test_passage_spanning_pages_reaches_its_questions(self):
+        pages = extract.attach_passages(self._english_paper_pages())
+        first = pages[2]["questions"][0]["text"]
+        self.assertIn("I saw it now.", first)
+        self.assertIn("I laughed gently.", first)
+        self.assertIn("(Jamaican Fragment)", first)
+        self.assertTrue(first.endswith("Why does he smile ?"))
+
+    def test_each_question_takes_its_own_passage(self):
+        pages = extract.attach_passages(self._english_paper_pages())
+        fifth = pages[2]["questions"][1]["text"]
+        self.assertIn("He came from a poor family.", fifth)
+        self.assertNotIn("I saw it now.", fifth)
+
+    def test_joining_twice_does_not_repeat_the_passage(self):
+        once = extract.attach_passages(self._english_paper_pages())
+        twice = extract.attach_passages(once)
+        self.assertEqual(twice[2]["questions"][0]["text"].count("I saw it now."), 1)
+
+    def test_a_question_outside_every_range_is_left_alone(self):
+        pages = extract.attach_passages(
+            [
+                {
+                    "pageNumber": 1,
+                    "status": "succeeded",
+                    "passages": [{"from": 1, "to": 2, "text": "P" * 50}],
+                    "questions": [{"number": "9", "text": "Unrelated question."}],
+                }
+            ]
+        )
+        self.assertEqual(pages[0]["questions"][0]["text"], "Unrelated question.")
+
+    def test_malformed_passage_blocks_are_dropped_not_fatal(self):
+        cleaned = extract.normalize_passages(
+            [
+                {"text": "no range"},
+                {"from": "x", "to": 2, "text": "bad range"},
+                {"from": 3, "to": 1, "text": "reversed"},
+                None,
+                {"from": 1, "to": 2, "text": "keep me"},
+            ]
+        )
+        self.assertEqual(cleaned, [{"from": 1, "to": 2, "text": "keep me"}])
+
+    def test_pages_without_passages_are_untouched(self):
+        pages = [{"pageNumber": 1, "status": "succeeded",
+                  "questions": [{"number": "1", "text": "Define force."}]}]
+        self.assertEqual(
+            extract.attach_passages(pages)[0]["questions"][0]["text"], "Define force."
+        )
+
+    def test_prompt_tells_the_model_about_passages(self):
+        self.assertIn("READING PASSAGES", extract.CLAUDE_PROMPT)
+        self.assertIn('"passages"', extract.CLAUDE_PROMPT)
+        self.assertIn("continuation", extract.CLAUDE_PROMPT)
+
+
+class SharedPassageRenderingTests(unittest.TestCase):
+    """On the paper the passage is printed once, not once per question."""
+
+    def setUp(self):
+        import importlib
+
+        self.renderer = importlib.import_module("generate_paper_html_pdf")
+
+    def test_a_run_of_questions_shares_one_printed_passage(self):
+        passage = "P" * 200
+        questions = [
+            {"number": "1", "text": passage + "\n\nFirst ?"},
+            {"number": "2", "text": passage + "\n\nSecond ?"},
+            {"number": "3", "text": "Standalone ?"},
+        ]
+        groups = self.renderer.group_by_shared_passage(questions)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0][0], passage)
+        self.assertEqual(len(groups[0][1]), 2)
+        self.assertEqual([remainder for _, remainder in groups[0][1]],
+                         ["First ?", "Second ?"])
+        self.assertIsNone(groups[1][0])
+
+    def test_a_short_lead_line_is_not_mistaken_for_a_passage(self):
+        passage, remainder = self.renderer.split_shared_passage(
+            {"text": "Short lead\n\nThe question ?"}
+        )
+        self.assertIsNone(passage)
+
+
 if __name__ == "__main__":
     unittest.main()

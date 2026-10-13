@@ -14,7 +14,7 @@ import base64
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import uuid
 import hashlib
 from io import BytesIO
@@ -119,6 +119,23 @@ QUESTIONS — one printed question, one JSON question
 - For MCQ questions, list every printed option in printed order in "options", either as ["A) ...", "B) ...", ...] or as [{"label": "A", "text": "..."}, ...]. Keep the option text exactly as printed and keep its label.
 - "correctAnswer" must be null unless the answer is explicitly printed on this page. Never solve the question yourself and never guess.
 
+READING PASSAGES AND OTHER SHARED STIMULUS
+- A language paper often prints one passage, table or picture that several
+  numbered questions depend on, introduced like "Q.No. (1 - 4) Read the
+  following passage." Those questions are unanswerable on their own, so the
+  passage must be captured.
+- When this page prints such a stimulus, add it to a top-level "passages"
+  list: {"from": 1, "to": 4, "text": "the passage exactly as printed"}.
+  "from" and "to" are the first and last printed question numbers it governs.
+- A passage often runs over a page break. If this page BEGINS with prose that
+  continues a passage started on an earlier page — no heading, no question
+  number, it just carries on — add it as
+  {"continuation": true, "text": "..."} instead, with no "from"/"to". The
+  fragments are joined back together afterwards in page order.
+- Copy passage text exactly as printed, the same as question text. Never
+  summarise it and never write a passage that is not printed.
+- A passage is NOT a question: never also emit it as one.
+
 IGNORE the source paper's own structure
 - This paper is only a source of reusable questions. Its arrangement belongs to the old paper, not to the questions.
 - Do NOT output section or part headings ("PART-A", "PART-B", "SECTION-I", "SECTION-II" and similar), section instructions ("Answer all questions", "Answer any four"), time allocations, or marks-allocation headings ("Marks 6x2=12").
@@ -154,6 +171,12 @@ OUTPUT — JSON only
     }
   ]
 }
+Add "passages" only when this page prints a shared stimulus, as described above:
+{
+  "passages": [
+    { "from": 1, "to": 4, "text": "Full passage exactly as printed" }
+  ]
+}
 Include "options" only for MCQ questions. Include "diagram" and "diagramBox" only when a required printed figure exists. Do not include a "section" field. Return ONLY valid JSON, nothing else."""
 
 
@@ -177,12 +200,115 @@ def failed_page(page_num: int, error_category: str) -> Dict[str, Any]:
     }
 
 
-def succeeded_page(page_num: int, questions: List[Dict[str, Any]]) -> Dict[str, Any]:
-    return {
+def succeeded_page(
+    page_num: int,
+    questions: List[Dict[str, Any]],
+    passages: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    page = {
         "pageNumber": page_num,
         "status": "succeeded",
         "questions": questions,
     }
+    if passages:
+        page["passages"] = passages
+    return page
+
+
+MAX_PASSAGES_PER_PAGE = 8
+MAX_PASSAGE_CHARS = 12000
+
+
+def normalize_passages(raw_passages: Any) -> List[Dict[str, Any]]:
+    """Keep only well-formed passage blocks; drop anything else silently.
+
+    A malformed block is dropped rather than failing the page: losing a
+    passage costs context, failing the page costs every question on it.
+    """
+    if not isinstance(raw_passages, list):
+        return []
+    cleaned: List[Dict[str, Any]] = []
+    for raw in raw_passages[:MAX_PASSAGES_PER_PAGE]:
+        if not isinstance(raw, dict):
+            continue
+        text = raw.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        text = text.strip()[:MAX_PASSAGE_CHARS]
+        if raw.get("continuation") is True:
+            cleaned.append({"continuation": True, "text": text})
+            continue
+        try:
+            first = int(raw.get("from"))
+            last = int(raw.get("to"))
+        except (TypeError, ValueError):
+            continue
+        if first < 1 or last < first or last - first > MAX_QUESTIONS_PER_PAGE:
+            continue
+        cleaned.append({"from": first, "to": last, "text": text})
+    return cleaned
+
+
+def _question_number(question: Dict[str, Any]) -> Optional[int]:
+    raw = question.get("number")
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        match = re.match(r"\s*(\d+)", raw)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Give every question the passage it depends on, across page breaks.
+
+    Pages are extracted independently and in parallel, so the page holding
+    "Q.No. (1 - 4) Read the following passage." is never the page holding
+    questions 1 to 4. Without this, a comprehension question reached the bank
+    as a bare stem — "Why does the narrator smile?" — which cannot be answered
+    and cannot be put on a paper.
+
+    Walked in page order: a block with from/to opens a passage, and a
+    continuation block extends the one it follows. Each question then takes
+    the passage whose printed range covers its number.
+    """
+    ranges: List[Dict[str, Any]] = []
+    open_passage: Optional[Dict[str, Any]] = None
+    for page in sorted(pages, key=lambda item: item.get("pageNumber") or 0):
+        for block in normalize_passages(page.get("passages")):
+            if block.get("continuation"):
+                if open_passage is not None:
+                    open_passage["text"] = (
+                        open_passage["text"].rstrip() + "\n" + block["text"]
+                    )
+                continue
+            open_passage = {
+                "from": block["from"],
+                "to": block["to"],
+                "text": block["text"],
+            }
+            ranges.append(open_passage)
+
+    if not ranges:
+        return pages
+    for page in pages:
+        for question in page.get("questions") or []:
+            if not isinstance(question, dict):
+                continue
+            number = _question_number(question)
+            if number is None:
+                continue
+            for block in ranges:
+                if block["from"] <= number <= block["to"]:
+                    text = question.get("text") or ""
+                    # Each bank question has to stand on its own, because
+                    # questions are picked one at a time. The paper renderer
+                    # prints a repeated passage once per run of questions.
+                    if not text.startswith(block["text"]):
+                        question["text"] = block["text"] + "\n\n" + text
+                    break
+    return pages
 
 
 def parse_model_json_response(response_text: str, page_num: int) -> Dict[str, Any]:
@@ -557,7 +683,7 @@ def process_one_page(
         page = failed_page(page_num, "validation")
         save_cached_result(work_dir, page_hash, page)
         return page
-    page = succeeded_page(page_num, questions)
+    page = succeeded_page(page_num, questions, normalize_passages(result.get("passages")))
     save_cached_result(work_dir, page_hash, page)
     return page
 
@@ -835,7 +961,9 @@ def build_document_pages(
     pages = []
     for page_num in range(1, total_pages + 1):
         pages.append(by_number.get(page_num) or failed_page(page_num, "internal"))
-    return pages
+    # Only now are all the pages in hand and in order, which is what joining a
+    # passage to the questions printed pages later requires.
+    return attach_passages(pages)
 
 
 def write_document_result(
