@@ -75,9 +75,15 @@ export const ALLOWED_SAVED_PAPER_FILTERS = Object.freeze([
   "archived",
 ]);
 
+// "archived" is how a question is removed: the row stays, because
+// saved_question_paper_items references it with ON DELETE RESTRICT and a
+// question already used on a paper must never vanish underneath it. Archiving
+// is reachable from every working state, so a question that simply is not
+// wanted can be cleared instead of sitting in the queue forever — a rejected
+// question used to be able to go back to review and nowhere else.
 export const ALLOWED_STATUS_TRANSITIONS = Object.freeze({
-  needs_review: Object.freeze(["approved", "rejected"]),
-  rejected: Object.freeze(["needs_review"]),
+  needs_review: Object.freeze(["approved", "rejected", "archived"]),
+  rejected: Object.freeze(["needs_review", "archived"]),
   approved: Object.freeze(["archived"]),
   archived: Object.freeze(["needs_review"]),
 });

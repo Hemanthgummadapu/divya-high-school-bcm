@@ -795,6 +795,39 @@ export default function QuestionPapers() {
     }
   };
 
+  /**
+   * Remove a question from the bank. It is archived rather than deleted: a
+   * question already used on a saved paper is referenced with ON DELETE
+   * RESTRICT and must not vanish underneath it. Archived questions are out of
+   * both the review queue and the bank list.
+   */
+  const handleRemoveQuestion = async (question: BankQuestion) => {
+    setMutating(true);
+    setRemoveError(null);
+    const result = await patchQuestion(
+      question,
+      draftFromQuestion(question),
+      "archive",
+    );
+    setMutating(false);
+    if (!result.ok) {
+      setRemoveError(result.error || "The question could not be removed");
+      return;
+    }
+    setQuestions((current) => current.filter((item) => item.id !== question.id));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.delete(question.id);
+      return next;
+    });
+    setSelectedMap((current) => {
+      const next = new Map(current);
+      next.delete(question.id);
+      return next;
+    });
+    setConfirmRemoveId(null);
+  };
+
   const handleArchive = async (question: BankQuestion) => {
     setMutating(true);
     const result = await patchQuestion(question, draftFromQuestion(question), "archive");
@@ -1834,6 +1867,51 @@ export default function QuestionPapers() {
                     >
                       Reject
                     </button>
+                    {currentReview &&
+                      (confirmRemoveId === currentReview.id ? (
+                        <>
+                          <span className="self-center text-sm text-slate-700">
+                            Remove this question? It leaves the review queue for
+                            good.
+                          </span>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={primaryButtonClass}
+                            onClick={() => handleRemoveQuestion(currentReview)}
+                          >
+                            Yes, remove
+                          </button>
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={secondaryButtonClass}
+                            onClick={() => {
+                              setConfirmRemoveId(null);
+                              setRemoveError(null);
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          {removeError && (
+                            <span className="self-center text-sm text-rose-700">
+                              {removeError}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={mutating}
+                          className={secondaryButtonClass}
+                          onClick={() => {
+                            setConfirmRemoveId(currentReview.id);
+                            setRemoveError(null);
+                          }}
+                        >
+                          Remove
+                        </button>
+                      ))}
                     <button
                       type="button"
                       disabled={mutating}
@@ -2175,14 +2253,49 @@ export default function QuestionPapers() {
                         >
                           Edit
                         </button>
-                        <button
-                          type="button"
-                          disabled={mutating}
-                          className={secondaryButtonClass}
-                          onClick={() => handleArchive(question)}
-                        >
-                          Archive
-                        </button>
+                        {confirmRemoveId === question.id ? (
+                          <>
+                            <span className="self-center text-sm text-slate-700">
+                              Remove this question from the bank?
+                            </span>
+                            <button
+                              type="button"
+                              disabled={mutating}
+                              className={primaryButtonClass}
+                              onClick={() => handleRemoveQuestion(question)}
+                            >
+                              Yes, remove
+                            </button>
+                            <button
+                              type="button"
+                              disabled={mutating}
+                              className={secondaryButtonClass}
+                              onClick={() => {
+                                setConfirmRemoveId(null);
+                                setRemoveError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            {removeError && (
+                              <span className="self-center text-sm text-rose-700">
+                                {removeError}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={mutating}
+                            className={secondaryButtonClass}
+                            onClick={() => {
+                              setConfirmRemoveId(question.id);
+                              setRemoveError(null);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
                     </li>
                   ))}

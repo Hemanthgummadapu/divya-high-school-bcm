@@ -395,7 +395,16 @@ test("status transitions are limited to the allowed review workflow", () => {
   assert.equal(canTransitionStatus("archived", "needs_review"), true);
   assert.equal(canTransitionStatus("approved", "rejected"), false);
   assert.equal(canTransitionStatus("rejected", "approved"), false);
-  assert.equal(canTransitionStatus("needs_review", "archived"), false);
+  // Removing is archiving, and it has to be reachable from the states a
+  // question is actually sitting in. A rejected question could previously
+  // only go back to review, so an unwanted one could never be cleared.
+  assert.equal(canTransitionStatus("needs_review", "archived"), true);
+  assert.equal(canTransitionStatus("rejected", "archived"), true);
+  assert.equal(resolveStatusAction("archive", "needs_review").ok, true);
+  assert.equal(resolveStatusAction("archive", "rejected").ok, true);
+  // Archiving is still a one-way door out of the queue: the only way back is
+  // an explicit restore to review.
+  assert.equal(resolveStatusAction("archive", "archived").ok, false);
   assert.equal(resolveStatusAction("approve", "needs_review").nextStatus, "approved");
   assert.equal(resolveStatusAction("reject", "needs_review").ok, true);
   assert.equal(resolveStatusAction("restore", "rejected").nextStatus, "needs_review");
@@ -524,6 +533,11 @@ test("UI uses V2 views and does not present local-only or hard-delete success", 
   // only behind an explicit confirm, and it never claims a local-only success.
   assert.match(pageSource, /method:\s*["']DELETE["']/);
   assert.match(pageSource, /confirmRemoveId/);
+  // Uploaded questions can be removed too, from the review queue and from the
+  // bank, behind the same confirm as sources and saved papers.
+  assert.match(pageSource, /handleRemoveQuestion/);
+  assert.match(pageSource, /Remove this question from the bank\?/);
+  assert.match(pageSource, /It leaves the review queue for/);
   assert.match(pageSource, /Yes, remove/);
   assert.match(pageSource, /stay in the Question Bank/);
   for (const call of pageSource.matchAll(/fetch\(\s*`([^`]+)`[\s\S]{0,120}?method:\s*"DELETE"/g)) {

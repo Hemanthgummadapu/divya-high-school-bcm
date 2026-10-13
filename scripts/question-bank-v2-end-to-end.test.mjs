@@ -305,7 +305,16 @@ test("review approval rules gate what can reach the bank", () => {
     nextStatus: "needs_review",
   });
   assert.equal(resolveStatusAction("approve", "archived").ok, false);
-  assert.equal(canTransitionStatus("needs_review", "archived"), false);
+  // Removing an unwanted question is archiving, and is allowed from the queue.
+  // It takes the question OUT; the gate that matters is that nothing reaches
+  // the bank without an explicit approval, which still holds.
+  assert.deepEqual(resolveStatusAction("archive", "needs_review"), {
+    ok: true,
+    nextStatus: "archived",
+  });
+  assert.equal(canTransitionStatus("needs_review", "approved"), true);
+  assert.equal(canTransitionStatus("rejected", "approved"), false);
+  assert.equal(canTransitionStatus("archived", "approved"), false);
 
   // The bank view only ever lists approved questions.
   const bank = parseListQuery(new URLSearchParams({ view: "bank", page: "1", pageSize: "20" }));
