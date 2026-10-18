@@ -53,11 +53,21 @@ export type CreatedStorageObject = {
   path: string;
 };
 
+/**
+ * The source currently holding this file, if any.
+ *
+ * A removed source is archived rather than deleted, so its row still carries
+ * the checksum. It is excluded here: a file whose source was removed is no
+ * longer in use, and matching it told the reviewer "This PDF was already
+ * uploaded" about a source that is not in the list any more and cannot be
+ * reached. A source still in use is matched exactly as before.
+ */
 export async function findSourceByChecksum(contentSha256: string) {
   const { data, error } = await getSupabase()
     .from("question_sources")
     .select("id, extraction_status, extracted_question_count, page_count")
     .eq("content_sha256", contentSha256)
+    .neq("extraction_status", "archived")
     .maybeSingle();
   if (error) throw new Error("source_lookup_failed");
   return data;

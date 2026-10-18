@@ -191,6 +191,19 @@ test("too many pages is rejected by upload policy", () => {
 test("duplicate hash returns existing source and skips storage", () => {
   const post = postHandler();
   assert.ok(post.indexOf("findSourceByChecksum") < post.indexOf("uploadSourcePdf"));
+  // A removed source is archived, not deleted, so its row still holds the
+  // file's checksum. The duplicate check skips those: otherwise re-uploading
+  // a paper you removed is refused forever, pointing at a source that is no
+  // longer in the list.
+  const persistSource = readFileSync(
+    join(root, "src/lib/question-bank-v2-persist.ts"),
+    "utf8",
+  );
+  const lookup = persistSource.slice(
+    persistSource.indexOf("export async function findSourceByChecksum"),
+    persistSource.indexOf("export async function uploadSourcePdf"),
+  );
+  assert.match(lookup, /\.neq\("extraction_status", "archived"\)/);
   assert.match(post, /duplicate:\s*true/);
   assert.match(post, /status:\s*409/);
   assert.ok(isUniqueViolation({ code: "23505" }));
