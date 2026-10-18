@@ -135,6 +135,15 @@ READING PASSAGES AND OTHER SHARED STIMULUS
 - Copy passage text exactly as printed, the same as question text. Never
   summarise it and never write a passage that is not printed.
 - A passage is NOT a question: never also emit it as one.
+- A page may be nothing but passage, with no questions printed on it at all.
+  That is normal in a language paper and is NOT an empty page: return
+  "questions": [] together with the "passages" entry for what is printed.
+  Returning nothing for such a page loses the passage for every question that
+  depends on it.
+- The heading that introduces a passage ("Q.No. (1 - 4) Read the following
+  passage.") is the evidence for "from" and "to". It is an instruction, so do
+  not emit it as a question, but do use its numbers. If a passage is printed
+  with no such heading, use the numbers of the questions that follow it.
 
 IGNORE the source paper's own structure
 - This paper is only a source of reusable questions. Its arrangement belongs to the old paper, not to the questions.
@@ -160,6 +169,9 @@ DIAGRAMS — only when the figure is required
 
 OUTPUT — JSON only
 {
+  "passages": [
+    { "from": 1, "to": 4, "text": "Full passage exactly as printed" }
+  ],
   "questions": [
     {
       "number": "1",
@@ -171,13 +183,7 @@ OUTPUT — JSON only
     }
   ]
 }
-Add "passages" only when this page prints a shared stimulus, as described above:
-{
-  "passages": [
-    { "from": 1, "to": 4, "text": "Full passage exactly as printed" }
-  ]
-}
-Include "options" only for MCQ questions. Include "diagram" and "diagramBox" only when a required printed figure exists. Do not include a "section" field. Return ONLY valid JSON, nothing else."""
+Include "passages" only when this page prints a shared stimulus. Include "options" only for MCQ questions. Include "diagram" and "diagramBox" only when a required printed figure exists. Do not include a "section" field. Return ONLY valid JSON, nothing else."""
 
 
 def classify_provider_error(error: Exception) -> str:
@@ -250,14 +256,25 @@ def normalize_passages(raw_passages: Any) -> List[Dict[str, Any]]:
 
 
 def _question_number(question: Dict[str, Any]) -> Optional[int]:
-    raw = question.get("number")
-    if isinstance(raw, int):
-        return raw
-    if isinstance(raw, str):
-        match = re.match(r"\s*(\d+)", raw)
-        if match:
-            return int(match.group(1))
+    """The question's printed number, in either shape.
+
+    Pages carry the provider's raw shape before normalization and the bank's
+    shape afterwards; joining passages runs after, so "printedNumber" is the
+    one that matters and "number" is accepted for the raw shape.
+    """
+    for key in ("printedNumber", "number"):
+        raw = question.get(key)
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, str):
+            match = re.match(r"\s*(\d+)", raw)
+            if match:
+                return int(match.group(1))
     return None
+
+
+def _question_text_key(question: Dict[str, Any]) -> str:
+    return "questionText" if "questionText" in question else "text"
 
 
 def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -301,12 +318,15 @@ def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 continue
             for block in ranges:
                 if block["from"] <= number <= block["to"]:
-                    text = question.get("text") or ""
+                    key = _question_text_key(question)
+                    text = question.get(key) or ""
                     # Each bank question has to stand on its own, because
                     # questions are picked one at a time. The paper renderer
                     # prints a repeated passage once per run of questions.
                     if not text.startswith(block["text"]):
-                        question["text"] = block["text"] + "\n\n" + text
+                        question[key] = block["text"] + "\n\n" + text
+                        if key == "questionText" and "rawExtractedText" in question:
+                            question["rawExtractedText"] = question[key]
                     break
     return pages
 
@@ -357,6 +377,9 @@ def parse_model_json_response(response_text: str, page_num: int) -> Dict[str, An
             "ok": True,
             "section": first_section_name or "SECTION-A",
             "questions": all_questions,
+            # Carried through: a passage is the only record of what several
+            # questions on a later page are actually asking about.
+            "passages": result.get("passages"),
         }
 
     questions = result.get("questions")
@@ -366,6 +389,7 @@ def parse_model_json_response(response_text: str, page_num: int) -> Dict[str, An
         "ok": True,
         "section": result.get("section") or "SECTION-A",
         "questions": [q for q in questions if isinstance(q, dict)],
+        "passages": result.get("passages"),
     }
 
 
@@ -628,9 +652,19 @@ def normalize_page_questions(
         diagram_crop_ref = raw.get("diagramCropRef")
         if not isinstance(diagram_crop_ref, str):
             diagram_crop_ref = None
+        printed_number = raw.get("number")
+        if isinstance(printed_number, str):
+            match = re.match(r"\s*(\d+)", printed_number)
+            printed_number = int(match.group(1)) if match else None
+        elif not isinstance(printed_number, int):
+            printed_number = None
         normalized.append(
             {
                 "sourceOrder": index,
+                # The number as printed on the paper. sourceOrder is only this
+                # question's position on its page, so it cannot be used to
+                # match a passage's printed range like "Q.No. (1 - 4)".
+                "printedNumber": printed_number,
                 "questionType": question_type,
                 "questionText": text,
                 "rawExtractedText": text,

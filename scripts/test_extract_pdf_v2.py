@@ -2,6 +2,7 @@
 """Unit tests for the Phase 2C page-result contract. No Anthropic calls."""
 
 import json
+import json
 import os
 import subprocess
 import sys
@@ -532,16 +533,31 @@ class SharedPassageTests(unittest.TestCase):
                     {"continuation": True, "text": "(Jamaican Fragment)"},
                     {"from": 5, "to": 8, "text": "He came from a poor family."},
                 ],
+                # The shape questions are actually in when passages are
+                # joined: normalization has already run, so the printed
+                # number lives in "printedNumber" and the text in
+                # "questionText". An earlier version of these tests used the
+                # provider's raw "number"/"text" shape, which the pipeline
+                # never reaches this stage with, so the join looked correct
+                # while doing nothing on a real paper.
                 "questions": [
-                    {"number": "1", "text": "Why does he smile ?"},
-                    {"number": "5", "text": "How was Murthy ahead ?"},
+                    {
+                        "printedNumber": 1,
+                        "questionText": "Why does he smile ?",
+                        "rawExtractedText": "Why does he smile ?",
+                    },
+                    {
+                        "printedNumber": 5,
+                        "questionText": "How was Murthy ahead ?",
+                        "rawExtractedText": "How was Murthy ahead ?",
+                    },
                 ],
             },
         ]
 
     def test_passage_spanning_pages_reaches_its_questions(self):
         pages = extract.attach_passages(self._english_paper_pages())
-        first = pages[2]["questions"][0]["text"]
+        first = pages[2]["questions"][0]["questionText"]
         self.assertIn("I saw it now.", first)
         self.assertIn("I laughed gently.", first)
         self.assertIn("(Jamaican Fragment)", first)
@@ -549,14 +565,16 @@ class SharedPassageTests(unittest.TestCase):
 
     def test_each_question_takes_its_own_passage(self):
         pages = extract.attach_passages(self._english_paper_pages())
-        fifth = pages[2]["questions"][1]["text"]
+        fifth = pages[2]["questions"][1]["questionText"]
         self.assertIn("He came from a poor family.", fifth)
         self.assertNotIn("I saw it now.", fifth)
 
     def test_joining_twice_does_not_repeat_the_passage(self):
         once = extract.attach_passages(self._english_paper_pages())
         twice = extract.attach_passages(once)
-        self.assertEqual(twice[2]["questions"][0]["text"].count("I saw it now."), 1)
+        self.assertEqual(
+            twice[2]["questions"][0]["questionText"].count("I saw it now."), 1
+        )
 
     def test_a_question_outside_every_range_is_left_alone(self):
         pages = extract.attach_passages(
@@ -565,11 +583,15 @@ class SharedPassageTests(unittest.TestCase):
                     "pageNumber": 1,
                     "status": "succeeded",
                     "passages": [{"from": 1, "to": 2, "text": "P" * 50}],
-                    "questions": [{"number": "9", "text": "Unrelated question."}],
+                    "questions": [
+                        {"printedNumber": 9, "questionText": "Unrelated question."}
+                    ],
                 }
             ]
         )
-        self.assertEqual(pages[0]["questions"][0]["text"], "Unrelated question.")
+        self.assertEqual(
+            pages[0]["questions"][0]["questionText"], "Unrelated question."
+        )
 
     def test_malformed_passage_blocks_are_dropped_not_fatal(self):
         cleaned = extract.normalize_passages(
@@ -585,10 +607,43 @@ class SharedPassageTests(unittest.TestCase):
 
     def test_pages_without_passages_are_untouched(self):
         pages = [{"pageNumber": 1, "status": "succeeded",
-                  "questions": [{"number": "1", "text": "Define force."}]}]
+                  "questions": [{"printedNumber": 1, "questionText": "Define force."}]}]
         self.assertEqual(
-            extract.attach_passages(pages)[0]["questions"][0]["text"], "Define force."
+            extract.attach_passages(pages)[0]["questions"][0]["questionText"],
+            "Define force.",
         )
+
+    def test_the_parser_carries_passages_out_of_the_model_response(self):
+        """The parser rebuilds the response dict, and used to drop passages.
+
+        The model emitted them correctly and they were discarded one function
+        later, so the whole feature silently did nothing on a real paper.
+        """
+        parsed = extract.parse_model_json_response(
+            json.dumps(
+                {
+                    "questions": [],
+                    "passages": [{"from": 1, "to": 4, "text": "A passage."}],
+                }
+            ),
+            1,
+        )
+        self.assertTrue(parsed["ok"])
+        self.assertEqual(parsed["passages"], [{"from": 1, "to": 4, "text": "A passage."}])
+
+    def test_normalization_keeps_the_printed_question_number(self):
+        """sourceOrder is a position on the page, not the printed number.
+
+        A passage's range is printed as "Q.No. (1 - 4)", so the printed
+        number has to survive normalization or no passage can ever be matched.
+        """
+        normalized = extract.normalize_page_questions(
+            [{"number": "7", "text": "Define force.", "type": "Short", "marks": 2}],
+            "SECTION-A",
+            extract.QuestionExtractor.__new__(extract.QuestionExtractor),
+        )
+        self.assertEqual(normalized[0]["printedNumber"], 7)
+        self.assertEqual(normalized[0]["sourceOrder"], 1)
 
     def test_prompt_tells_the_model_about_passages(self):
         self.assertIn("READING PASSAGES", extract.CLAUDE_PROMPT)
