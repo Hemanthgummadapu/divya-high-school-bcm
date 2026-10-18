@@ -22,6 +22,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 from datetime import date
 from io import BytesIO
@@ -61,6 +62,25 @@ def escape(text):
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+UNDERLINE_MARK = "\u0332"
+_UNDERLINED_RUN = re.compile("(?:[^\\s]" + UNDERLINE_MARK + ")+")
+
+
+def mark_underlines(escaped):
+    """Turn combining-underline runs into a real underline.
+
+    decode_latex_math renders \\underline{...} as a low line under each
+    character, which is right for a drawn PDF but ragged in HTML. Runs are
+    folded into one <u> so the rule is continuous. Applied after escaping, so
+    the only tags in the output are the ones added here.
+    """
+
+    def fold(match):
+        return "<u>" + match.group(0).replace(UNDERLINE_MARK, "") + "</u>"
+
+    return _UNDERLINED_RUN.sub(fold, escaped)
 
 
 def prepared_text(value):
@@ -198,7 +218,15 @@ body {{
 .meta {{ font-size: 9.5pt; font-weight: bold; }}
 .rule {{ border-bottom: 1px solid #000; margin: 6pt 0 10pt 0; }}
 
-.section-title {{ font-size: 12.5pt; font-weight: bold; margin-top: 10pt; }}
+/* A heading printed at the foot of a page with its first question
+   overleaf reads as an empty section, so it travels with what follows. */
+.section-title {{
+  font-size: 12.5pt;
+  font-weight: bold;
+  margin-top: 10pt;
+  break-after: avoid;
+}}
+.section-instructions {{ break-after: avoid; }}
 .section-instructions {{ font-size: 10pt; margin-bottom: 6pt; }}
 
 /* A reading passage shared by the questions printed under it. */
@@ -217,8 +245,11 @@ body {{
 .q-text {{ flex: 1 1 auto; white-space: pre-wrap; }}
 .q-marks {{ flex: 0 0 auto; padding-left: 8pt; white-space: nowrap; }}
 
-.q-figure {{ float: right; margin: 0 0 6pt 12pt; }}
-.q-figure img {{ max-width: 62mm; max-height: 50mm; }}
+/* The figure sits in the question's own row rather than floating beside it:
+   .q-head is a flex container and flex items do not flow around a float, so
+   a floated figure was drawn over the question text and cut it off. */
+.q-figure {{ flex: 0 0 auto; margin-left: 10pt; }}
+.q-figure img {{ max-width: 56mm; max-height: 46mm; }}
 .figure-missing {{ margin-left: 22pt; font-size: 10pt; }}
 
 /* Two options to a row — A and B, then C and D — the way the papers set
@@ -287,16 +318,16 @@ def render_question(question):
 
     parts = [
         '<div class="q">',
-        figure,
         '<div class="q-head">',
         '<span class="q-num">%s.</span>' % escape(number),
-        '<div class="q-text">%s</div>' % escape("\n".join(before).strip()),
+        '<div class="q-text">%s</div>' % mark_underlines(escape("\n".join(before).strip())),
+        figure,
         ('<span class="q-marks">[%d m]</span>' % marks) if marks else "",
         "</div>",
     ]
     for rows in tables:
         parts.append(render_table_block(rows))
-    tail = escape("\n".join(after).strip()) if after else ""
+    tail = mark_underlines(escape("\n".join(after).strip())) if after else ""
     if tail:
         parts.append('<div class="q-text" style="margin-left:22pt">%s</div>' % tail)
     parts.append(missing)
