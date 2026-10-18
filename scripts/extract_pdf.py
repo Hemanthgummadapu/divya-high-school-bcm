@@ -107,10 +107,6 @@ CLAUDE_PROMPT = """You are extracting questions from ONE scanned page of an Indi
 
 ACCURACY — copy, never compose
 - Copy every question EXACTLY as printed: same wording, spelling, numbers, punctuation and order. Do not rewrite, shorten, correct or improve anything.
-- When words are UNDERLINED on the page, wrap them as \\underline{like this}.
-  Some questions are about the underlined parts ("focussing on the parts
-  that are underlined"), and without the marks the question cannot be
-  answered at all. Mark only what is actually underlined.
 - Preserve every mathematical symbol and expression exactly as printed (for example △, ∠, ∥, ⊥, ≤, ≥, ≠, ±, ×, ÷, √, π, θ, °, superscripts like x², subscripts like a₁, and fractions such as ½ or 3/4).
 - Never invent questions, options, marks, answers, sections or diagrams that are not printed on the page. If something is not printed, omit it or use null.
 - Ignore page headers, footers, page numbers, watermarks, school names and exam codes (like "JK-82" or "QP-01"). They are not questions and never section names.
@@ -120,9 +116,6 @@ QUESTIONS — one printed question, one JSON question
 - Keep each printed question as ONE question even when it spans several lines. Never merge two printed questions and never split one printed question into several.
 - "type" must be exactly one of "MCQ", "Short", "Medium" or "Long". Prefer the paper's own printed evidence: section headings, printed marks and option lists. If the type is genuinely unclear, choose the closest supported type; do not invent evidence.
 - "marks" must be the marks printed for that question. If marks are printed only on the section heading, use the section's marks. Never use 0 or negative marks.
-- A figure printed to the right of a question's own heading, like "4 x 2 = 8"
-  beside "Q.No. (13)", is that question's total: its marks are 8. Read the
-  total after the "=", not the "4" or the "2".
 - For MCQ questions, list every printed option in printed order in "options", either as ["A) ...", "B) ...", ...] or as [{"label": "A", "text": "..."}, ...]. Keep the option text exactly as printed and keep its label.
 - "correctAnswer" must be null unless the answer is explicitly printed on this page. Never solve the question yourself and never guess.
 
@@ -142,9 +135,6 @@ READING PASSAGES AND OTHER SHARED STIMULUS
 - Copy passage text exactly as printed, the same as question text. Never
   summarise it and never write a passage that is not printed.
 - A passage is NOT a question: never also emit it as one.
-- When a question carries its own instruction ("Read the passage below and
-  answer any 4 ..."), that instruction comes FIRST, before the passage it
-  introduces, exactly as it is printed. Do not move it after the passage.
 - A page may be nothing but passage, with no questions printed on it at all.
   That is normal in a language paper and is NOT an empty page: return
   "questions": [] together with the "passages" entry for what is printed.
@@ -212,11 +202,6 @@ THIS IS A LANGUAGE PAPER (prose, not mathematics)
   or a set of notes can serve the same purpose, introduced the same way
   ("The tree diagram given below ... "). Capture the introduction and
   anything reproducible as text in "passages", with the range it governs.
-- If that shared stimulus is a FIGURE rather than text — a tree diagram, a
-  picture, a chart, a map — the questions cannot be answered without seeing
-  it. Put "diagram" and "diagramBox" on the FIRST question of the range, so
-  the figure travels with the set. A set that says "study the diagram" and
-  carries no figure is useless to a student.
 - Writing tasks (letter, essay, diary entry, poster, interview, biographical
   sketch) are ONE question each. Keep the whole task together, including any
   "Hints :" line and any details printed under it.
@@ -366,42 +351,6 @@ def _question_number(question: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _normalized_for_match(text: str) -> str:
-    """Collapse whitespace so a repeated line can be recognised as the same."""
-    return " ".join(str(text or "").split()).casefold()
-
-
-def _restates_the_stimulus(body: str, passage_body: str) -> bool:
-    """True when a "question" is really the stimulus instruction again.
-
-    "Study the tree diagram and answer the following questions" comes back
-    both as the passage and as the first question of its own range, which
-    added a part that nobody can answer and counted its marks a second time.
-    It is rarely word-for-word — the wording gets rephrased — so an exact
-    match is not enough: an instruction asks nothing and reuses the
-    stimulus's own words, where a real question asks something new.
-    """
-    if not body:
-        return False
-    if body in passage_body:
-        return True
-    if "?" in body:
-        return False
-    words = [w for w in re.findall(r"\w+", body) if len(w) > 2]
-    if len(words) < 4:
-        return False
-    passage_words = set(re.findall(r"\w+", passage_body))
-    shared = sum(1 for w in words if w in passage_words)
-    return shared / len(words) >= 0.7
-
-
-_ROMAN = ("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii")
-
-
-def _roman(position: int) -> str:
-    return _ROMAN[position - 1] if 1 <= position <= len(_ROMAN) else str(position)
-
-
 def _question_text_key(question: Dict[str, Any]) -> str:
     return "questionText" if "questionText" in question else "text"
 
@@ -456,40 +405,6 @@ def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     for block in ranges:
         found = sorted(members[id(block)], key=lambda item: item[1])
-
-        # The line that introduces a stimulus ("Study the tree diagram and
-        # answer the following questions") sometimes comes back as a passage
-        # AND as the first question of its own range. Left in, the set gained
-        # a part that is not a question and its marks were counted twice.
-        passage_body = _normalized_for_match(block["text"])
-        kept = []
-        for page, number, question in found:
-            body = _normalized_for_match(question.get(_question_text_key(question)) or "")
-            if _restates_the_stimulus(body, passage_body):
-                continue
-            kept.append((page, number, question))
-        if kept:
-            kept_ids = {id(k) for _, _, k in kept}
-            dropped = {id(q) for _, _, q in found if id(q) not in kept_ids}
-            # The figure is asked for on the first question of the range,
-            # which is exactly the member being dropped here. Hand it to the
-            # question that now leads the set, or the set loses the diagram
-            # it tells the student to study.
-            if dropped:
-                host_question = kept[0][2]
-                for _, _, question in found:
-                    if id(question) in dropped and question.get("diagram"):
-                        for field in ("diagram", "diagramCropRef", "diagramBox"):
-                            if question.get(field) and not host_question.get(field):
-                                host_question[field] = question[field]
-                        break
-            if dropped:
-                for page in pages:
-                    existing = page.get("questions") or []
-                    if existing:
-                        page["questions"] = [q for q in existing if id(q) not in dropped]
-            found = kept
-
         if not found:
             continue
         key = _question_text_key(found[0][2])
@@ -500,15 +415,12 @@ def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # every question and offered four fragments that only make sense
         # together.
         if len(found) > 1:
-            # Lettered (i), (ii), (iii) rather than kept as 1., 2., 3.: the
-            # paper numbers the set itself, so printed numbers inside it made
-            # question "1." open with another "1.".
             lines = []
-            for position, (_, _number, question) in enumerate(found):
+            for _, number, question in found:
                 body = (question.get(key) or "").strip()
                 if body.startswith(block["text"]):
                     body = body[len(block["text"]):].strip()
-                lines.append(f"({_roman(position + 1)}) {body}" if body else "")
+                lines.append(f"{number}. {body}" if body else "")
             host_page, _, host = found[0]
             host[key] = block["text"] + "\n\n" + "\n".join(line for line in lines if line)
             if key == "questionText" and "rawExtractedText" in host:

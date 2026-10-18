@@ -595,9 +595,7 @@ class SharedPassageTests(unittest.TestCase):
         merged = questions[0]
         self.assertEqual(merged["marks"], 9)
         self.assertEqual(merged["questionText"].count("P" * 60), 1)
-        # Lettered (i), (ii), (iii): the paper numbers the set itself, so
-        # printed numbers inside it made question "1." open with "1." again.
-        for line in ("(i) First ?", "(ii) Second ?", "(iii) Third ?"):
+        for line in ("1. First ?", "2. Second ?", "3. Third ?"):
             self.assertIn(line, merged["questionText"])
 
     def test_joining_twice_does_not_repeat_the_passage(self):
@@ -693,58 +691,6 @@ class SharedPassageTests(unittest.TestCase):
         self.assertNotIn("THIS IS A", extract.build_page_prompt(None))
         # Case and spacing come from a form, not from code.
         self.assertIn("THIS IS A LANGUAGE PAPER", extract.build_page_prompt(" telugu "))
-
-    def test_a_restated_stimulus_instruction_is_not_a_question(self):
-        """"Study the diagram and answer..." comes back as the passage AND as
-        the first question of its own range, which added a part nobody can
-        answer and counted its marks twice. It is usually reworded, so an
-        exact match is not enough."""
-        intro = (
-            "Q.No. (9 - 12) : The Tree diagram given below provides "
-            "information about types of communication. Study the diagram "
-            "carefully and answer the following questions."
-        )
-        pages = extract.attach_passages(
-            [
-                {
-                    "pageNumber": 1,
-                    "status": "succeeded",
-                    "passages": [{"from": 9, "to": 12, "text": intro}],
-                    "questions": [
-                        {
-                            "printedNumber": 9,
-                            "questionText": "Study the tree diagram about types of communication and answer the following questions.",
-                            "marks": 8,
-                            "diagram": "tree diagram",
-                            "diagramCropRef": "crop-1.png",
-                        },
-                        {"printedNumber": 9, "questionText": "What is it about ?", "marks": 2},
-                        {"printedNumber": 10, "questionText": "Which is body positive ?", "marks": 2},
-                        {"printedNumber": 11, "questionText": "How many written types ?", "marks": 2},
-                        {"printedNumber": 12, "questionText": "Which two visual types ?", "marks": 2},
-                    ],
-                }
-            ]
-        )
-        merged = pages[0]["questions"][0]
-        self.assertEqual(len(pages[0]["questions"]), 1)
-        self.assertEqual(merged["marks"], 8)
-        self.assertNotIn("(v)", merged["questionText"])
-        # The figure is asked for on the dropped member, so it has to move.
-        self.assertEqual(merged["diagram"], "tree diagram")
-        self.assertEqual(merged["diagramCropRef"], "crop-1.png")
-
-    def test_a_real_question_is_never_mistaken_for_the_instruction(self):
-        passage = extract._normalized_for_match("Study the chart of rainfall by month and answer.")
-        for keep in (
-            "What does the chart show ?",
-            "Which month had the most rainfall ?",
-            "Mention some uses of Television.",
-        ):
-            self.assertFalse(
-                extract._restates_the_stimulus(extract._normalized_for_match(keep), passage),
-                keep,
-            )
 
     def test_prompt_tells_the_model_about_passages(self):
         self.assertIn("READING PASSAGES", extract.CLAUDE_PROMPT)

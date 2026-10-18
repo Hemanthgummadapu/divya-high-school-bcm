@@ -132,28 +132,19 @@ export function summarizeSelection(questions) {
   };
 }
 
-const SECTION_KIND_LABELS = Object.freeze({
-  MCQ: "MCQ",
-  Short: "Short Answer",
-  Medium: "Medium Answer",
-  Long: "Long Answer",
-});
-
 export function groupQuestionsIntoSections(questions) {
-  const present = SECTION_GROUP_ORDER.map((type) => ({
-    type,
-    questionIds: questions
+  return SECTION_GROUP_ORDER.flatMap((type) => {
+    const questionIds = questions
       .filter((question) => question.questionType === type)
-      .map((question) => question.id),
-  })).filter((group) => group.questionIds.length > 0);
-
-  // Lettered across the sections this paper actually has. The letter used to
-  // come from a fixed map of answer length to letter, so a paper with no
-  // MCQs opened at "Section B" and had no Section A at all.
-  return present.map((group, index) => ({
-    key: group.type,
-    title: `Section ${String.fromCharCode(65 + index)} — ${SECTION_KIND_LABELS[group.type]}`,
-    instructions: "",
-    questionIds: group.questionIds,
-  }));
+      .map((question) => question.id);
+    if (questionIds.length === 0) return [];
+    return [
+      {
+        key: type,
+        title: DEFAULT_SECTION_TITLES[type],
+        instructions: "",
+        questionIds,
+      },
+    ];
+  });
 }

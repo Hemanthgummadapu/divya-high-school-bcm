@@ -422,17 +422,6 @@ test("papers are laid out by a shaping engine so Telugu and Hindi are correct", 
   // Options stay two to a row, and a question stays with its options.
   assert.match(renderer, /grid-template-columns: 1fr 1fr/);
   assert.match(renderer, /break-inside: avoid/);
-  // A heading at the foot of a page with its questions overleaf reads as an
-  // empty section.
-  assert.match(renderer, /break-after: avoid/);
-  // The figure sits in the question's row: .q-head is a flex container and
-  // flex items do not flow around a float, so a floated figure was drawn
-  // over the question text and cut it off.
-  assert.doesNotMatch(renderer, /\.q-figure \{\{ float: right/);
-  // Underlined parts survive as a real underline; some questions are about
-  // "the parts that are underlined" and cannot be answered without them.
-  assert.match(renderer, /def mark_underlines/);
-  assert.match(renderer, /<u>/);
 });
 
 test("Telugu and Hindi are offerable and extractable", () => {

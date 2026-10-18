@@ -683,21 +683,11 @@ test("paper builder groups selected questions by type and omits empty sections",
   ]);
   assert.deepEqual(
     grouped.map((section) => [section.title, section.questionIds]),
-    // Lettered across the sections the paper actually has. The letter used
-    // to come from a fixed map of answer length to letter, so this paper
-    // jumped A, B, D, and a paper with no MCQs opened at "Section B".
     [
       ["Section A — MCQ", ["q-mcq-1", "q-mcq-2"]],
       ["Section B — Short Answer", ["q-short"]],
-      ["Section C — Long Answer", ["q-long"]],
+      ["Section D — Long Answer", ["q-long"]],
     ],
-  );
-  assert.deepEqual(
-    groupQuestionsIntoSections([
-      { id: "a", questionType: "Short" },
-      { id: "b", questionType: "Long" },
-    ]).map((section) => section.title),
-    ["Section A — Short Answer", "Section B — Long Answer"],
   );
   assert.equal(
     groupQuestionsIntoSections([{ id: "q-mcq", questionType: "MCQ" }]).length,
