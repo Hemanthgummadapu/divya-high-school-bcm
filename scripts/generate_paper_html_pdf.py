@@ -305,33 +305,6 @@ def render_question(question):
     return "".join(parts)
 
 
-# A comprehension question carries its passage so it can stand alone in the
-# bank. On a paper the same passage would then be printed once per question,
-# so a run of questions sharing one is printed under a single copy.
-MIN_SHARED_PASSAGE_CHARS = 120
-
-
-def split_shared_passage(question):
-    """Return (passage, remainder) for a question that carries one."""
-    text = str(question.get("text") or "")
-    head, separator, tail = text.partition("\n\n")
-    if not separator or len(head.strip()) < MIN_SHARED_PASSAGE_CHARS:
-        return None, text
-    return head.strip(), tail.strip()
-
-
-def group_by_shared_passage(questions):
-    """Consecutive questions carrying the same passage become one group."""
-    groups = []
-    for question in questions:
-        passage, remainder = split_shared_passage(question)
-        if groups and passage is not None and groups[-1][0] == passage:
-            groups[-1][1].append((question, remainder))
-        else:
-            groups.append((passage, [(question, remainder)]))
-    return groups
-
-
 def render_sections(sections):
     out = []
     for section in sections:
@@ -340,16 +313,8 @@ def render_sections(sections):
         out.append('<div class="section-title">%s</div>' % escape(title))
         if instructions:
             out.append('<div class="section-instructions">%s</div>' % escape(instructions))
-        for passage, members in group_by_shared_passage(section.get("questions") or []):
-            if passage is not None and len(members) > 1:
-                out.append('<div class="passage">%s</div>' % escape(passage))
-                for question, remainder in members:
-                    trimmed = dict(question)
-                    trimmed["text"] = remainder
-                    out.append(render_question(trimmed))
-            else:
-                for question, _ in members:
-                    out.append(render_question(question))
+        for question in section.get("questions") or []:
+            out.append(render_question(question))
     return "".join(out)
 
 

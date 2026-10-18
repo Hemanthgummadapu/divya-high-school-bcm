@@ -3,6 +3,8 @@ export const ALL_GRADES: readonly number[];
 export const ALL_YEARS: readonly number[];
 export const EXCLUDED_RELEASE_SUBJECTS: readonly string[];
 
+export const LANGUAGE_SUBJECTS: readonly string[];
+export function isLanguageSubject(subject: unknown): boolean;
 export function getSubjectsForGrade(grade: number): string[];
 export function listSupportedSubjects(): string[];
 export function isValidSubjectForGrade(subject: string, grade: number): boolean;

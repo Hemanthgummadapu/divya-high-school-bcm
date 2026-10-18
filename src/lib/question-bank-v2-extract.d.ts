@@ -38,6 +38,13 @@ export interface NormalizedQuestion {
   diagramDescription: string | null;
 }
 
+export interface ExtractedPagePassage {
+  from?: number;
+  to?: number;
+  continuation?: boolean;
+  text: string;
+}
+
 export interface PersistencePlan {
   ok: true;
   status: SourceStatus;

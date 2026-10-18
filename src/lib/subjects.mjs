@@ -27,6 +27,15 @@ export const ALL_YEARS = Object.freeze(
 // a subject back again.
 export const EXCLUDED_RELEASE_SUBJECTS = Object.freeze([]);
 
+// Subjects whose papers are prose. The question editor hides the maths
+// symbol panel for these: a language paper has no use for √ or ∠, and the
+// panel was only in the way while reviewing one.
+export const LANGUAGE_SUBJECTS = Object.freeze(["Telugu", "Hindi", "English"]);
+
+export function isLanguageSubject(subject) {
+  return LANGUAGE_SUBJECTS.includes(String(subject ?? ""));
+}
+
 export function getSubjectsForGrade(grade) {
   return SUBJECTS_BY_GRADE[grade] ? [...SUBJECTS_BY_GRADE[grade]] : [];
 }

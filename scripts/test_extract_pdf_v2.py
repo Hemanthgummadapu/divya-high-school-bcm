@@ -561,13 +561,42 @@ class SharedPassageTests(unittest.TestCase):
         self.assertIn("I saw it now.", first)
         self.assertIn("I laughed gently.", first)
         self.assertIn("(Jamaican Fragment)", first)
-        self.assertTrue(first.endswith("Why does he smile ?"))
+        self.assertTrue(first.rstrip().endswith("Why does he smile ?"))
 
     def test_each_question_takes_its_own_passage(self):
         pages = extract.attach_passages(self._english_paper_pages())
-        fifth = pages[2]["questions"][1]["questionText"]
+        texts = [q["questionText"] for p in pages for q in (p.get("questions") or [])]
+        fifth = [t for t in texts if "Murthy" in t][0]
         self.assertIn("He came from a poor family.", fifth)
         self.assertNotIn("I saw it now.", fifth)
+
+    def test_a_passage_and_its_questions_become_one_entry(self):
+        """The paper prints them as one thing, so the bank holds one thing.
+
+        Keeping them apart stored the whole passage again against every
+        question and left four fragments that only make sense together.
+        """
+        pages = extract.attach_passages(
+            [
+                {
+                    "pageNumber": 1,
+                    "status": "succeeded",
+                    "passages": [{"from": 1, "to": 3, "text": "P" * 60}],
+                    "questions": [
+                        {"printedNumber": 1, "questionText": "First ?", "marks": 3},
+                        {"printedNumber": 2, "questionText": "Second ?", "marks": 3},
+                        {"printedNumber": 3, "questionText": "Third ?", "marks": 3},
+                    ],
+                }
+            ]
+        )
+        questions = pages[0]["questions"]
+        self.assertEqual(len(questions), 1)
+        merged = questions[0]
+        self.assertEqual(merged["marks"], 9)
+        self.assertEqual(merged["questionText"].count("P" * 60), 1)
+        for line in ("1. First ?", "2. Second ?", "3. Third ?"):
+            self.assertIn(line, merged["questionText"])
 
     def test_joining_twice_does_not_repeat_the_passage(self):
         once = extract.attach_passages(self._english_paper_pages())
@@ -649,36 +678,6 @@ class SharedPassageTests(unittest.TestCase):
         self.assertIn("READING PASSAGES", extract.CLAUDE_PROMPT)
         self.assertIn('"passages"', extract.CLAUDE_PROMPT)
         self.assertIn("continuation", extract.CLAUDE_PROMPT)
-
-
-class SharedPassageRenderingTests(unittest.TestCase):
-    """On the paper the passage is printed once, not once per question."""
-
-    def setUp(self):
-        import importlib
-
-        self.renderer = importlib.import_module("generate_paper_html_pdf")
-
-    def test_a_run_of_questions_shares_one_printed_passage(self):
-        passage = "P" * 200
-        questions = [
-            {"number": "1", "text": passage + "\n\nFirst ?"},
-            {"number": "2", "text": passage + "\n\nSecond ?"},
-            {"number": "3", "text": "Standalone ?"},
-        ]
-        groups = self.renderer.group_by_shared_passage(questions)
-        self.assertEqual(len(groups), 2)
-        self.assertEqual(groups[0][0], passage)
-        self.assertEqual(len(groups[0][1]), 2)
-        self.assertEqual([remainder for _, remainder in groups[0][1]],
-                         ["First ?", "Second ?"])
-        self.assertIsNone(groups[1][0])
-
-    def test_a_short_lead_line_is_not_mistaken_for_a_passage(self):
-        passage, remainder = self.renderer.split_shared_passage(
-            {"text": "Short lead\n\nThe question ?"}
-        )
-        self.assertIsNone(passage)
 
 
 if __name__ == "__main__":

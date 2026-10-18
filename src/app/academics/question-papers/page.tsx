@@ -20,6 +20,7 @@ import {
   ALL_GRADES,
   ALL_YEARS,
   getSubjectsForGrade,
+  isLanguageSubject,
   listSupportedSubjects,
 } from "@/lib/subjects";
 import { uploadResultMessage } from "@/lib/question-bank-v2-review-ui.mjs";
@@ -1796,6 +1797,7 @@ export default function QuestionPapers() {
                 <div className="min-w-0">
                   <QuestionEditor
                     idPrefix="review"
+                    subject={currentReview?.subject}
                     draft={reviewDraft}
                     onChange={setReviewDraft}
                     disabled={mutating}
@@ -3571,6 +3573,7 @@ export default function QuestionPapers() {
           </div>
           <QuestionEditor
             idPrefix="add"
+            subject={addMeta.subject}
             draft={addDraft}
             onChange={setAddDraft}
             disabled={mutating}
@@ -3618,6 +3621,7 @@ export default function QuestionPapers() {
         >
           <QuestionEditor
             idPrefix="edit"
+            subject={editQuestion?.subject}
             draft={editDraft}
             onChange={setEditDraft}
             disabled={mutating}
@@ -3698,6 +3702,7 @@ export default function QuestionPapers() {
 
 function QuestionEditor({
   idPrefix,
+  subject,
   draft,
   onChange,
   disabled,
@@ -3706,6 +3711,7 @@ function QuestionEditor({
   onCloseMath,
 }: {
   idPrefix: string;
+  subject?: string;
   draft: QuestionDraft;
   onChange: (draft: QuestionDraft) => void;
   disabled: boolean;
@@ -3767,15 +3773,17 @@ function QuestionEditor({
           <label htmlFor={`${idPrefix}-text`} className={labelClass}>
             Question text
           </label>
-          <button
-            type="button"
-            className="mb-1.5 text-sm font-medium text-[#1e3a8a] underline underline-offset-2"
-            onClick={onMath}
-            aria-expanded={mathOpen}
-            aria-controls={`${idPrefix}-math-keyboard`}
-          >
-            Math symbols
-          </button>
+          {!isLanguageSubject(subject) && (
+            <button
+              type="button"
+              className="mb-1.5 text-sm font-medium text-[#1e3a8a] underline underline-offset-2"
+              onClick={onMath}
+              aria-expanded={mathOpen}
+              aria-controls={`${idPrefix}-math-keyboard`}
+            >
+              Math symbols
+            </button>
+          )}
         </div>
         <textarea
           id={`${idPrefix}-text`}
@@ -3787,7 +3795,7 @@ function QuestionEditor({
           rows={6}
           className={`${inputClass} break-words`}
         />
-        {mathOpen ? (
+        {mathOpen && !isLanguageSubject(subject) ? (
           <div id={`${idPrefix}-math-keyboard`} className="mt-2">
             <MathKeyboard
               visible

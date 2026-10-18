@@ -346,6 +346,18 @@ export function normalizeSucceededPage(page) {
     };
   }
   if (!Array.isArray(page.questions) || page.questions.length === 0) {
+    // A page of nothing but a reading passage prints no questions of its
+    // own, and that is a normal page in a language paper, not a failure. It
+    // still did its job: the passage it carried was joined to the questions
+    // printed later. Reporting it as unextracted sent the reviewer looking
+    // for questions that were never on it.
+    if (Array.isArray(page.passages) && page.passages.length > 0) {
+      return {
+        pageNumber: page.pageNumber,
+        status: "succeeded",
+        questions: [],
+      };
+    }
     return {
       pageNumber: page.pageNumber,
       status: "failed",

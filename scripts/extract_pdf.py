@@ -309,6 +309,10 @@ def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     if not ranges:
         return pages
+
+    # Collect the questions each passage governs, in printed order, wherever
+    # on the paper they were found.
+    members = {id(block): [] for block in ranges}
     for page in pages:
         for question in page.get("questions") or []:
             if not isinstance(question, dict):
@@ -318,16 +322,56 @@ def attach_passages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 continue
             for block in ranges:
                 if block["from"] <= number <= block["to"]:
-                    key = _question_text_key(question)
-                    text = question.get(key) or ""
-                    # Each bank question has to stand on its own, because
-                    # questions are picked one at a time. The paper renderer
-                    # prints a repeated passage once per run of questions.
-                    if not text.startswith(block["text"]):
-                        question[key] = block["text"] + "\n\n" + text
-                        if key == "questionText" and "rawExtractedText" in question:
-                            question["rawExtractedText"] = question[key]
+                    members[id(block)].append((page, number, question))
                     break
+
+    for block in ranges:
+        found = sorted(members[id(block)], key=lambda item: item[1])
+        if not found:
+            continue
+        key = _question_text_key(found[0][2])
+
+        # One passage and its questions are a single thing on the paper —
+        # "Q.No. (1 - 4) ... 4 x 3 = 12" — and belong in the bank as one
+        # entry. Keeping them apart stored the whole passage again against
+        # every question and offered four fragments that only make sense
+        # together.
+        if len(found) > 1:
+            lines = []
+            for _, number, question in found:
+                body = (question.get(key) or "").strip()
+                if body.startswith(block["text"]):
+                    body = body[len(block["text"]):].strip()
+                lines.append(f"{number}. {body}" if body else "")
+            host_page, _, host = found[0]
+            host[key] = block["text"] + "\n\n" + "\n".join(line for line in lines if line)
+            if key == "questionText" and "rawExtractedText" in host:
+                host["rawExtractedText"] = host[key]
+            host["marks"] = sum(
+                int(question.get("marks") or 0) for _, _, question in found
+            ) or host.get("marks")
+            # The set is answered as a whole, so it is the longest kind of
+            # answer any of its parts asked for.
+            for _, _, question in found:
+                if question.get("questionType") == "Long" or question.get("type") == "Long":
+                    host["questionType"] = "Long"
+                    break
+            else:
+                host["questionType"] = host.get("questionType") or "Medium"
+            drop = {id(question) for _, _, question in found[1:]}
+            for page in pages:
+                existing = page.get("questions") or []
+                if existing:
+                    page["questions"] = [q for q in existing if id(q) not in drop]
+            continue
+
+        # A single question keeps its passage inline so it still stands alone.
+        _, _, only = found[0]
+        text = only.get(key) or ""
+        if not text.startswith(block["text"]):
+            only[key] = block["text"] + "\n\n" + text
+            if key == "questionText" and "rawExtractedText" in only:
+                only["rawExtractedText"] = only[key]
     return pages
 
 
