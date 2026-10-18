@@ -327,11 +327,29 @@ const securityPolicy = await readFile(
   join(repositoryRoot, "src/lib/question-paper-security-policy.mjs"),
   "utf8",
 );
+// The portal's users are named in code, and the school's own address must
+// stay among them. The environment is checked as well as this list, never
+// instead of it, so editing a hosting variable cannot widen access.
 assert.match(
   securityPolicy,
-  /QUESTION_PAPER_AUTHORIZED_EMAIL = "info@divyahighschool\.co\.in"/,
+  /QUESTION_PAPER_AUTHORIZED_EMAILS = Object\.freeze\(\[/,
 );
-assert.match(securityPolicy, /normalizedEmail !== QUESTION_PAPER_AUTHORIZED_EMAIL/);
+assert.match(securityPolicy, /"info@divyahighschool\.co\.in"/);
+// Exactly two addresses are authorized. The count is asserted so that adding
+// a third is a visible change here as well as in the policy file.
+const authorizedBlock = securityPolicy.match(
+  /QUESTION_PAPER_AUTHORIZED_EMAILS = Object\.freeze\(\[([\s\S]*?)\]\)/,
+);
+assert.ok(authorizedBlock, "authorized-email list not found");
+assert.equal(
+  (authorizedBlock[1].match(/"/g) || []).length / 2,
+  2,
+  "question-paper access must stay limited to the two named accounts",
+);
+assert.match(
+  securityPolicy,
+  /!QUESTION_PAPER_AUTHORIZED_EMAILS\.includes\(normalizedEmail\) \|\|\s*!allowedEmails\.emails\.has\(normalizedEmail\)/,
+);
 
 const retiredGenerateRoutes = [
   "src/app/api/questions/generate/route.ts",

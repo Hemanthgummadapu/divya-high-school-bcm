@@ -11,7 +11,7 @@ import {
   isSafeQuestionPaperResourceId,
   normalizeEmail,
   parseAllowedEmails,
-  QUESTION_PAPER_AUTHORIZED_EMAIL,
+  QUESTION_PAPER_AUTHORIZED_EMAILS,
 } from "../src/lib/question-paper-security-policy.mjs";
 import {
   DEFAULT_MAX_PDF_PAGES,
@@ -67,35 +67,80 @@ test("allowlisted verified identities are authorized after normalization", () =>
     sessionPresent: true,
     email: " Info@DivyaHighSchool.co.in ",
     emailVerified: true,
-    allowedEmailsValue: QUESTION_PAPER_AUTHORIZED_EMAIL,
+    allowedEmailsValue: QUESTION_PAPER_AUTHORIZED_EMAILS.join(","),
   });
   assert.equal(result.allowed, true);
   assert.equal(result.status, 200);
   assert.equal(
     evaluateQuestionPaperIdentity({
       sessionPresent: true,
-      email: QUESTION_PAPER_AUTHORIZED_EMAIL,
+      email: QUESTION_PAPER_AUTHORIZED_EMAILS[0],
       emailVerified: true,
-      allowedEmailsValue: `${QUESTION_PAPER_AUTHORIZED_EMAIL},${QUESTION_PAPER_AUTHORIZED_EMAIL}`,
+      allowedEmailsValue: `${QUESTION_PAPER_AUTHORIZED_EMAILS[0]},${QUESTION_PAPER_AUTHORIZED_EMAILS[0]}`,
     }).allowed,
     true,
   );
 });
 
+test("a named account needs the environment allowlist as well as the code list", () => {
+  const named = "saihemanth.gummadapu@gmail.com";
+  assert.ok(QUESTION_PAPER_AUTHORIZED_EMAILS.includes(named));
+  // Named in code and present in the environment: in.
+  assert.equal(
+    evaluateQuestionPaperIdentity({
+      sessionPresent: true,
+      email: " SaiHemanth.Gummadapu@Gmail.com ",
+      emailVerified: true,
+      allowedEmailsValue: QUESTION_PAPER_AUTHORIZED_EMAILS.join(","),
+    }).allowed,
+    true,
+  );
+  // Named in code but missing from the environment: still out, so an account
+  // cannot be revived by code alone.
+  assert.equal(
+    evaluateQuestionPaperIdentity({
+      sessionPresent: true,
+      email: named,
+      emailVerified: true,
+      allowedEmailsValue: "info@divyahighschool.co.in",
+    }).allowed,
+    false,
+  );
+  // In the environment but not named in code: out, which is what stops a
+  // hosting-variable edit from granting access to student papers.
+  assert.equal(
+    evaluateQuestionPaperIdentity({
+      sessionPresent: true,
+      email: "attacker@example.com",
+      emailVerified: true,
+      allowedEmailsValue: "attacker@example.com",
+    }).allowed,
+    false,
+  );
+});
+
 test("other emails cannot use question papers even if listed in the env allowlist", () => {
-  assert.equal(QUESTION_PAPER_AUTHORIZED_EMAIL, "info@divyahighschool.co.in");
+  // The school's own address stays authorized, and the list is short and
+  // named: the env allowlist is the second gate, never the only one, so an
+  // address nobody put in code cannot be let in by editing the environment.
+  // Exactly two accounts, named. Anyone adding a third has to change this
+  // line too, so widening access cannot pass as an incidental edit.
+  assert.deepEqual(QUESTION_PAPER_AUTHORIZED_EMAILS, [
+    "info@divyahighschool.co.in",
+    "saihemanth.gummadapu@gmail.com",
+  ]);
   for (const email of [
     "teacher@example.com",
-    "saihemanth.gummadapu@gmail.com",
     "teacher1@gmail.com",
     "student1@gmail.com",
+    "info@divyahighschool.co.in.attacker.example",
   ]) {
     assert.equal(
       evaluateQuestionPaperIdentity({
         sessionPresent: true,
         email,
         emailVerified: true,
-        allowedEmailsValue: `${email},${QUESTION_PAPER_AUTHORIZED_EMAIL}`,
+        allowedEmailsValue: `${email},${QUESTION_PAPER_AUTHORIZED_EMAILS[0]}`,
       }).allowed,
       false,
     );

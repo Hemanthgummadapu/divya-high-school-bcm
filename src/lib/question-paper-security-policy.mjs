@@ -29,7 +29,15 @@ function isValidAllowlistEmail(email) {
   );
 }
 
-export const QUESTION_PAPER_AUTHORIZED_EMAIL = "info@divyahighschool.co.in";
+// Who may use the question-paper portal. Named here in code, deliberately,
+// and checked together with QUESTION_PAPER_ALLOWED_EMAILS rather than instead
+// of it: an address has to appear in BOTH. That way someone who can edit the
+// hosting environment still cannot grant themselves access to student papers,
+// and adding a person is a reviewed change rather than a dashboard edit.
+export const QUESTION_PAPER_AUTHORIZED_EMAILS = Object.freeze([
+  "info@divyahighschool.co.in",
+  "saihemanth.gummadapu@gmail.com",
+]);
 
 export function normalizeEmail(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -95,7 +103,7 @@ export function evaluateQuestionPaperIdentity({
   }
 
   if (
-    normalizedEmail !== QUESTION_PAPER_AUTHORIZED_EMAIL ||
+    !QUESTION_PAPER_AUTHORIZED_EMAILS.includes(normalizedEmail) ||
     !allowedEmails.emails.has(normalizedEmail)
   ) {
     return { allowed: false, status: 403, reason: "account_not_allowed" };
