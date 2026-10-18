@@ -186,6 +186,84 @@ OUTPUT — JSON only
 Include "passages" only when this page prints a shared stimulus. Include "options" only for MCQ questions. Include "diagram" and "diagramBox" only when a required printed figure exists. Do not include a "section" field. Return ONLY valid JSON, nothing else."""
 
 
+# What a paper in this subject is shaped like. The subject is chosen on the
+# upload form, so the page can be read knowing what to expect instead of
+# guessing: a language paper is mostly prose and shared passages, a maths
+# paper is symbols and figures and has no passages at all. Telling the model
+# what NOT to expect matters as much as what to expect — it is what stops a
+# heading being read as a question, or a passage being invented.
+
+_LANGUAGE_GUIDANCE = """
+THIS IS A LANGUAGE PAPER (prose, not mathematics)
+- Expect reading passages shared by a numbered range of questions. Capture
+  them in "passages" as described above. This is the most important thing on
+  this paper: without the passage its questions mean nothing.
+- A shared stimulus is not always prose. A table, a tree diagram, a picture
+  or a set of notes can serve the same purpose, introduced the same way
+  ("The tree diagram given below ... "). Capture the introduction and
+  anything reproducible as text in "passages", with the range it governs.
+- Writing tasks (letter, essay, diary entry, poster, interview, biographical
+  sketch) are ONE question each. Keep the whole task together, including any
+  "Hints :" line and any details printed under it.
+- When two tasks are printed as alternatives for the same question number,
+  separated by "(OR)", they are still ONE question. Return one question
+  containing both, with "(OR)" between them. Never return the same number
+  twice.
+- Grammar exercises printed as sub-items (i), (ii), (iii) under one number
+  are ONE question. Keep the sub-items in the question text.
+- Do not expect mathematical symbols, equations or geometry figures on this
+  paper, and never add them.
+"""
+
+_MATHEMATICS_GUIDANCE = """
+THIS IS A MATHEMATICS PAPER
+- Expect symbols and expressions throughout, and copy them exactly: △ ∠ ∥ ⊥
+  ≤ ≥ ≠ ± × ÷ √ π θ °, powers like x², subscripts like a₁, and fractions.
+- Expect geometry figures, graphs and number lines. A question that cannot
+  be answered without its figure needs "diagram" and "diagramBox".
+- There are NO reading passages on this paper. Never return "passages".
+- Questions are usually grouped by marks rather than by topic. Use the
+  printed marks for each question.
+"""
+
+_SCIENCE_GUIDANCE = """
+THIS IS A SCIENCE PAPER
+- Expect chemical equations with arrows (→), formulas with subscripts like
+  H₂O and CaCO₃, and units. Copy them exactly as printed.
+- Expect figures: ray diagrams, circuits, apparatus, labelled biology
+  diagrams. A question that cannot be answered without its figure needs
+  "diagram" and "diagramBox".
+- Expect data tables; reproduce them as markdown as described above.
+- There are NO reading passages on this paper. Never return "passages".
+"""
+
+_SOCIAL_GUIDANCE = """
+THIS IS A SOCIAL STUDIES PAPER
+- Expect data tables, extracts and map-based questions. A table or extract
+  may be shared by a numbered range of questions: capture it in "passages"
+  with the range it governs.
+- Expect map work. A question that depends on a printed map needs "diagram"
+  and "diagramBox".
+"""
+
+SUBJECT_GUIDANCE = {
+    "telugu": _LANGUAGE_GUIDANCE,
+    "hindi": _LANGUAGE_GUIDANCE,
+    "english": _LANGUAGE_GUIDANCE,
+    "mathematics": _MATHEMATICS_GUIDANCE,
+    "physics": _SCIENCE_GUIDANCE,
+    "biology": _SCIENCE_GUIDANCE,
+    "science": _SCIENCE_GUIDANCE,
+    "social studies": _SOCIAL_GUIDANCE,
+}
+
+
+def build_page_prompt(subject: Optional[str]) -> str:
+    """The shared rules, plus what this subject's papers actually look like."""
+    guidance = SUBJECT_GUIDANCE.get(str(subject or "").strip().lower())
+    return CLAUDE_PROMPT if not guidance else CLAUDE_PROMPT + "\n" + guidance
+
+
 def classify_provider_error(error: Exception) -> str:
     message = str(error).lower()
     if "timeout" in message or "timed out" in message:
@@ -583,7 +661,12 @@ def apply_extract_mock(mock: str, page_num: int) -> Dict[str, Any]:
     return {"ok": False, "error_category": "internal"}
 
 
-def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> Dict[str, Any]:
+def extract_with_claude(
+    client: Anthropic,
+    image_base64: str,
+    page_num: int,
+    subject: Optional[str] = None,
+) -> Dict[str, Any]:
     """Extract questions from a page image using Claude API, with basic retry on overload."""
     mock = (os.getenv("QUESTION_PAPER_EXTRACT_MOCK") or "").strip()
     if mock:
@@ -614,7 +697,7 @@ def extract_with_claude(client: Anthropic, image_base64: str, page_num: int) -> 
                         },
                         {
                             "type": "text",
-                            "text": CLAUDE_PROMPT,
+                            "text": build_page_prompt(subject),
                         },
                     ],
                 }
@@ -741,7 +824,9 @@ def process_one_page(
         image_base64 = image_to_base64(image)
     except Exception:
         return failed_page(page_num, "internal")
-    result = extract_with_claude(client, image_base64, page_num)
+    result = extract_with_claude(
+        client, image_base64, page_num, getattr(extractor, "subject", None)
+    )
     if not result.get("ok"):
         page = failed_page(page_num, result.get("error_category") or "provider")
         save_cached_result(work_dir, page_hash, page)

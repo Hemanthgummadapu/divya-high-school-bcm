@@ -674,6 +674,24 @@ class SharedPassageTests(unittest.TestCase):
         self.assertEqual(normalized[0]["printedNumber"], 7)
         self.assertEqual(normalized[0]["sourceOrder"], 1)
 
+    def test_the_prompt_knows_what_each_subject_looks_like(self):
+        """The subject is chosen on the upload form, so the page can be read
+        knowing what to expect rather than guessing."""
+        english = extract.build_page_prompt("English")
+        maths = extract.build_page_prompt("Mathematics")
+        science = extract.build_page_prompt("Physics")
+        self.assertIn("THIS IS A LANGUAGE PAPER", english)
+        self.assertIn("(OR)", english)
+        self.assertIn("THIS IS A MATHEMATICS PAPER", maths)
+        self.assertIn("THIS IS A SCIENCE PAPER", science)
+        # Telling it what NOT to expect is what stops an invented passage.
+        for prompt in (maths, science):
+            self.assertIn('Never return "passages"', prompt)
+        self.assertNotIn("THIS IS A", extract.build_page_prompt("Astrology"))
+        self.assertNotIn("THIS IS A", extract.build_page_prompt(None))
+        # Case and spacing come from a form, not from code.
+        self.assertIn("THIS IS A LANGUAGE PAPER", extract.build_page_prompt(" telugu "))
+
     def test_prompt_tells_the_model_about_passages(self):
         self.assertIn("READING PASSAGES", extract.CLAUDE_PROMPT)
         self.assertIn('"passages"', extract.CLAUDE_PROMPT)
