@@ -56,11 +56,21 @@ export type CreatedStorageObject = {
 /**
  * The source currently holding this file, if any.
  *
- * A removed source is archived rather than deleted, so its row still carries
- * the checksum. It is excluded here: a file whose source was removed is no
- * longer in use, and matching it told the reviewer "This PDF was already
- * uploaded" about a source that is not in the list any more and cannot be
- * reached. A source still in use is matched exactly as before.
+ * Two kinds of row keep the checksum without holding the file:
+ *
+ * A removed source is archived rather than deleted, so matching it told the
+ * reviewer "This PDF was already uploaded" about a source that is no longer
+ * in the list and cannot be opened.
+ *
+ * A failed upload that saved nothing is the same trap and worse, because it
+ * is exactly the case you need to retry. When the extraction key expired,
+ * two papers failed with zero questions and then could not be uploaded
+ * again: the attempt that saved nothing had claimed the file. Retrying
+ * extraction on the existing source still works and is quicker, but it must
+ * not be the only way back.
+ *
+ * A source that saved even one question still holds the file, so a genuine
+ * duplicate of real work is matched exactly as before.
  */
 export async function findSourceByChecksum(contentSha256: string) {
   const { data, error } = await getSupabase()
@@ -68,6 +78,8 @@ export async function findSourceByChecksum(contentSha256: string) {
     .select("id, extraction_status, extracted_question_count, page_count")
     .eq("content_sha256", contentSha256)
     .neq("extraction_status", "archived")
+    // NOT (failed AND nothing saved), written the way PostgREST takes it.
+    .or("extraction_status.neq.failed,extracted_question_count.gt.0")
     .maybeSingle();
   if (error) throw new Error("source_lookup_failed");
   return data;

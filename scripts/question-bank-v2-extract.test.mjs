@@ -204,6 +204,13 @@ test("duplicate hash returns existing source and skips storage", () => {
     persistSource.indexOf("export async function uploadSourcePdf"),
   );
   assert.match(lookup, /\.neq\("extraction_status", "archived"\)/);
+  // A failed upload that saved nothing must not hold the file either: that
+  // is the case you most need to retry, and when the extraction key expired
+  // two papers failed with zero questions and could not be uploaded again.
+  assert.match(
+    lookup,
+    /\.or\("extraction_status\.neq\.failed,extracted_question_count\.gt\.0"\)/,
+  );
   assert.match(post, /duplicate:\s*true/);
   assert.match(post, /status:\s*409/);
   assert.ok(isUniqueViolation({ code: "23505" }));

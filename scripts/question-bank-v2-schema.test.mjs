@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,4 +189,23 @@ test("setup documentation describes the unapplied Phase 2B foundation", () => {
   assert.match(setup, /saved_question_papers/);
   assert.match(setup, /saved_question_paper_items/);
   assert.match(setup, /Do not apply it again|Do not apply further schema changes automatically/);
+});
+
+test("a removed or failed-empty source does not hold the file's checksum", () => {
+  const dir = join(root, "supabase/migrations");
+  const sql = readdirSync(dir)
+    .sort()
+    .map((f) => readFileSync(join(dir, f), "utf8"))
+    .join("\n");
+  // The last definition of the index wins; it must be the partial one.
+  const defs = sql.match(
+    /CREATE UNIQUE INDEX question_sources_content_sha256_key[\s\S]*?;/g,
+  );
+  assert.ok(defs && defs.length >= 2, "expected the index to be redefined");
+  const current = defs[defs.length - 1];
+  assert.match(current, /WHERE extraction_status <> 'archived'/);
+  assert.match(
+    current,
+    /NOT \(extraction_status = 'failed' AND extracted_question_count = 0\)/,
+  );
 });
